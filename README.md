@@ -10,7 +10,9 @@ recognition, exported as a TextGrid. Design and milestones are in [PLAN.md](PLAN
 and a Rust port of `serve.py`'s recognition broker. Providers come from `providers.json` in the
 app's config directory (same format as lana-web's; `LANA_PROVIDERS` overrides the path). A
 provider with `"keychain": true` takes its API key from the OS keychain (service `lana`,
-account = provider id). The Settings screen for entering keys is next.
+account = provider id). Recognisers and keys are managed from ⚙ Connection → *Recognisers in
+this app*. Where there is no keychain (Linux without a Secret Service, e.g. WSL) a key can be
+saved in the settings file instead, after the user explicitly agrees.
 
 `scripts/parity-test.py` sends the same requests to `web/serve.py` and the Rust broker through a
 mock recogniser and fails on any difference that is not listed as deliberate.

@@ -8,10 +8,8 @@ use axum::{
     http::{header, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::get,
-    Json, Router,
+    Router,
 };
-use serde_json::json;
 use tower_http::services::{ServeDir, ServeFile};
 
 pub struct Roots {
@@ -52,9 +50,7 @@ pub async fn start_on(roots: Roots, port: u16) -> std::io::Result<u16> {
 
     let app = Router::new()
         .merge(crate::broker::router(roots.providers.clone()))
-        .route("/api/capabilities", get(|| async {
-            Json(json!({ "desktop": true, "version": env!("CARGO_PKG_VERSION") }))
-        }))
+        .merge(crate::settings::router(roots.providers.clone()))
         .route_service("/", ServeFile::new(&index))
         .route_service("/index.html", ServeFile::new(&index))
         .nest_service("/vendor", ServeDir::new(&roots.vendor))

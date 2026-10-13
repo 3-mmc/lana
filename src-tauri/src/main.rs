@@ -9,6 +9,7 @@
 
 mod broker;
 mod server;
+mod settings;
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
