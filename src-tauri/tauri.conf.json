@@ -5,17 +5,47 @@
   "identifier": "io.github.threemmc.lana",
   "app": {
     "windows": [],
-    "security": { "csp": null }
+    "security": {
+      "csp": null
+    }
   },
   "bundle": {
     "active": true,
     "targets": "all",
     "category": "Education",
     "license": "GPL-3.0-or-later",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "resources": {
       "../web/index.html": "web/index.html",
       "../vendor/": "vendor/"
+    },
+    "publisher": "3-mmc",
+    "copyright": "GPL-3.0-or-later. Built on Praat by Paul Boersma and David Weenink.",
+    "shortDescription": "Phonetic analysis with speech-recognised tiers",
+    "longDescription": "Lana (Linguistic ANAlysis) shows Praat's acoustic analysis of a recording and fills word, phone and speaker tiers by speech recognition, then exports a TextGrid. Built on Praat; not affiliated with the Praat project.",
+    "homepage": "https://github.com/3-mmc/lana-desktop",
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "11.0"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "linux": {
+      "deb": {
+        "section": "science"
+      },
+      "appimage": {
+        "bundleMediaFramework": true
+      }
     }
   }
 }
