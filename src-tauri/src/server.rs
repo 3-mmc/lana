@@ -25,12 +25,18 @@ pub struct Roots {
 impl Roots {
     /// Bundled resources in a release build; the source tree under `cargo run`.
     pub fn locate(resource_dir: Option<PathBuf>, providers: PathBuf) -> Result<Self, String> {
-        let mut candidates = Vec::new();
-        if let Some(r) = resource_dir {
-            candidates.push(Roots { web: r.join("web"), vendor: r.join("vendor"), providers: providers.clone(), launch: None });
-        }
         let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-        candidates.push(Roots { web: src.join("web"), vendor: src.join("vendor"), providers, launch: None });
+        let source = Roots { web: src.join("web"), vendor: src.join("vendor"), providers: providers.clone(), launch: None };
+        let bundled = resource_dir
+            .map(|r| Roots { web: r.join("web"), vendor: r.join("vendor"), providers, launch: None });
+        // A development build reads the source tree, which is what is being
+        // edited. Tauri also copies the resources next to the binary at build
+        // time, and preferring that copy served a page from the last build.
+        let candidates: Vec<Roots> = if cfg!(debug_assertions) {
+            std::iter::once(source).chain(bundled).collect()
+        } else {
+            bundled.into_iter().chain(std::iter::once(source)).collect()
+        };
 
         candidates
             .into_iter()
