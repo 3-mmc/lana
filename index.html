@@ -208,6 +208,12 @@
   .mgrow .who span{display:block;color:var(--dim2);font-size:11px;font-family:var(--mono);
        overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .mgempty{padding:8px 10px;color:var(--dim);font-size:12px}
+  .mghead{padding:7px 10px 3px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+  .mghead span{text-transform:none;letter-spacing:0;color:var(--dim2)}
+  .mgrow .who em{display:block;font-style:normal;color:var(--dim);font-size:11px;white-space:normal}
+  .lcbar{width:120px;height:4px;background:var(--sunken);border-radius:2px;overflow:hidden}
+  .lcbar i{display:block;height:100%;background:var(--accent);transition:width .4s linear}
+  .lcerr{color:var(--err);font-size:11px;max-width:260px}
   .mgadd{border-bottom:0}
   #mgForm{border-top:1px solid var(--line2);background:var(--panel)}
   #mgModels{display:flex;flex-direction:column;gap:3px;max-height:190px;overflow:auto}
@@ -268,6 +274,9 @@
        browser build never sees it, because serve.py has no such route. -->
   <fieldset id="fsManage" hidden>
     <legend>Recognisers in this app</legend>
+    <div class="mghead">Built into Lana <span>— runs on this computer, works offline, nothing is uploaded</span></div>
+    <div id="lcList"></div>
+    <div class="mghead">Other recognisers <span>— cloud services, or a speech server you run</span></div>
     <div id="mgList"></div>
     <div class="row tight mgadd">
       <label for="mgPreset">Add</label>
@@ -462,7 +471,7 @@
       </div>
       <div class="meta" id="mtSpeaker">who is talking, by voice</div>
     </div>
-    <div class="row tight">
+    <div class="row tight" id="sizeRow">
       <label>whisper size</label>
       <select id="asrsize" class="num">
         <option value="">default</option>
@@ -1713,7 +1722,7 @@ function renderConnection() {
   const chip = $('connchip');
   if (NET.mode === 'broker' && NET.provider) {
     chip.className = 'chip ' + (NET.provider.ready ? 'live' : 'none');
-    chip.innerHTML = `<b>${esc(NET.provider.label)}</b> · ${NET.models.length} models`
+    chip.innerHTML = `<b>${esc(NET.provider.label)}</b> · ${NET.models.length} model${NET.models.length === 1 ? '' : 's'}`
       + (NET.provider.ready ? '' : ' · no key');
   } else if (NET.mode === 'broker') {
     chip.className = 'chip none';
@@ -1721,7 +1730,7 @@ function renderConnection() {
   } else {
     chip.className = 'chip ' + (NET.models.length ? 'live' : 'none');
     chip.innerHTML = `<b>direct</b> · ${esc(CFG.asrBase || 'same origin')}`
-      + (NET.models.length ? ` · ${NET.models.length} models` : '');
+      + (NET.models.length ? ` · ${NET.models.length} model${NET.models.length === 1 ? '' : 's'}` : '');
   }
   $('modeBroker').checked = NET.mode === 'broker';
   $('modeDirect').checked = NET.mode === 'direct';
@@ -1755,6 +1764,9 @@ function fillModelSelects() {
 /* ------------------------------------------------------------- the plan */
 function renderPlan() {
   const shown = shownTiers();
+  // Only Lana's own llama-swap services take a whisper size; anything else
+  // (the built-in models, cloud APIs) names its size in the model itself.
+  $('sizeRow').hidden = !TKEYS.some(k => sizeApplies(S.tracks[k].model));
   for (const T of TIERS) {
     if (T.row) $(T.row).hidden = !shown.includes(T);
     const key = T.key, t = S.tracks[key], el = $(T.st);
@@ -2564,7 +2576,38 @@ const DESK = {
     } catch (e) { status(`could not open ${name}: ${e.message}`, true); }
   },
 
+  /* Models Lana runs itself. Downloads happen in the app, not the page, so a
+     closed settings panel or a reload does not stop one; the list is polled
+     while any is in flight. */
+  async loadLocal() {
+    let j;
+    try {
+      const r = await fetch(apiUrl('/local/models'), { cache: 'no-store' });
+      if (!r.ok) return;
+      j = await r.json();
+    } catch { return; }
+    const mb = n => n >= 1000 ? (n / 1000).toFixed(1) + ' GB' : n + ' MB';
+    $('lcList').innerHTML = j.models.map(m => {
+      const d = m.downloading;
+      const pct = d && d.total ? Math.floor(d.done / d.total * 100) : 0;
+      const right = m.installed
+        ? `<span class="chip live">ready</span><button class="tiny" data-lc="delete">Delete</button>`
+        : d ? `<span class="lcbar"><i style="width:${pct}%"></i></span><span class="hint num">${pct}%</span>`
+        : `${m.error ? `<span class="lcerr">${esc(m.error)}</span>` : ''}<button class="tiny" data-lc="get">${m.error ? 'Try again' : 'Download'} · ${mb(m.size_mb)}</button>`;
+      return `<div class="mgrow" data-id="${esc(m.id)}">
+        <div class="who"><b>${esc(m.label)}</b><em>${esc(m.note)}</em></div>${right}</div>`;
+    }).join('');
+    const busy = j.models.some(m => m.downloading);
+    clearTimeout(DESK.lcTimer);
+    if (busy) DESK.lcTimer = setTimeout(() => DESK.loadLocal(), 1000);
+    // A download just finished: the built-in recogniser appears or grows.
+    const have = j.models.filter(m => m.installed).map(m => m.id).join();
+    if (DESK.lcHave != null && have !== DESK.lcHave) await NET.discover();
+    DESK.lcHave = have;
+  },
+
   async load() {
+    DESK.loadLocal();
     try {
       const r = await fetch(apiUrl('/settings/providers'), { cache: 'no-store' });
       DESK.providers = r.ok ? (await r.json()).providers || [] : [];
@@ -2743,6 +2786,20 @@ $('mgKey').addEventListener('input', () => {
 $('mgCancel').addEventListener('click', () => DESK.close());
 $('mgTest').addEventListener('click', () => DESK.test());
 $('mgSave').addEventListener('click', () => DESK.save());
+$('lcList').addEventListener('click', async e => {
+  const btn = e.target.closest('button[data-lc]');
+  if (!btn) return;
+  const id = btn.closest('.mgrow').dataset.id;
+  if (btn.dataset.lc === 'delete' && btn.textContent !== 'Really delete?') {
+    btn.textContent = 'Really delete?';
+    setTimeout(() => { if (btn.isConnected) btn.textContent = 'Delete'; }, 3000);
+    return;
+  }
+  btn.disabled = true;
+  const r = await fetch(apiUrl(`/local/models/${enc(id)}`), { method: btn.dataset.lc === 'get' ? 'POST' : 'DELETE' });
+  if (!r.ok) status((await r.json().catch(() => ({}))).error || `error ${r.status}`, true);
+  await DESK.loadLocal();
+});
 $('mgList').addEventListener('click', e => {
   const btn = e.target.closest('button[data-act]');
   if (!btn) return;
