@@ -21,6 +21,7 @@ mime_guess = "2"
 whisper-rs = "0.16"
 symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4", "alac"] }
 sha2 = "0.10"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [profile.release]
 lto = true
@@ -33,6 +34,11 @@ strip = true
 [profile.dev.package."*"]
 opt-level = 3
 debug = false
+
+# Linux: the microphone permission handler talks to WebKitGTK directly. Same
+# version as wry uses, so this adds no second copy.
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"
 
 # Apple Silicon: whisper.cpp on the GPU through Metal. Untested until a Mac build.
 [target.'cfg(target_os = "macos")'.dependencies]

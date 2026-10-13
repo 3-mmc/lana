@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Without this key macOS refuses the microphone without even asking. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Lana records speech from your microphone when you press Record. Recordings are saved on this computer.</string>
+</dict>
+</plist>

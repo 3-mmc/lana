@@ -9,6 +9,7 @@
 
 mod broker;
 mod local;
+mod recordings;
 mod server;
 mod settings;
 
@@ -29,6 +30,7 @@ fn main() {
         let providers = std::env::var_os("LANA_PROVIDERS").expect("LANA_PROVIDERS is required here");
         let mut roots = server::Roots::locate(None, providers.into()).expect("source tree");
         roots.models = std::env::var_os("LANA_MODELS").map(Into::into).unwrap_or_else(|| std::env::temp_dir().join("lana-models"));
+        roots.recordings = std::env::var_os("LANA_RECORDINGS").map(Into::into).unwrap_or_else(|| std::env::temp_dir().join("lana-recordings"));
         tauri::async_runtime::block_on(async move {
             let port = server::start_on(roots, port).await.expect("bind");
             eprintln!("lana-desktop serving http://127.0.0.1:{port}/ (no window)");
@@ -52,12 +54,24 @@ fn main() {
                 Some(p) => p.into(),
                 None => app.path().app_data_dir()?.join("models"),
             };
+            // Recordings go where a user will look for them, not into app data.
+            // document_dir() fails where no XDG Documents folder is configured
+            // (minimal Linux setups, WSL). That must not stop the app starting.
+            roots.recordings = match std::env::var_os("LANA_RECORDINGS") {
+                Some(p) => p.into(),
+                None => app
+                    .path()
+                    .document_dir()
+                    .or_else(|_| app.path().home_dir().map(|h| h.join("Documents")))
+                    .or_else(|_| app.path().app_data_dir())?
+                    .join("Lana Recordings"),
+            };
             roots.launch = std::env::args_os().skip(1).map(std::path::PathBuf::from).find(|p| p.is_file());
             let port = tauri::async_runtime::block_on(server::start(roots))?;
             let url = format!("http://127.0.0.1:{port}/");
             eprintln!("lana-desktop serving {url}");
             let url = url.parse()?;
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                 .title("Lana")
                 .inner_size(1400.0, 900.0)
                 .min_inner_size(900.0, 600.0)
@@ -65,8 +79,43 @@ fn main() {
                 // handler would otherwise consume them before the page sees them.
                 .disable_drag_drop_handler()
                 .build()?;
+            #[cfg(target_os = "linux")]
+            allow_microphone(&window);
+            #[cfg(not(target_os = "linux"))]
+            let _ = window;
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running Lana");
+}
+
+/// WebKitGTK refuses getUserMedia unless media streams are enabled and the app
+/// answers the permission request; with no handler the answer is no. Grant
+/// microphone requests (never camera) and the device-name list, nothing else.
+/// Only this window asks, and it shows nothing but Lana's own page.
+#[cfg(target_os = "linux")]
+fn allow_microphone(window: &tauri::WebviewWindow) {
+    let _ = window.with_webview(|pv| {
+        use webkit2gtk::glib::prelude::Cast;
+        use webkit2gtk::{
+            DeviceInfoPermissionRequest, PermissionRequestExt, SettingsExt, UserMediaPermissionRequest,
+            UserMediaPermissionRequestExt, WebViewExt,
+        };
+        let wv = pv.inner();
+        if let Some(settings) = WebViewExt::settings(&wv) {
+            settings.set_enable_media_stream(true);
+        }
+        wv.connect_permission_request(|_, req| {
+            let microphone = req
+                .downcast_ref::<UserMediaPermissionRequest>()
+                .is_some_and(|um| um.is_for_audio_device() && !um.is_for_video_device());
+            // Device names, so the input list says "USB microphone", not "microphone".
+            let device_names = req.downcast_ref::<DeviceInfoPermissionRequest>().is_some();
+            if microphone || device_names {
+                req.allow();
+                return true;
+            }
+            false
+        });
+    });
 }
