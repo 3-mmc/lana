@@ -1,4 +1,6 @@
-# praat-web
+# Lana
+
+**L**inguistic **ANA**lysis: Praat's acoustic analysis with word, phone and speaker tiers filled by speech recognition. Formerly *praat-web*. Lana is built on Praat but is not part of the Praat project or endorsed by its authors. A desktop version for macOS, Windows and Linux is at [lana-desktop](https://github.com/3-mmc/lana-desktop).
 
 Phonetic analysis in the browser, with annotation tiers that can record what a speaker articulated rather than what a pronunciation dictionary predicts.
 
@@ -10,7 +12,7 @@ python3 serve.py        # then open http://127.0.0.1:8710
 
 Python 3.8 or later, standard library only. There is no build step, no `pip install`, and no Node. On first run the server downloads the `praat-wasm` package (about 24 MB) into `vendor/` and caches it.
 
-![praat-web analysing a German recording: waveform, intensity, spectrogram with formant and f0 tracks, and word and phone tiers underneath](docs/fig-german.png)
+![Lana analysing a German recording: waveform, intensity, spectrogram with formant and f0 tracks, and word and phone tiers underneath](docs/fig-german.png)
 
 A spoken German text about the 2010 Haiti earthquake, at 35.9 seconds. One model has filled both tiers in a single pass, German orthography above and IPA below, with each phone placed at the frame where the model committed to it. The cursor sits on the 160 ms /ɑ/ of *kamen*, and the row under the spectrogram reads that instant off the analysis: f0 204 Hz, F1 768 Hz, F2 1274 Hz, F3 2760 Hz, 77.9 dB. Every Praat argument that produced the picture is in the right-hand column, and the literal command line is printed beneath them.
 
@@ -47,7 +49,7 @@ One rule governs the display. Nothing is ever drawn on an axis it does not belon
 
 Conventional forced alignment begins with orthography. An aligner such as the Montreal Forced Aligner takes a transcript, looks each word up in a pronunciation dictionary, and fits the resulting phone string to the signal. The labels therefore originate in the lexicon rather than in the recording. The more capable systems soften this: MAUS builds a graph of pronunciation variants from rules and selects among them, so it can prefer a reduced realisation over a citation form. Even then the candidate set is derived from the lexicon and the rules, which means the aligner chooses among the realisations it was told to expect. A variant nobody encoded cannot be selected, and the segments where that matters are exactly the ones a phonetician is likely to be studying.
 
-praat-web is built around a different source of labels. Its tier contract expects a recogniser that reads phones off the acoustics and emits IPA directly, with no lexicon in the path. Models of this kind, such as PhoneticXeus or the wav2vec2 IPA models fine-tuned on Buckeye, produce a symbol because the frames supported it. When a speaker reduces *going to* to something closer to [ɡʌnə], a dictionary-driven aligner records the canonical sequence and distributes it across the interval, while a phone recogniser records the reduction. The distinction is not cosmetic. It determines whether your annotation can be evidence about variation or merely a restatement of the transcript.
+Lana is built around a different source of labels. Its tier contract expects a recogniser that reads phones off the acoustics and emits IPA directly, with no lexicon in the path. Models of this kind, such as PhoneticXeus or the wav2vec2 IPA models fine-tuned on Buckeye, produce a symbol because the frames supported it. When a speaker reduces *going to* to something closer to [ɡʌnə], a dictionary-driven aligner records the canonical sequence and distributes it across the interval, while a phone recogniser records the reduction. The distinction is not cosmetic. It determines whether your annotation can be evidence about variation or merely a restatement of the transcript.
 
 Pairing the two kinds of model on one timeline is what the interface is for. You assign a model to the word tier and a model to the phone tier, and they are run in that order against the same recording. The two tiers are then independent observations of the same signal. Where they diverge, the divergence is itself the finding: the word tier preserves the lexical item a listener would report, while the phone tier preserves the realisation. A researcher studying lenition, connected-speech processes or sociophonetic variation wants both, aligned, and wants to see them under a spectrogram rather than in a table.
 
@@ -55,7 +57,7 @@ Assigning one model to both tiers is the other useful case. A model such as `ipa
 
 The second thing this arrangement allows is work on languages that have no pronunciation dictionary at all. Forced alignment is unavailable, in practice, wherever a lexicon has not been built, which excludes most of the world's languages and nearly all of the ones that documentation projects are concerned with. Orthographic models such as MMS cover over a thousand languages, and multilingual phone recognisers generalise across inventories precisely because they never consult a lexicon. For Avar, Chechen or Dargwa there is no aligner dictionary to fall back on, yet a phone recogniser will still return IPA with frame-level timing. The tier contract below is deliberately model-agnostic so that this route remains open.
 
-![Georgian analysed in praat-web: the word tier in Mkhedruli from MMS, the phone tier in IPA from PhoneticXeus](docs/fig-georgian.png)
+![Georgian analysed in Lana: the word tier in Mkhedruli from MMS, the phone tier in IPA from PhoneticXeus](docs/fig-georgian.png)
 
 Georgian makes the argument visible. The word tier here is MMS-1b-all with its `kat` adapter, the phone tier is PhoneticXeus, and the cursor sits on the /i/ of ანტარქტიკის. The segment table gives that word as ɑ n tʼ ɑ r kʼ tʼ i kʼ i s, with ejectives where the orthography has ტ and ქ, and each interval timed to the millisecond.
 
@@ -97,7 +99,7 @@ The diarizer runs pyannote's segmentation model and a speaker embedding through 
 
 Two arguments sit beside the model, and between them they are the analysis. The count fixes how many speakers to find. Leaving it blank hands that decision to a clustering threshold instead, and the threshold is not a default to be left alone. On one ten minute recording it returned sixteen speakers at 0.5 and two at 1.1, from identical audio and an identical model. A tool that hid that number behind a reasonable-looking default would be presenting a guess as a measurement. Both fields are editable for the same reason every Praat argument on the right of the screen is editable.
 
-![praat-web with three tiers: words and phones from one recogniser, and a speaker tier underneath showing a change of voice from S1 to S2](docs/fig-speakers.png)
+![Lana with three tiers: words and phones from one recogniser, and a speaker tier underneath showing a change of voice from S1 to S2](docs/fig-speakers.png)
 
 Two German speakers, spliced into alternating six second blocks so that the right answer is known before the model runs. The window straddles the first change of voice, which the splice puts at exactly six seconds. The tier closes S1 at 6.04 and opens S2 at 6.44, leaving the silence between them attributed to nobody, which is the correct thing to do with it. The same pass has filled the word and phone tiers above it, and the cursor readout names the voice along with the labels: S2, the /ɑ/ of *Januar*, f0 113 Hz, F1 489 Hz, F2 1283 Hz, 66.1 dB. The speaker count and the clustering threshold sit beside the model, and **re-cluster** changes the number of voices without reading the audio again.
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Serve praat-web, and optionally broker its recognition requests.
+"""Serve Lana (formerly praat-web), and optionally broker its recognition requests.
 
     python3 serve.py                 # http://127.0.0.1:8710
     python3 serve.py --port 9000
@@ -326,7 +326,7 @@ def proxy_control(p: dict, path: str, method='GET', model=None,
 # ------------------------------------------------------------------ server
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'praat-web'
+    server_version = 'lana-web'
     protocol_version = 'HTTP/1.1'
 
     def log_message(self, fmt, *a):
@@ -380,7 +380,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         route = self.route()
         if route.rstrip('/').endswith('/health') or route == '/api/health':
-            return self.send_json(200, {'status': 'ok', 'service': 'praat-web',
+            return self.send_json(200, {'status': 'ok', 'service': 'lana-web',
                                         'providers': len(load_providers())})
         if route == '/api/providers':
             ps = [public_provider(p) for p in load_providers()]
@@ -482,7 +482,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    ap = argparse.ArgumentParser(description='Serve praat-web.')
+    ap = argparse.ArgumentParser(description='Serve Lana.')
     ap.add_argument('--port', type=int, default=8710)
     ap.add_argument('--host', default='127.0.0.1')
     args = ap.parse_args()
@@ -501,5 +501,5 @@ if __name__ == '__main__':
     else:
         print(f'no providers configured (copy providers.example.json to '
               f'{PROVIDERS_FILE.name} to add some)', flush=True)
-    print(f'praat-web on http://{args.host}:{args.port}', flush=True)
+    print(f'Lana on http://{args.host}:{args.port}', flush=True)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
