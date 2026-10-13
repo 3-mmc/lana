@@ -201,6 +201,23 @@
   legend{font-size:10.5px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;padding:0 5px}
 
   body.dropping main{outline:2px dashed var(--accent);outline-offset:-5px;border-radius:6px}
+  /* recording */
+  #recPanel{background:var(--panel2);border-bottom:1px solid var(--line)}
+  #recBtn.on{color:var(--err);border-color:var(--errline)}
+  .recmain{display:flex;gap:12px;align-items:center;padding:10px;flex-wrap:wrap}
+  .recgo{font-size:13px;padding:6px 14px;min-width:170px}
+  .recgo.live{background:var(--err);border-color:var(--err);color:var(--panel);font-weight:600}
+  .recmeter{position:relative;width:min(420px,50vw);height:12px;border-radius:3px;overflow:hidden;
+       background:linear-gradient(90deg,var(--ok) 0 70%,var(--warn) 70% 90%,var(--err) 90%);opacity:.95}
+  .recmeter i{position:absolute;right:0;top:0;bottom:0;background:var(--sunken);transition:left .06s linear;left:0}
+  .recmeter b{position:absolute;top:0;bottom:0;width:2px;background:var(--ink);left:0}
+  #recTime{font-size:15px;min-width:64px}
+  .recclip{color:var(--err);font-size:12px;font-weight:600}
+  .recmeta{padding:2px 10px 8px !important;justify-content:start;
+       grid-template-columns:max-content minmax(0,300px) max-content minmax(0,300px) !important}
+  #recScope{width:min(420px,50vw);height:36px;background:var(--sunken);border-radius:3px;display:block}
+  .recstack{display:flex;flex-direction:column;gap:5px}
+  #recPanel .grid{display:grid;gap:6px 9px;align-items:center}
   /* desktop settings */
   .mgrow{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line2)}
   .mgrow .who{flex:1;min-width:0}
@@ -230,6 +247,7 @@
 <body>
 <header>
   <input type="file" id="file" accept="audio/*,video/*">
+  <button id="recBtn" title="Record from a microphone">● Record</button>
   <button id="run" class="primary" disabled>Run recognition</button>
   <button id="stop" hidden>■ Stop</button>
   <button id="gear" title="Recogniser connection">⚙ Connection</button>
@@ -243,6 +261,33 @@
 </header>
 
 <div id="bar" hidden><div id="barfill"></div></div>
+
+<div id="recPanel" hidden>
+  <div class="modehdr">
+    <label for="recDev" style="cursor:default">input</label>
+    <select id="recDev" style="min-width:220px"></select>
+    <span id="recFmt" class="hint num"></span>
+    <span class="sp"></span>
+    <button id="recClose" class="tiny">Close</button>
+  </div>
+  <div class="recmain">
+    <button id="recGo" class="recgo" disabled>● Start recording</button>
+    <div class="recstack">
+      <canvas id="recScope" title="The last ten seconds of input"></canvas>
+      <div class="recmeter" title="Input level. Keep the loudest speech in the upper green, short of the red."><i id="recLevel"></i><b id="recPeak"></b></div>
+    </div>
+    <span id="recTime" class="num">0:00</span>
+    <span id="recClip" class="recclip" hidden>clipping: move the microphone back or lower the input level</span>
+  </div>
+  <div class="grid recmeta">
+    <label for="rmSpeaker">speaker</label><input id="rmSpeaker" placeholder="code, e.g. AV03" spellcheck="false">
+    <label for="rmLang">language</label><input id="rmLang" placeholder="e.g. Avar (ava)">
+    <label for="rmPlace">place</label><input id="rmPlace">
+    <label for="rmConsent">consent</label><input id="rmConsent" placeholder="e.g. oral consent recorded at the start">
+    <label for="rmNotes">notes</label><input id="rmNotes">
+  </div>
+  <div class="hint pad" id="recWhere"></div>
+</div>
 
 <div id="settings" hidden>
   <div class="modehdr">
@@ -2810,6 +2855,269 @@ $('mgList').addEventListener('click', e => {
   if (btn.dataset.act === 'remove') DESK.remove(id, btn);
 });
 DESK.init();
+
+/* ---------------------------------------------------------------- recording
+   Record from a microphone for fieldwork. Three rules, all about the data:
+
+   1. The browser's voice processing is switched off. Echo cancellation, noise
+      suppression and automatic gain are on by default for calls, and each one
+      reshapes the spectrum a phonetician is about to measure.
+   2. Raw samples, not MediaRecorder. MediaRecorder produces Opus/WebM, which is
+      lossy. An AudioWorklet taps the PCM, and it is written as 24-bit WAV at the
+      rate the audio system runs at.
+   3. Nothing lives only in memory in the desktop app. Samples go to disk in
+      half-second chunks as they arrive (see recordings.rs), so a crash or a
+      flat battery costs the last half second, not the session. The browser
+      build has nowhere to write, so it keeps the take in memory and offers it
+      as a download when it stops. */
+// Remembered between takes (a session usually keeps speaker, language and
+// place); notes are per take and start empty.
+const REC_META = { speaker: 'rmSpeaker', language: 'rmLang', place: 'rmPlace', consent: 'rmConsent' };
+const TAP_SRC = `
+class LanaTap extends AudioWorkletProcessor {
+  constructor() { super(); this.parts = []; this.n = 0; this.peak = 0; }
+  process(inputs) {
+    const inp = inputs[0];
+    if (!inp || !inp.length) return true;
+    const ch = inp.length, len = inp[0].length, out = new Float32Array(len * ch);
+    for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++) {
+      const v = inp[c][i]; out[i * ch + c] = v;
+      const a = v < 0 ? -v : v; if (a > this.peak) this.peak = a;
+    }
+    this.parts.push(out); this.n += len;
+    if (this.n >= 2048) {                     // ~40 ms: smooth meter, few messages
+      const all = new Float32Array(this.n * ch); let o = 0;
+      for (const p of this.parts) { all.set(p, o); o += p.length; }
+      this.port.postMessage({ pcm: all, ch, peak: this.peak }, [all.buffer]);
+      this.parts = []; this.n = 0; this.peak = 0;
+    }
+    return true;
+  }
+}
+registerProcessor('lana-tap', LanaTap);`;
+
+const REC = {
+  stream: null, ctx: null, node: null, ch: 1, rate: 0, live: false,
+  id: null, frames: 0, mem: [], pending: [], pendingBytes: 0, chain: Promise.resolve(),
+  t0: 0, timer: null, peakHold: 0, peakAt: 0, clipAt: 0, error: null,
+
+  desktop: () => !!DESK.caps?.desktop,
+
+  async open() {
+    $('recPanel').hidden = false;
+    for (const [k, id] of Object.entries(REC_META)) $(id).value = CFG['rec_' + k] || '';
+    $('recWhere').textContent = REC.desktop()
+      ? 'Saved as it records, to the “Lana Recordings” folder in your Documents, with a .json file of these notes beside it.'
+      : 'This browser version keeps the recording in memory: download it when you stop. The desktop app saves to disk as it records.';
+    if (!REC.stream) await REC.listen($('recDev').value || undefined);
+  },
+
+  async close() {
+    if (REC.live) await REC.stop();
+    REC.release();
+    $('recPanel').hidden = true;
+  },
+
+  release() {
+    if (REC.stream) for (const t of REC.stream.getTracks()) t.stop();
+    if (REC.ctx) REC.ctx.close().catch(() => {});
+    REC.stream = REC.ctx = REC.node = null;
+    $('recGo').disabled = true;
+    REC.meter(0);
+  },
+
+  /* Open the microphone and start metering (not recording). */
+  async listen(deviceId) {
+    REC.release();
+    $('recFmt').textContent = 'asking for the microphone…';
+    // A microphone that never answers (a muted virtual device, a driver stuck
+    // behind a system privacy prompt) would otherwise leave this waiting forever.
+    const slow = setTimeout(() => {
+      $('recFmt').textContent = 'No answer from the microphone yet. Check that it is connected, '
+        + 'and that your system allows Lana to use it (privacy settings).';
+    }, 10000);
+    try {
+      REC.stream = await navigator.mediaDevices.getUserMedia({ audio: {
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+        channelCount: { ideal: 1 },
+      } });
+    } catch (e) {
+      $('recFmt').textContent = e.name === 'NotAllowedError'
+        ? 'Lana was not allowed to use the microphone. Allow it in your system settings and try again.'
+        : e.name === 'NotFoundError' ? 'No microphone was found.' : 'The microphone could not be opened: ' + e.message;
+      return;
+    } finally { clearTimeout(slow); }
+    const track = REC.stream.getAudioTracks()[0];
+    const st = track.getSettings ? track.getSettings() : {};
+    try { REC.ctx = new AudioContext(st.sampleRate ? { sampleRate: st.sampleRate } : {}); }
+    catch { REC.ctx = new AudioContext(); }
+    const src = REC.ctx.createMediaStreamSource(REC.stream);
+    REC.ch = Math.min(2, Math.max(1, st.channelCount || src.channelCount || 1));
+    REC.rate = REC.ctx.sampleRate;
+    const url = URL.createObjectURL(new Blob([TAP_SRC], { type: 'text/javascript' }));
+    await REC.ctx.audioWorklet.addModule(url);
+    URL.revokeObjectURL(url);
+    REC.node = new AudioWorkletNode(REC.ctx, 'lana-tap', {
+      numberOfInputs: 1, numberOfOutputs: 0, channelCount: REC.ch, channelCountMode: 'explicit',
+    });
+    REC.node.port.onmessage = e => REC.onData(e.data);
+    src.connect(REC.node);              // to the tap only: never to the speakers
+    // Which processing actually got switched off: some systems ignore the request.
+    const on = ['echoCancellation', 'noiseSuppression', 'autoGainControl'].filter(k => st[k] === true);
+    $('recFmt').textContent = `${REC.rate} Hz · 24-bit · ${REC.ch === 1 ? 'mono' : 'stereo'}`
+      + (on.length ? ` · warning: the system kept ${on.join(', ')} on` : ' · no voice processing');
+    // Device labels are only available once permission has been given.
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+    const cur = st.deviceId;
+    $('recDev').innerHTML = devs.map(d =>
+      `<option value="${esc(d.deviceId)}"${d.deviceId === cur ? ' selected' : ''}>${esc(d.label || 'microphone')}</option>`).join('');
+    $('recGo').disabled = false;
+  },
+
+  meter(peak) {
+    const db = peak > 0 ? 20 * Math.log10(peak) : -90;
+    const pos = Math.max(0, Math.min(1, (db + 60) / 60));        // -60..0 dBFS
+    $('recLevel').style.left = (pos * 100).toFixed(1) + '%';
+    const now = performance.now();
+    if (pos >= REC.peakHold || now - REC.peakAt > 1500) { REC.peakHold = pos; REC.peakAt = now; }
+    $('recPeak').style.left = `calc(${(REC.peakHold * 100).toFixed(1)}% - 2px)`;
+    if (peak >= 0.999) REC.clipAt = now;
+    $('recClip').hidden = !(REC.clipAt && now - REC.clipAt < 2500);
+  },
+
+  /* Peaks of the last ten seconds, one per worklet message (~40 ms), drawn as a
+     scrolling envelope: the quickest proof that speech, not hiss, is going in. */
+  scope: [],
+  drawScope() {
+    const cv = $('recScope'), dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    if (!w) return;
+    if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = REC.live ? C.err || '#e0605c' : C.wave || '#8e8e99';
+    const n = Math.round(10 * REC.rate / 2048) || 1, bw = w / n, data = REC.scope.slice(-n);
+    data.forEach((p, i) => {
+      // dB scale, like the meter: on a linear scale quiet speech is a flat line
+      const db = p > 0 ? 20 * Math.log10(p) : -90;
+      const a = Math.max(0.5, Math.max(0, Math.min(1, (db + 60) / 60)) * (h / 2 - 1));
+      g.fillRect(w - (data.length - i) * bw, h / 2 - a, Math.max(1, bw - .5), 2 * a);
+    });
+  },
+
+  onData({ pcm, ch, peak }) {
+    REC.meter(peak);
+    REC.scope.push(peak);
+    if (REC.scope.length > 2000) REC.scope.splice(0, 1000);
+    REC.drawScope();
+    if (!REC.live) return;
+    // float -> 24-bit little-endian integer PCM
+    const out = new Uint8Array(pcm.length * 3);
+    for (let i = 0, o = 0; i < pcm.length; i++, o += 3) {
+      let v = Math.round(Math.max(-1, Math.min(1, pcm[i])) * 8388607);
+      if (v < 0) v += 0x1000000;
+      out[o] = v & 255; out[o + 1] = (v >> 8) & 255; out[o + 2] = (v >> 16) & 255;
+    }
+    REC.frames += pcm.length / ch;
+    if (!REC.desktop()) { REC.mem.push(out); return; }
+    REC.pending.push(out); REC.pendingBytes += out.length;
+    if (REC.pendingBytes >= REC.rate * REC.ch * 3 / 2) REC.flush();   // every ~0.5 s
+  },
+
+  /* Send what is pending, in order: each chunk waits for the one before. */
+  flush() {
+    if (!REC.pending.length || !REC.id) return REC.chain;
+    const body = new Blob(REC.pending); REC.pending = []; REC.pendingBytes = 0;
+    const id = REC.id;
+    REC.chain = REC.chain.then(async () => {
+      const r = await fetch(apiUrl(`/record/${enc(id)}/chunk`), { method: 'POST', body });
+      if (!r.ok) {
+        REC.error = (await r.json().catch(() => ({}))).error || `error ${r.status}`;
+        status('recording: ' + REC.error, true);
+      }
+    }).catch(e => { REC.error = e.message; status('recording: ' + e.message, true); });
+    return REC.chain;
+  },
+
+  meta() {
+    return { speaker: $('rmSpeaker').value.trim(), language: $('rmLang').value.trim(),
+             place: $('rmPlace').value.trim(), consent: $('rmConsent').value.trim(),
+             notes: $('rmNotes').value.trim() };
+  },
+
+  async start() {
+    const m = REC.meta();
+    for (const k of Object.keys(REC_META)) CFG['rec_' + k] = m[k];
+    saveCfg();
+    REC.frames = 0; REC.mem = []; REC.pending = []; REC.pendingBytes = 0; REC.error = null; REC.id = null;
+    if (REC.desktop()) {
+      const r = await fetch(apiUrl('/record/start'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rate: REC.rate, channels: REC.ch, bits: 24, meta: m }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { status('could not start recording: ' + (j.error || r.status), true); return; }
+      REC.id = j.id; REC.file = j.file;
+    }
+    REC.live = true; REC.t0 = performance.now();
+    $('recGo').textContent = '■ Stop recording'; $('recGo').classList.add('live');
+    $('recBtn').classList.add('on'); $('recDev').disabled = true;
+    REC.timer = setInterval(() => {
+      const s = Math.floor((performance.now() - REC.t0) / 1000);
+      $('recTime').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    }, 250);
+    status(REC.desktop() ? `recording to ${REC.file}` : 'recording (in memory)');
+  },
+
+  async stop() {
+    REC.live = false;
+    clearInterval(REC.timer);
+    $('recGo').textContent = '● Start recording'; $('recGo').classList.remove('live');
+    $('recBtn').classList.remove('on'); $('recDev').disabled = false;
+    const secs = REC.frames / REC.rate;
+    let file;
+    if (REC.desktop()) {
+      await REC.flush();
+      const r = await fetch(apiUrl(`/record/${enc(REC.id)}/finish`), { method: 'POST' });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { status('could not finish the recording: ' + (j.error || r.status), true); return; }
+      const w = await fetch(apiUrl(`/recordings/${enc(j.file)}`));
+      file = new File([await w.blob()], j.file, { type: 'audio/wav' });
+      $('recWhere').textContent = `Saved: ${j.path}`;
+    } else {
+      const bytes = REC.mem.reduce((n, a) => n + a.length, 0);
+      file = new File([wavHeader24(REC.rate, REC.ch, bytes), ...REC.mem], recName(REC.meta()), { type: 'audio/wav' });
+      REC.mem = [];
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(file); a.download = file.name; a.textContent = `Download ${file.name}`;
+      $('recWhere').replaceChildren('Not yet saved anywhere: ', a);
+    }
+    status(`recorded ${f2(secs)} s`);
+    openFile(file);
+  },
+};
+
+function recName(m) {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  const spk = (m.speaker || '').replace(/[^\p{L}\p{N}-]+/gu, '_').replace(/^_|_$/g, '');
+  return stamp + (spk ? '_' + spk : '') + '.wav';
+}
+
+function wavHeader24(rate, ch, bytes) {
+  const h = new DataView(new ArrayBuffer(44)), str = (o, s) => [...s].forEach((c, i) => h.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); h.setUint32(4, 36 + bytes, true); str(8, 'WAVEfmt '); h.setUint32(16, 16, true);
+  h.setUint16(20, 1, true); h.setUint16(22, ch, true); h.setUint32(24, rate, true);
+  h.setUint32(28, rate * ch * 3, true); h.setUint16(32, ch * 3, true); h.setUint16(34, 24, true);
+  str(36, 'data'); h.setUint32(40, bytes, true);
+  return h.buffer;
+}
+
+$('recBtn').addEventListener('click', () => $('recPanel').hidden ? REC.open() : REC.close());
+$('recClose').addEventListener('click', () => REC.close());
+$('recGo').addEventListener('click', () => REC.live ? REC.stop() : REC.start());
+$('recDev').addEventListener('change', () => REC.listen($('recDev').value));
+// A take in progress must not vanish with the tab.
+addEventListener('beforeunload', e => { if (REC.live) { e.preventDefault(); e.returnValue = ''; } });
 
 /* Adopt whatever the backend is already doing, so a reload during a long job
    shows the progress and the annotation rather than a Run button that can only
