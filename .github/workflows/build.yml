@@ -56,7 +56,7 @@ jobs:
 
       - name: praat-wasm
         shell: bash
-        run: scripts/fetch-praat-wasm.sh
+        run: bash scripts/fetch-praat-wasm.sh
 
       - name: Tauri CLI
         run: cargo install tauri-cli --locked --version "^2"
