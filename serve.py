@@ -460,7 +460,10 @@ class Handler(BaseHTTPRequestHandler):
             if name == 'file':
                 blob = part.get_payload(decode=True)
                 filename = part.get_filename() or filename
-                filetype = part.get_content_type() or \
+                # get_content_type() never returns nothing: a part without a
+                # Content-Type comes back as text/plain, so ask whether one was sent.
+                sent = (part.get('Content-Type') or '').strip()
+                filetype = (part.get_content_type() if sent else None) or \
                     mimetypes.guess_type(filename)[0] or filetype
             elif name:
                 fields[name] = part.get_payload(decode=True).decode('utf-8')
