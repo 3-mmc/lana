@@ -1,0 +1,4 @@
+AGENTS.md
+.agent-memory
+target/
+node_modules/
