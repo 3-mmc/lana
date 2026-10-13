@@ -20,6 +20,7 @@
      be the least saturated thing on screen, leaving the signal and the
      annotation as the only colour that carries meaning. */
   :root{
+    color-scheme:dark;
     --bg:#1b1b1d; --panel:#252528; --panel2:#202023; --sunken:#131315; --raise:#2e2e33;
     --line:#3a3a3f; --line2:#2c2c31; --boundary:#4d4d55;
     --ink:#e7e7ea; --dim:#a2a2a9; --dim2:#75757e; --wave:#8e8e99;
@@ -38,6 +39,7 @@
   /* For figures. A spectrogram on white is what goes into a paper, and the
      screen should be able to show what the figure will look like. */
   :root[data-theme="paper"]{
+    color-scheme:light;
     --bg:#dededf; --panel:#f4f4f5; --panel2:#e9e9ea; --sunken:#ffffff; --raise:#e2e2e4;
     --line:#bcbcc2; --line2:#d5d5da; --boundary:#9a9aa2;
     --ink:#17171a; --dim:#55555d; --dim2:#7c7c85; --wave:#4a4a54;
@@ -70,6 +72,16 @@
        box-shadow:inset 0 1px 0 var(--hilite)}
   button:active:not(:disabled){box-shadow:none;background:var(--panel2)}
   input.num,select.num{font-family:var(--mono)}
+  /* Draw selects ourselves. WebKitGTK (the Linux desktop build) otherwise paints
+     them with the GTK theme: a light box whose text vanishes on graphite. The
+     chevron is two gradients so it can take a theme token; a data-URI SVG cannot. */
+  select{appearance:none;-webkit-appearance:none;padding-right:20px;
+       background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),
+                        linear-gradient(135deg,var(--dim) 50%,transparent 50%);
+       background-position:calc(100% - 11px) 50%,calc(100% - 7px) 50%;
+       background-size:4px 4px,4px 4px;background-repeat:no-repeat}
+  select:disabled{color:var(--dim2)}
+  option{background:var(--sunken);color:var(--ink)}
   input[type=file]{padding:2px;max-width:220px}
   button{cursor:pointer}
   button:hover:not(:disabled){border-color:var(--accent)}
@@ -154,7 +166,7 @@
   .params .head:first-child{margin-top:0}
   .params label{font-size:11px}
   .params input,.params select{width:86px;text-align:right;padding:2px 5px;font-family:var(--mono);font-size:11.5px}
-  .params select{text-align:left}
+  .params select{text-align:left;padding-right:18px}
   pre.cmd{margin:0;padding:6px 9px;background:var(--sunken);border-top:1px solid var(--line2);
       font-family:var(--mono);font-size:10.5px;color:var(--dim);white-space:pre-wrap;word-break:break-word}
   pre.cmd b{color:var(--ink);font-weight:400}
@@ -428,7 +440,7 @@
 
   <div class="pane">
     <h2>Segments
-      <select id="segWhich" class="tiny num" style="padding:1px 5px">
+      <select id="segWhich" class="tiny num" style="padding:1px 18px 1px 5px">
         <option value="phone">phones</option><option value="word">words</option><option value="speaker">speakers</option>
       </select>
       <span class="sub" id="segCount">—</span>
