@@ -36,13 +36,15 @@ const EXTRAS: &[&str] = &[
 #[derive(Clone)]
 pub struct Broker {
     file: PathBuf,
+    local: crate::local::Local,
     cache: Arc<Mutex<(Option<SystemTime>, Vec<Value>)>>,
     http: reqwest::Client,
 }
 
-pub fn router(file: PathBuf) -> Router {
+pub fn router(file: PathBuf, local: crate::local::Local) -> Router {
     let broker = Broker {
         file,
+        local,
         cache: Arc::new(Mutex::new((None, Vec::new()))),
         http: reqwest::Client::builder()
             .user_agent(concat!("lana-desktop/", env!("CARGO_PKG_VERSION")))
@@ -98,8 +100,16 @@ impl Broker {
         value
     }
 
+    /// The providers file plus, once a model is downloaded, the one built into
+    /// the app. Built-in first: it is the one that works with no setup.
+    fn all(&self) -> Vec<Value> {
+        let mut ps: Vec<Value> = self.local.provider().into_iter().collect();
+        ps.extend(self.load().into_iter().filter(|p| str_of(p, "id") != crate::local::PROVIDER_ID));
+        ps
+    }
+
     fn find(&self, pid: &str) -> Option<Value> {
-        self.load().into_iter().find(|p| str_of(p, "id") == pid)
+        self.all().into_iter().find(|p| str_of(p, "id") == pid)
     }
 
     fn pick(&self, pid: Option<&str>) -> Result<Value, Response> {
@@ -199,11 +209,11 @@ fn control_url(p: &Value, path: &str, model: Option<&str>) -> Option<String> {
 // -------------------------------------------------------------- handlers
 
 async fn health(State(b): State<Broker>) -> Json<Value> {
-    Json(json!({ "status": "ok", "service": "lana-desktop", "providers": b.load().len() }))
+    Json(json!({ "status": "ok", "service": "lana-desktop", "providers": b.all().len() }))
 }
 
 async fn providers(State(b): State<Broker>) -> Json<Value> {
-    let ps: Vec<Value> = b.load().iter().map(public_provider).collect();
+    let ps: Vec<Value> = b.all().iter().map(public_provider).collect();
     let configured = (!ps.is_empty()).then(|| b.file.display().to_string());
     Json(json!({ "providers": ps, "configured": configured }))
 }
@@ -226,6 +236,14 @@ async fn poll(b: &Broker, q: &std::collections::HashMap<String, String>, tail: S
         Ok(p) => p,
         Err(r) => return r,
     };
+    if str_of(&p, "kind") == "builtin" {
+        return reply(200, if tail.starts_with("/partial") {
+            let since = q.get("since").and_then(|s| s.parse().ok()).unwrap_or(0);
+            b.local.partial(since)
+        } else {
+            b.local.progress()
+        });
+    }
     if str_of(&p, "control").is_empty() {
         return reply(200, json!({ "active": false, "unsupported": true }));
     }
@@ -240,6 +258,9 @@ async fn cancel(State(b): State<Broker>, Query(q): Q) -> Response {
         Ok(p) => p,
         Err(r) => return r,
     };
+    if str_of(&p, "kind") == "builtin" {
+        return reply(200, b.local.cancel());
+    }
     let (code, body) = proxy_control(&b, &p, "/cancel", true, None, None).await;
     reply(code, body)
 }
@@ -303,7 +324,16 @@ async fn transcribe(State(b): State<Broker>, mut form: Multipart) -> Response {
         return reply(400, json!({ "error": public["note"] }));
     }
     let started = Instant::now();
-    let (code, mut payload) = forward_transcription(&b, &p, &fields, filename, filetype, blob).await;
+    let (code, mut payload) = if str_of(&p, "kind") == "builtin" {
+        let local = b.local.clone();
+        let model = fields.get("model").and_then(Value::as_str).unwrap_or("").to_owned();
+        let lang = fields.get("language").and_then(Value::as_str).map(str::to_owned);
+        tokio::task::spawn_blocking(move || local.transcribe(&model, blob.to_vec(), &filename, lang.as_deref()))
+            .await
+            .unwrap_or_else(|e| (500, json!({ "error": format!("the recogniser crashed: {e}") })))
+    } else {
+        forward_transcription(&b, &p, &fields, filename, filetype, blob).await
+    };
     if code == 200 {
         if let Some(obj) = payload.as_object_mut() {
             obj.entry("provider").or_insert_with(|| json!(str_of(&p, "id")));

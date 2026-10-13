@@ -12,14 +12,28 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 axum = { version = "0.8", features = ["multipart"] }
-tokio = { version = "1", features = ["net", "rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["net", "rt-multi-thread", "macros", "fs", "io-util"] }
 tower-http = { version = "0.6", features = ["fs"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 mime_guess = "2"
+whisper-rs = "0.16"
+symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4", "alac"] }
+sha2 = "0.10"
 
 [profile.release]
 lto = true
 codegen-units = 1
 strip = true
+
+# Dependencies are optimised even in development builds: whisper.cpp built as
+# Debug (cmake follows opt-level 0) transcribes many times slower, and symphonia
+# decodes slowly too. Only Lana's own code stays quick to recompile.
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
+
+# Apple Silicon: whisper.cpp on the GPU through Metal. Untested until a Mac build.
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "0.16", features = ["metal"] }

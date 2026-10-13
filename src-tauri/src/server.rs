@@ -20,15 +20,17 @@ pub struct Roots {
     pub providers: PathBuf,
     /// A recording to open at start, from the command line or the OS.
     pub launch: Option<PathBuf>,
+    /// Where downloaded models live (the app's data directory).
+    pub models: PathBuf,
 }
 
 impl Roots {
     /// Bundled resources in a release build; the source tree under `cargo run`.
     pub fn locate(resource_dir: Option<PathBuf>, providers: PathBuf) -> Result<Self, String> {
         let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-        let source = Roots { web: src.join("web"), vendor: src.join("vendor"), providers: providers.clone(), launch: None };
+        let source = Roots { web: src.join("web"), vendor: src.join("vendor"), providers: providers.clone(), launch: None, models: PathBuf::new() };
         let bundled = resource_dir
-            .map(|r| Roots { web: r.join("web"), vendor: r.join("vendor"), providers, launch: None });
+            .map(|r| Roots { web: r.join("web"), vendor: r.join("vendor"), providers, launch: None, models: PathBuf::new() });
         // A development build reads the source tree, which is what is being
         // edited. Tauri also copies the resources next to the binary at build
         // time, and preferring that copy served a page from the last build.
@@ -55,9 +57,11 @@ pub async fn start_on(roots: Roots, port: u16) -> std::io::Result<u16> {
     let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).await?;
     let port = listener.local_addr()?.port();
     let index = roots.web.join("index.html");
+    let local = crate::local::Local::new(crate::local::Models::new(roots.models.clone()));
 
     let app = Router::new()
-        .merge(crate::broker::router(roots.providers.clone()))
+        .merge(crate::broker::router(roots.providers.clone(), local.clone()))
+        .merge(crate::local::router(local))
         .merge(crate::settings::router(roots.providers.clone(), roots.launch.clone()))
         .route_service("/", ServeFile::new(&index))
         .route_service("/index.html", ServeFile::new(&index))

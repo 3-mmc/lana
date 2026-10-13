@@ -6,6 +6,10 @@
 Windows 11 and Linux: Praat's analysis with word, phone and speaker tiers filled by speech
 recognition, exported as a TextGrid. Design and milestones are in [PLAN.md](PLAN.md).
 
+**Built-in recognition:** Whisper models (base, small, large-v3 turbo) can be downloaded from
+⚙ Connection and run inside the app with whisper.cpp, offline, with word timings from DTW. Models
+go to the app's data directory and are checked against HuggingFace's published SHA-256.
+
 **Status: milestone 2.** A native window with the lana-web interface and praat-wasm analysis,
 and a Rust port of `serve.py`'s recognition broker. Providers come from `providers.json` in the
 app's config directory (same format as lana-web's; `LANA_PROVIDERS` overrides the path). A
@@ -20,13 +24,23 @@ mock recogniser and fails on any difference that is not listed as deliberate.
 ## Build
 
 Prerequisites: [Rust](https://rustup.rs), the Tauri CLI (`cargo install tauri-cli --locked`),
-and the [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/) for your platform.
+the [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/) for your platform,
+and, for the built-in speech recognition (whisper.cpp), **cmake** and **libclang**:
+
+- **macOS:** `xcode-select --install` provides libclang. Install cmake from
+  [cmake.org](https://cmake.org/download/) or with `brew install cmake`.
+- **Linux (Debian/Ubuntu):** `sudo apt install cmake libclang-dev`
+- **Windows:** Visual Studio Build Tools ships cmake (add its `CMake\bin` to `PATH`). For libclang,
+  set `LIBCLANG_PATH` to a folder containing `libclang.dll` (from an LLVM install, or the
+  `libclang` wheel on PyPI). Do not set `WHISPER_DONT_GENERATE_BINDINGS`: the bundled bindings
+  are generated on Linux and their struct layouts do not compile on Windows.
 
 ```sh
 git clone --recursive <this repo>        # web/ is a submodule
 scripts/fetch-praat-wasm.sh              # 24 MB, once, into vendor/
 cd src-tauri
 cargo run                                # development
+cargo run -- path/to/recording.wav       # open a recording at start
 cargo tauri build                        # installer for this platform
 ```
 

@@ -8,6 +8,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod broker;
+mod local;
 mod server;
 mod settings;
 
@@ -26,7 +27,8 @@ fn main() {
     if let Some(port) = std::env::var_os("LANA_SERVE_ONLY") {
         let port: u16 = port.to_str().and_then(|p| p.parse().ok()).expect("LANA_SERVE_ONLY=<port>");
         let providers = std::env::var_os("LANA_PROVIDERS").expect("LANA_PROVIDERS is required here");
-        let roots = server::Roots::locate(None, providers.into()).expect("source tree");
+        let mut roots = server::Roots::locate(None, providers.into()).expect("source tree");
+        roots.models = std::env::var_os("LANA_MODELS").map(Into::into).unwrap_or_else(|| std::env::temp_dir().join("lana-models"));
         tauri::async_runtime::block_on(async move {
             let port = server::start_on(roots, port).await.expect("bind");
             eprintln!("lana-desktop serving http://127.0.0.1:{port}/ (no window)");
@@ -46,6 +48,10 @@ fn main() {
             let mut roots = server::Roots::locate(app.path().resource_dir().ok(), providers)?;
             // `lana-desktop recording.wav`: the first argument that names a file.
             // (macOS "Open with" arrives as an event instead; not handled yet.)
+            roots.models = match std::env::var_os("LANA_MODELS") {
+                Some(p) => p.into(),
+                None => app.path().app_data_dir()?.join("models"),
+            };
             roots.launch = std::env::args_os().skip(1).map(std::path::PathBuf::from).find(|p| p.is_file());
             let port = tauri::async_runtime::block_on(server::start(roots))?;
             let url = format!("http://127.0.0.1:{port}/");
