@@ -6,8 +6,14 @@
 Windows 11 and Linux: Praat's analysis with word, phone and speaker tiers filled by speech
 recognition, exported as a TextGrid. Design and milestones are in [PLAN.md](PLAN.md).
 
-**Status: milestone 1.** A native window with the lana-web interface and praat-wasm analysis.
-Recognition works only against an endpoint you enter yourself, until the Rust broker lands.
+**Status: milestone 2.** A native window with the lana-web interface and praat-wasm analysis,
+and a Rust port of `serve.py`'s recognition broker. Providers come from `providers.json` in the
+app's config directory (same format as lana-web's; `LANA_PROVIDERS` overrides the path). A
+provider with `"keychain": true` takes its API key from the OS keychain (service `lana`,
+account = provider id). The Settings screen for entering keys is next.
+
+`scripts/parity-test.py` sends the same requests to `web/serve.py` and the Rust broker through a
+mock recogniser and fails on any difference that is not listed as deliberate.
 
 ## Build
 

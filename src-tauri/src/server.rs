@@ -17,17 +17,20 @@ use tower_http::services::{ServeDir, ServeFile};
 pub struct Roots {
     pub web: PathBuf,
     pub vendor: PathBuf,
+    /// providers.json; need not exist (no providers, and the page falls back
+    /// to its typed-endpoint mode).
+    pub providers: PathBuf,
 }
 
 impl Roots {
     /// Bundled resources in a release build; the source tree under `cargo run`.
-    pub fn locate(resource_dir: Option<PathBuf>) -> Result<Self, String> {
+    pub fn locate(resource_dir: Option<PathBuf>, providers: PathBuf) -> Result<Self, String> {
         let mut candidates = Vec::new();
         if let Some(r) = resource_dir {
-            candidates.push(Roots { web: r.join("web"), vendor: r.join("vendor") });
+            candidates.push(Roots { web: r.join("web"), vendor: r.join("vendor"), providers: providers.clone() });
         }
         let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-        candidates.push(Roots { web: src.join("web"), vendor: src.join("vendor") });
+        candidates.push(Roots { web: src.join("web"), vendor: src.join("vendor"), providers });
 
         candidates
             .into_iter()
@@ -38,19 +41,17 @@ impl Roots {
 }
 
 pub async fn start(roots: Roots) -> std::io::Result<u16> {
-    let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
+    start_on(roots, 0).await
+}
+
+/// Port 0 picks a free one, which is what the app wants.
+pub async fn start_on(roots: Roots, port: u16) -> std::io::Result<u16> {
+    let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).await?;
     let port = listener.local_addr()?.port();
     let index = roots.web.join("index.html");
 
     let app = Router::new()
-        .route("/api/health", get(|| async {
-            Json(json!({ "status": "ok", "service": "lana-desktop", "providers": 0 }))
-        }))
-        // An empty list: the page falls back to its typed-endpoint mode until the
-        // Rust broker exists (milestone 2).
-        .route("/api/providers", get(|| async {
-            Json(json!({ "providers": [], "configured": null }))
-        }))
+        .merge(crate::broker::router(roots.providers.clone()))
         .route("/api/capabilities", get(|| async {
             Json(json!({ "desktop": true, "version": env!("CARGO_PKG_VERSION") }))
         }))
@@ -67,16 +68,25 @@ pub async fn start(roots: Roots) -> std::io::Result<u16> {
     Ok(port)
 }
 
-/// Refuse any request whose Host is not our own loopback address. Without this a
-/// web page in the user's ordinary browser could reach the server through DNS
-/// rebinding, and once the broker holds API keys that would let it spend them.
+/// Only our own page may talk to this server.
+///
+/// The Host check stops DNS rebinding. It does not stop a page in the user's
+/// ordinary browser from POSTing straight to 127.0.0.1:<port>: a multipart form
+/// is a "simple" request, sent without a CORS preflight, and although the page
+/// could not read the answer it could make the broker spend the user's API key.
+/// Browsers attach Origin to every cross-origin fetch and form POST, so a
+/// foreign Origin is refused too. A request with no Origin is a same-origin GET
+/// or a non-browser client, which has no ambient authority to abuse.
 async fn only_loopback_host(req: Request, next: Next, port: u16) -> Response {
-    let ok = req
-        .headers()
-        .get(header::HOST)
-        .and_then(|h| h.to_str().ok())
-        .is_some_and(|h| h == format!("127.0.0.1:{port}") || h == format!("localhost:{port}"));
-    if ok {
+    let ours = [format!("127.0.0.1:{port}"), format!("localhost:{port}")];
+    let allowed = {
+        let get = |name: header::HeaderName| req.headers().get(name).and_then(|h| h.to_str().ok());
+        let host_ok = get(header::HOST).is_some_and(|h| ours.iter().any(|o| o == h));
+        let origin_ok = get(header::ORIGIN)
+            .is_none_or(|o| ours.iter().any(|h| o == format!("http://{h}")));
+        host_ok && origin_ok
+    };
+    if allowed {
         next.run(req).await
     } else {
         (StatusCode::FORBIDDEN, "forbidden").into_response()
