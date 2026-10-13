@@ -1066,7 +1066,7 @@ function drawSpec() {
   const mono = C.mono;
   if (!A) {
     g.fillStyle = C.dim2; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.font = '12px ui-sans-serif';
+    g.font = '12px ui-sans-serif, system-ui, sans-serif';
     g.fillText('no analysis yet', F.w / 2, F.h / 2);
     return;
   }
@@ -1231,7 +1231,7 @@ function drawTiers() {
 
     // gutter: tier name, then which model filled it
     g.fillStyle = C.dim; g.textAlign = 'right'; g.textBaseline = 'middle';
-    g.font = '11px ui-sans-serif';
+    g.font = '11px ui-sans-serif, system-ui, sans-serif';
     g.fillText(lane.label, x0 - 6, ly + lh / 2 - 6);
     g.fillStyle = t.state === 'done' ? C.ok
                 : t.state === 'failed' ? C.err
@@ -1253,12 +1253,12 @@ function drawTiers() {
       g.stroke(); g.lineWidth = 1;
       g.restore();
       g.fillStyle = t.state === 'queued' ? C.warn : C.accent;
-      g.textAlign = 'center'; g.font = '11px ui-sans-serif';
+      g.textAlign = 'center'; g.font = '11px ui-sans-serif, system-ui, sans-serif';
       g.fillText(laneCaption(t), (x0 + F.x1) / 2, ly + lh / 2);
       return;
     }
     if (!t.items.length) {
-      g.fillStyle = C.dim2; g.textAlign = 'center'; g.font = '11px ui-sans-serif';
+      g.fillStyle = C.dim2; g.textAlign = 'center'; g.font = '11px ui-sans-serif, system-ui, sans-serif';
       g.fillText(laneCaption(t), (x0 + F.x1) / 2, ly + lh / 2);
       return;
     }
