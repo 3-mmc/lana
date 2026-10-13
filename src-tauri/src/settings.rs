@@ -25,13 +25,17 @@ use crate::broker::KEYCHAIN_SERVICE;
 #[derive(Clone)]
 struct Settings {
     file: PathBuf,
+    /// The recording the app was launched with, if any. The only file outside
+    /// the app's own resources that this server will hand to the page.
+    launch: Option<PathBuf>,
     write: Arc<Mutex<()>>,
     http: reqwest::Client,
 }
 
-pub fn router(file: PathBuf) -> Router {
+pub fn router(file: PathBuf, launch: Option<PathBuf>) -> Router {
     let s = Settings {
         file,
+        launch,
         write: Arc::new(Mutex::new(())),
         http: reqwest::Client::builder()
             .user_agent(concat!("lana-desktop/", env!("CARGO_PKG_VERSION")))
@@ -40,6 +44,8 @@ pub fn router(file: PathBuf) -> Router {
     };
     Router::new()
         .route("/api/capabilities", get(capabilities))
+        .route("/api/launch-file", get(launch_file))
+        .route("/api/log", post(log))
         .route("/api/settings/providers", get(list).post(upsert))
         .route("/api/settings/providers/{id}", delete(remove))
         .route("/api/settings/keys/{id}", put(set_key).delete(delete_key))
@@ -81,7 +87,29 @@ async fn capabilities(State(s): State<Settings>) -> Json<Value> {
         "version": env!("CARGO_PKG_VERSION"),
         "keychain": available.then_some(keychain_name()),
         "providers_file": s.file.display().to_string(),
+        "launch_file": s.launch.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy()),
     }))
+}
+
+/// The page's errors, printed where a developer running the app can see them.
+/// A webview's console is otherwise out of reach in a release build.
+async fn log(body: axum::body::Bytes) -> StatusCode {
+    let text = String::from_utf8_lossy(&body[..body.len().min(4096)]);
+    eprintln!("page: {text}");
+    StatusCode::NO_CONTENT
+}
+
+async fn launch_file(State(s): State<Settings>) -> Response {
+    let Some(path) = s.launch.clone() else {
+        return err(StatusCode::NOT_FOUND, "the app was not opened with a file");
+    };
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => {
+            let mime = mime_guess::from_path(&path).first_or_octet_stream().to_string();
+            ([(axum::http::header::CONTENT_TYPE, mime)], bytes).into_response()
+        }
+        Err(e) => err(StatusCode::NOT_FOUND, format!("cannot read {}: {e}", path.display())),
+    }
 }
 
 // ------------------------------------------------------------- the file

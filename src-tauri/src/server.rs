@@ -18,6 +18,8 @@ pub struct Roots {
     /// providers.json; need not exist (no providers, and the page falls back
     /// to its typed-endpoint mode).
     pub providers: PathBuf,
+    /// A recording to open at start, from the command line or the OS.
+    pub launch: Option<PathBuf>,
 }
 
 impl Roots {
@@ -25,10 +27,10 @@ impl Roots {
     pub fn locate(resource_dir: Option<PathBuf>, providers: PathBuf) -> Result<Self, String> {
         let mut candidates = Vec::new();
         if let Some(r) = resource_dir {
-            candidates.push(Roots { web: r.join("web"), vendor: r.join("vendor"), providers: providers.clone() });
+            candidates.push(Roots { web: r.join("web"), vendor: r.join("vendor"), providers: providers.clone(), launch: None });
         }
         let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-        candidates.push(Roots { web: src.join("web"), vendor: src.join("vendor"), providers });
+        candidates.push(Roots { web: src.join("web"), vendor: src.join("vendor"), providers, launch: None });
 
         candidates
             .into_iter()
@@ -50,7 +52,7 @@ pub async fn start_on(roots: Roots, port: u16) -> std::io::Result<u16> {
 
     let app = Router::new()
         .merge(crate::broker::router(roots.providers.clone()))
-        .merge(crate::settings::router(roots.providers.clone()))
+        .merge(crate::settings::router(roots.providers.clone(), roots.launch.clone()))
         .route_service("/", ServeFile::new(&index))
         .route_service("/index.html", ServeFile::new(&index))
         .nest_service("/vendor", ServeDir::new(&roots.vendor))

@@ -43,7 +43,10 @@ fn main() {
                 None => app.path().app_config_dir()?.join("providers.json"),
             };
             eprintln!("providers from {}", providers.display());
-            let roots = server::Roots::locate(app.path().resource_dir().ok(), providers)?;
+            let mut roots = server::Roots::locate(app.path().resource_dir().ok(), providers)?;
+            // `lana-desktop recording.wav`: the first argument that names a file.
+            // (macOS "Open with" arrives as an event instead; not handled yet.)
+            roots.launch = std::env::args_os().skip(1).map(std::path::PathBuf::from).find(|p| p.is_file());
             let port = tauri::async_runtime::block_on(server::start(roots))?;
             let url = format!("http://127.0.0.1:{port}/");
             eprintln!("lana-desktop serving {url}");
@@ -52,6 +55,9 @@ fn main() {
                 .title("Lana")
                 .inner_size(1400.0, 900.0)
                 .min_inner_size(900.0, 600.0)
+                // Let the page receive dropped files as HTML5 drops. Tauri's own
+                // handler would otherwise consume them before the page sees them.
+                .disable_drag_drop_handler()
                 .build()?;
             Ok(())
         })
