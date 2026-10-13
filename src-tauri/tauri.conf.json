@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Praat Desktop",
+  "productName": "Lana",
   "version": "0.1.0",
-  "identifier": "io.github.3-mmc.praat-desktop",
+  "identifier": "io.github.threemmc.lana",
   "app": {
     "windows": [],
     "security": { "csp": null }

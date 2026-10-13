@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Praat Desktop: praat-web's interface in a native window.
+// Lana: lana-web's interface in a native window.
 //
 // The page is served by an embedded HTTP server on 127.0.0.1 rather than through
 // Tauri's asset protocol, so workers, wasm and same-origin fetches behave exactly
@@ -24,15 +24,15 @@ fn main() {
             let roots = server::Roots::locate(app.path().resource_dir().ok())?;
             let port = tauri::async_runtime::block_on(server::start(roots))?;
             let url = format!("http://127.0.0.1:{port}/");
-            eprintln!("praat-desktop serving {url}");
+            eprintln!("lana-desktop serving {url}");
             let url = url.parse()?;
             WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
-                .title("Praat Desktop")
+                .title("Lana")
                 .inner_size(1400.0, 900.0)
                 .min_inner_size(900.0, 600.0)
                 .build()?;
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Praat Desktop");
+        .expect("error while running Lana");
 }

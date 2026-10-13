@@ -1,10 +1,12 @@
-# Praat Desktop
+# Lana — desktop
 
-[praat-web](https://github.com/3-mmc/praat-web) as a desktop app for macOS (Apple Silicon),
+**L**inguistic **ANA**lysis. Lana is built on [Praat](https://www.fon.hum.uva.nl/praat/) (Paul Boersma & David Weenink) but is not part of the Praat project or endorsed by its authors.
+
+[lana-web](https://github.com/3-mmc/lana-web) as a desktop app for macOS (Apple Silicon),
 Windows 11 and Linux: Praat's analysis with word, phone and speaker tiers filled by speech
 recognition, exported as a TextGrid. Design and milestones are in [PLAN.md](PLAN.md).
 
-**Status: milestone 1.** A native window with the praat-web interface and praat-wasm analysis.
+**Status: milestone 1.** A native window with the lana-web interface and praat-wasm analysis.
 Recognition works only against an endpoint you enter yourself, until the Rust broker lands.
 
 ## Build

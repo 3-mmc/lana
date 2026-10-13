@@ -44,7 +44,7 @@ pub async fn start(roots: Roots) -> std::io::Result<u16> {
 
     let app = Router::new()
         .route("/api/health", get(|| async {
-            Json(json!({ "status": "ok", "service": "praat-desktop", "providers": 0 }))
+            Json(json!({ "status": "ok", "service": "lana-desktop", "providers": 0 }))
         }))
         // An empty list: the page falls back to its typed-endpoint mode until the
         // Rust broker exists (milestone 2).

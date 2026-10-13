@@ -1,5 +1,5 @@
 [package]
-name = "praat-desktop"
+name = "lana-desktop"
 version = "0.1.0"
 description = "Praat phonetic analysis with speech-recognised tiers, as a desktop app"
 license = "GPL-3.0-or-later"

@@ -1,6 +1,6 @@
-# praat-desktop — plan
+# lana-desktop — plan
 
-Native builds of [praat-web](https://github.com/3-mmc/praat-web) for **Apple Silicon macOS,
+Native builds of [lana-web](https://github.com/3-mmc/lana-web) for **Apple Silicon macOS,
 Windows 11 and Linux**. Same interface and feature set as the web version: spectrogram, pitch,
 formant and intensity panes, word/phone/speaker tiers, pluggable recognition providers, and
 TextGrid export. On top of that, two things only a native app can do well:
@@ -10,24 +10,24 @@ TextGrid export. On top of that, two things only a native app can do well:
    with IPA in it"** without editing a JSON file, setting an environment variable or running a
    server.
 
-GPL-3.0-or-later, inherited from praat-wasm through praat-web.
+GPL-3.0-or-later, inherited from praat-wasm through lana-web.
 
 ## Layout
 
 ```
-praat-desktop/
-  web/          git submodule -> 3-mmc/praat-web (the UI; do not fork it here)
+lana-desktop/
+  web/          git submodule -> 3-mmc/lana-web (the UI; do not fork it here)
   src-tauri/    Rust shell: window, embedded server, broker, model manager   (to come)
   PLAN.md
 ```
 
 `web/` is a submodule, not a copy. The interface has one source of truth. A change the desktop
-app needs goes into praat-web behind feature detection, and the submodule pointer gets bumped.
+app needs goes into lana-web behind feature detection, and the submodule pointer gets bumped.
 A vendored copy would drift on the first commit.
 
-## The seam: keep praat-web's `/api/*` contract
+## The seam: keep lana-web's `/api/*` contract
 
-praat-web already feature-detects a backend. When `GET /api/providers` answers, the page uses the
+lana-web already feature-detects a backend. When `GET /api/providers` answers, the page uses the
 broker. When it does not, the page falls back to a typed endpoint. `serve.py` implements that
 contract in 505 lines: `providers`, `transcribe`, `progress`, `partial`, `cancel`, `recluster`,
 plus `normalise()`, which folds every response into the cue shape.
@@ -36,7 +36,7 @@ The desktop shell **re-implements that contract in Rust and serves the unchanged
 from an embedded `127.0.0.1:<random port>` server** that the webview loads. The result:
 
 - the frontend needs zero changes to run natively. Desktop-only UI (model manager, key entry) is
-  added to praat-web behind `GET /api/capabilities`, so the browser build never shows it;
+  added to lana-web behind `GET /api/capabilities`, so the browser build never shows it;
 - workers, wasm and same-origin fetches behave exactly as they do in the browser. praat-wasm
   needs no `SharedArrayBuffer`/cross-origin isolation, which was checked, so all three webviews
   can run it;
@@ -104,7 +104,7 @@ Never copy or move a found model. Reference it in place, and fall back cleanly i
 Probe localhost once for OpenAI-compatible `/v1/models`: llama-swap `:9292`, speaches/
 faster-whisper-server `:8000`, whisper.cpp server `:8080`, LM Studio `:1234`. Add any that expose
 audio models as providers.
-**Lesson from praat-web:** any GET through llama-swap's `/upstream/<id>/` *starts* that service
+**Lesson from lana-web:** any GET through llama-swap's `/upstream/<id>/` *starts* that service
 and can evict a resident GPU model. Discovery must hit only the gateway's root `/v1/models`,
 never an upstream.
 
@@ -112,7 +112,7 @@ never an upstream.
 
 - First-run wizard: "Which language are your recordings in?" leads to a recommended model pair
   and one download button. Language codes are picked from a named list. The app maps to 639-1 or
-  639-3 per model, a mismatch that already bit praat-web (mms `kat` vs whisper `ka`).
+  639-3 per model, a mismatch that already bit lana-web (mms `kat` vs whisper `ka`).
 - Hardware check up front: RAM/VRAM/Apple-Silicon detection selects the largest model that will
   actually fit and says why.
 - Errors in sentences ("This model needs about 3 GB of free memory; you have 1.2 GB"), never a
@@ -121,8 +121,8 @@ never an upstream.
 
 ## Builds and where they happen
 
-- **Windows 11**: build natively on Windows from `D:\Projekte\praat-desktop` (MSVC + WebView2).
-- **Linux**: build in WSL. Point `CARGO_TARGET_DIR` at ext4 (`~/.cache/praat-desktop-target`),
+- **Windows 11**: build natively on Windows from `D:\Projekte\lana-desktop` (MSVC + WebView2).
+- **Linux**: build in WSL. Point `CARGO_TARGET_DIR` at ext4 (`~/.cache/lana-desktop-target`),
   because a cargo target dir on drvfs is very slow.
 - **Apple Silicon**: GitHub Actions `macos-14` (arm64) runner, unless a Mac is available locally.
   Signing and notarisation need an Apple Developer ID. Without one, Gatekeeper makes users
@@ -138,7 +138,7 @@ never an upstream.
    keys in the keychain. Diff-test against `serve.py` with the same requests.
 3. **whisper.cpp built in** + catalogue download for the word tier.
 4. **Phone tier** via ONNX Runtime + CTC spike timing, checked against ipasub output on the
-   German and Georgian FLEURS clips used for the praat-web README.
+   German and Georgian FLEURS clips used for the lana-web README.
 5. **Discovery** of installed models and running servers.
 6. **Speaker tier** via sherpa-onnx; first-run wizard; installers + CI.
 
