@@ -200,6 +200,7 @@
   fieldset[disabled]{opacity:.45}
   legend{font-size:10.5px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;padding:0 5px}
 
+  body.dropping main{outline:2px dashed var(--accent);outline-offset:-5px;border-radius:6px}
   /* desktop settings */
   .mgrow{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line2)}
   .mgrow .who{flex:1;min-width:0}
@@ -793,6 +794,37 @@ $('file').addEventListener('change', async ev => {
   drawAll();
   await analyse();
   adoptRunningJob();
+});
+
+/* Load a File as if it had been chosen in the picker, so everything that reads
+   $('file').files (the upload, fileKey) sees it too. Used for dropped files and
+   for a file the desktop app was opened with. */
+function openFile(f) {
+  const dt = new DataTransfer();
+  dt.items.add(f);
+  $('file').files = dt.files;
+  $('file').dispatchEvent(new Event('change'));
+}
+
+/* Drop a recording anywhere on the page. dragleave fires for every child the
+   pointer crosses, so count enters and leaves rather than trusting one event. */
+let dragDepth = 0;
+const carriesFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
+document.addEventListener('dragenter', e => {
+  if (!carriesFiles(e)) return;
+  e.preventDefault();
+  if (++dragDepth === 1) document.body.classList.add('dropping');
+});
+document.addEventListener('dragover', e => { if (carriesFiles(e)) e.preventDefault(); });
+document.addEventListener('dragleave', e => {
+  if (carriesFiles(e) && --dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dropping'); }
+});
+document.addEventListener('drop', e => {
+  if (!carriesFiles(e)) return;
+  e.preventDefault();
+  dragDepth = 0; document.body.classList.remove('dropping');
+  const f = [...e.dataTransfer.files].find(f => /^(audio|video)\//.test(f.type)) || e.dataTransfer.files[0];
+  if (f) openFile(f);
 });
 
 function encodeWav(buf) {
@@ -2493,7 +2525,19 @@ const DESK = {
     $('fsBroker').querySelector('.hint.pad').hidden = true;
     $('modeBroker').parentElement.lastChild.textContent = ' Recognisers in this app';
     NET.onchange = () => DESK.renderList();
+    // The recording the app was opened with ("Open with Lana", or a path on the
+    // command line). The server hands out that one file and nothing else.
+    if (DESK.caps.launch_file) DESK.openLaunchFile(DESK.caps.launch_file);
     await DESK.load();
+  },
+
+  async openLaunchFile(name) {
+    try {
+      const r = await fetch(apiUrl('/launch-file'));
+      if (!r.ok) throw new Error(`error ${r.status}`);
+      const blob = await r.blob();
+      openFile(new File([blob], name, { type: blob.type }));
+    } catch (e) { status(`could not open ${name}: ${e.message}`, true); }
   },
 
   async load() {
