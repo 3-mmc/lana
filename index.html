@@ -249,6 +249,18 @@
   .lcbar{width:120px;height:4px;background:var(--sunken);border-radius:2px;overflow:hidden}
   .lcbar i{display:block;height:100%;background:var(--accent);transition:width .4s linear}
   .lcerr{color:var(--err);font-size:11px;max-width:260px}
+  #mmsBox{font-size:12px}
+  #mmsBox .gate{padding:8px 10px;display:grid;gap:7px;color:var(--dim)}
+  #mmsBox .gate b{color:var(--ink)}
+  #mmsBox .lic{border:1px solid var(--warnline);border-radius:4px;padding:7px 9px;color:var(--ink);background:var(--panel2)}
+  #mmsBox .lic strong{color:var(--warn)}
+  #mmsBox .sub{padding:7px 10px 3px;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+  #mmsBox .find{display:flex;gap:6px;align-items:center;padding:4px 10px 6px;flex-wrap:wrap}
+  #mmsBox .find input{flex:1;min-width:220px;max-width:380px}
+  #mmsBox .pin{border:0;background:none;color:var(--dim2);font-size:14px;padding:0 2px;line-height:1}
+  #mmsBox .pin.on{color:var(--warn)}
+  #mmsBox .none{padding:4px 10px 8px;color:var(--dim2);font-size:11px}
+  #mmsBox .code{font-family:var(--mono);color:var(--dim2);font-size:11px;margin-left:6px}
   .mgadd{border-bottom:0}
   #mgForm{border-top:1px solid var(--line2);background:var(--panel)}
   #mgModels{display:flex;flex-direction:column;gap:3px;max-height:190px;overflow:auto}
@@ -349,6 +361,8 @@
     <legend>Recognisers in this app</legend>
     <div class="mghead">Built into Lana <span>— runs on this computer, works offline, nothing is uploaded</span></div>
     <div id="lcList"></div>
+    <div class="mghead">MMS <span>— words in 1,198 languages, added one language at a time · non-commercial licence</span></div>
+    <div id="mmsBox"></div>
     <div class="mghead">Other recognisers <span>— cloud services, or a speech server you run</span></div>
     <div id="mgList"></div>
     <div class="row tight mgadd">
@@ -1997,7 +2011,10 @@ function fillModelSelects() {
        speaker tier, so the speaker select offers only what could work. The
        other two keep listing everything, because the response is believed over
        the provider's role hint and a model often returns more than it claims. */
-    const pool = t.optional ? NET.models.filter(m => m.role === t.role) : NET.models;
+    const pins = CFG.mmsPins || [];
+    const pinned = m => pins.includes((m.id.match(/^mms-(.+)$/) || [])[1]);
+    const pool = (t.optional ? NET.models.filter(m => m.role === t.role) : NET.models)
+      .slice().sort((a, b) => pinned(b) - pinned(a));
     el.innerHTML = '<option value="">(none)</option>' + pool.map(m => {
       const fits = m.role === 'both' || m.role === t.role;
       return `<option value="${esc(m.id)}">${esc(m.label)}${fits ? '' : ' — ' + m.role + ' only'}</option>`;
@@ -3582,8 +3599,105 @@ const DESK = {
     DESK.lcHave = have;
   },
 
+  /* MMS: a licence step, the shared part, and the languages. Each language is
+     its own small download, so the list is searchable rather than a wall of
+     1,198 buttons, with the languages of the Caucasus one click away. */
+  mms: null, mmsLangs: null, mmsQuery: '',
+  async loadMms() {
+    try {
+      const r = await fetch(apiUrl('/local/mms'), { cache: 'no-store' });
+      if (!r.ok) return;
+      DESK.mms = await r.json();
+      if (!DESK.mmsLangs) DESK.mmsLangs = await (await fetch(apiUrl('/local/mms/languages'))).json();
+    } catch { return; }
+    DESK.renderMms();
+    const m = DESK.mms;
+    const busy = m.shared.downloading || Object.keys(m.downloading).length;
+    clearTimeout(DESK.mmsTimer);
+    if (busy) DESK.mmsTimer = setTimeout(() => DESK.loadMms(), 1000);
+    const have = m.installed.map(l => l.code).join();
+    if (DESK.mmsHave != null && have !== DESK.mmsHave) await NET.discover();
+    DESK.mmsHave = have;
+  },
+
+  renderMms() {
+    const m = DESK.mms, box = $('mmsBox');
+    if (!m) return;
+    const gb = mb => mb >= 1000 ? (mb / 1000).toFixed(1) + ' GB' : mb + ' MB';
+    const bar = d => {
+      const pct = d && d.total ? Math.floor(d.done / d.total * 100) : 0;
+      return `<span class="lcbar"><i style="width:${pct}%"></i></span><span class="hint num">${pct}%</span>`;
+    };
+    if (!m.accepted) {
+      box.innerHTML = `<div class="gate">
+        <div><b>MMS</b> (Meta, 2023) recognises words in 1,198 languages, among them Avar, Chechen,
+          Dargwa, Georgian and Ossetian. In Lana's tests it was by far the most accurate model here for
+          languages of the Caucasus: about 10% of characters wrong on Dargwa, where the next best got
+          two thirds wrong.</div>
+        <div class="lic"><strong>Non-commercial licence (${esc(m.licence)}).</strong> You may use MMS, and the
+          transcriptions it makes, for research, teaching, documentation and other non-commercial work.
+          You may not use it for paid or commercial projects. Tiers it fills are labelled with its name, so
+          the provenance stays visible in every export.</div>
+        <div class="row tight" style="padding:0;border:0">
+          <button class="primary" data-mms="accept">I accept: non-commercial use only</button>
+          <a href="${esc(m.licence_url)}" target="_blank" rel="noopener" class="hint">Read the licence</a>
+        </div>
+      </div>`;
+      return;
+    }
+    const nameOf = c => (DESK.mmsLangs || []).find(l => l[0] === c)?.[1] || c;
+    const rows = [];
+    // The shared part
+    const sh = m.shared;
+    rows.push(`<div class="mgrow"><div class="who"><b>Shared part</b>
+      <em>Needed once, by every MMS language. ${gb(sh.size_mb)}. Downloads by itself with your first language.</em></div>
+      ${sh.downloading ? bar(sh.downloading)
+        : sh.installed ? `<span class="chip live">ready</span><button class="tiny" data-mms="removeall">${DESK.armed === 'mms:all' ? 'Click again: remove MMS and all its languages' : 'Remove MMS'}</button>`
+        : m.errors.shared ? `<span class="lcerr">${esc(m.errors.shared)}</span>` : '<span class="hint">not downloaded</span>'}</div>`);
+    // Languages on this computer, and those on their way
+    rows.push('<div class="sub">Your languages</div>');
+    const mine = [...m.installed.map(l => l.code), ...Object.keys(m.downloading), ...Object.keys(m.errors).filter(k => k !== 'shared')];
+    // Pinned languages first, then by name: a researcher's own languages stay
+    // at the top here and in the word tier's list, however many are added.
+    const pins = CFG.mmsPins || [];
+    const uniq = [...new Set(mine)].sort((a, b) =>
+      (pins.includes(b) - pins.includes(a)) || nameOf(a).localeCompare(nameOf(b)));
+    if (!uniq.length) rows.push('<div class="none">None yet. Find one below.</div>');
+    for (const c of uniq) {
+      const d = m.downloading[c], err = m.errors[c], ready = m.installed.some(l => l.code === c);
+      const pinned = pins.includes(c);
+      rows.push(`<div class="mgrow" data-code="${esc(c)}">
+        <button class="tiny pin${pinned ? ' on' : ''}" data-mms="pin" title="${pinned ? 'Unpin' : 'Pin: keep this language at the top of the lists'}">${pinned ? '★' : '☆'}</button>
+        <div class="who"><b>${esc(nameOf(c))}</b><span class="code">${esc(c)}</span></div>
+        ${d ? bar(d) : ready ? `<span class="chip live">ready</span><button class="tiny" data-mms="remove">Remove</button>`
+            : `<span class="lcerr">${esc(err || '')}</span><button class="tiny" data-mms="add">Try again</button>`}</div>`);
+    }
+    // Adding a language
+    rows.push('<div class="sub">Add a language</div>');
+    rows.push(`<div class="find"><input id="mmsFind" placeholder="Search by name or code, e.g. Avar, Chechen, ava" value="${esc(DESK.mmsQuery)}" spellcheck="false" autocomplete="off">
+      <span class="hint">${gb(m.adapter_mb)} each${sh.installed ? '' : `, plus the ${gb(sh.size_mb)} shared part once`}</span></div>`);
+    const q = DESK.mmsQuery.trim().toLowerCase();
+    if (q) {
+      const hits = (DESK.mmsLangs || []).filter(([c, n]) => c.includes(q) || n.toLowerCase().includes(q))
+        .sort((a, b) => (b[1].toLowerCase().startsWith(q) || b[0] === q) - (a[1].toLowerCase().startsWith(q) || a[0] === q));
+      for (const [c, n] of hits.slice(0, 12)) {
+        const had = uniq.includes(c);
+        rows.push(`<div class="mgrow" data-code="${esc(c)}"><div class="who"><b>${esc(n)}</b><span class="code">${esc(c)}</span></div>
+          ${had ? '<span class="hint">added</span>' : `<button class="tiny" data-mms="add">Add · ${gb(m.adapter_mb)}</button>`}</div>`);
+      }
+      if (!hits.length) rows.push('<div class="none">No MMS language matches. Try the ISO 639-3 code.</div>');
+      else if (hits.length > 12) rows.push(`<div class="none">${hits.length - 12} more; type more of the name.</div>`);
+    }
+    rows.push(`<div class="none">Licence: ${esc(m.licence)}, non-commercial use only (accepted).
+      Models: <a href="https://huggingface.co/facebook/mms-1b-all" target="_blank" rel="noopener">Meta's MMS</a>.</div>`);
+    const focused = document.activeElement?.id === 'mmsFind', caret = focused ? $('mmsFind').selectionStart : 0;
+    box.innerHTML = rows.join('');
+    if (focused) { $('mmsFind').focus(); $('mmsFind').setSelectionRange(caret, caret); }
+  },
+
   async load() {
     DESK.loadLocal();
+    DESK.loadMms();
     try {
       const r = await fetch(apiUrl('/settings/providers'), { cache: 'no-store' });
       DESK.providers = r.ok ? (await r.json()).providers || [] : [];
@@ -3762,6 +3876,40 @@ $('mgKey').addEventListener('input', () => {
 $('mgCancel').addEventListener('click', () => DESK.close());
 $('mgTest').addEventListener('click', () => DESK.test());
 $('mgSave').addEventListener('click', () => DESK.save());
+$('mmsBox').addEventListener('input', e => {
+  if (e.target.id !== 'mmsFind') return;
+  DESK.mmsQuery = e.target.value;
+  DESK.renderMms();
+});
+$('mmsBox').addEventListener('click', async e => {
+  const btn = e.target.closest('button[data-mms]');
+  if (!btn) return;
+  const act = btn.dataset.mms, code = btn.dataset.code || btn.closest('[data-code]')?.dataset.code;
+  let r;
+  if (act === 'accept') r = await fetch(apiUrl('/local/mms/accept'), { method: 'POST' });
+  else if (act === 'add') r = await fetch(apiUrl(`/local/mms/languages/${enc(code)}`), { method: 'POST' });
+  else if (act === 'pin') {
+    const pins = new Set(CFG.mmsPins || []);
+    pins.has(code) ? pins.delete(code) : pins.add(code);
+    CFG.mmsPins = [...pins]; saveCfg();
+    DESK.renderMms(); fillModelSelects();
+    return;
+  }
+  else if (act === 'remove') r = await fetch(apiUrl(`/local/mms/languages/${enc(code)}`), { method: 'DELETE' });
+  else if (act === 'removeall') {
+    // Two clicks: this deletes a gigabyte and every language with it.
+    if (DESK.armed !== 'mms:all') {
+      DESK.armed = 'mms:all'; DESK.renderMms();
+      setTimeout(() => { if (DESK.armed === 'mms:all') { DESK.armed = null; DESK.renderMms(); } }, 4000);
+      return;
+    }
+    DESK.armed = null;
+    r = await fetch(apiUrl('/local/mms'), { method: 'DELETE' });
+  }
+  if (r && !r.ok) status((await r.json().catch(() => ({}))).error || `error ${r.status}`, true);
+  if (act === 'add') { DESK.mmsQuery = ''; }
+  await DESK.loadMms();
+});
 $('lcList').addEventListener('click', async e => {
   const btn = e.target.closest('button[data-lc]');
   if (!btn) return;
