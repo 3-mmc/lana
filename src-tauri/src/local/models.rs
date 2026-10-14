@@ -199,7 +199,7 @@ impl Models {
         }
         let me = self.clone();
         let id = id.to_owned();
-        tauri::async_runtime::spawn(async move {
+        tokio::spawn(async move {
             let result = me.fetch(&e).await;
             let mut dl = me.downloads.lock().unwrap();
             match result {

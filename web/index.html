@@ -190,7 +190,7 @@
   table.seg tr:hover td{background:var(--rowhover);cursor:pointer}
   table.seg tr.sel td{background:var(--rowsel)}
   .scroll{max-height:260px;overflow:auto}
-  #transcript{padding:7px 9px;max-height:200px;overflow:auto;font-size:12px;line-height:1.55}
+  #transcript{padding:7px 9px;max-height:260px;overflow:auto;font-size:12px;line-height:1.55}
   #transcript .cue{margin-bottom:5px}
   #transcript .t{color:var(--dim2);font-family:var(--mono);font-size:10px;margin-right:5px}
   #transcript .ipa{color:var(--f2);display:block;margin-left:2px}
@@ -519,6 +519,11 @@
         <input type="checkbox" id="nameTiers"> name tiers by model</label>
     </div>
   </div>
+
+  <div class="pane">
+    <h2>Transcript <span class="sub" id="transcriptNote">fills as the recogniser reports</span></h2>
+    <div id="transcript" class="hint">nothing yet</div>
+  </div>
 </div>
 
 <div class="col">
@@ -636,11 +641,6 @@
         <tbody></tbody>
       </table>
     </div>
-  </div>
-
-  <div class="pane">
-    <h2>Transcript <span class="sub" id="transcriptNote">fills as the recogniser reports</span></h2>
-    <div id="transcript" class="hint">nothing yet</div>
   </div>
 </div>
 </main>

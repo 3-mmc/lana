@@ -144,7 +144,7 @@ impl Models {
         }
         let me = self.clone();
         let code = code.to_owned();
-        tauri::async_runtime::spawn(async move {
+        tokio::spawn(async move {
             let result = me.mms_fetch(&code).await;
             let mut dl = me.downloads.lock().unwrap();
             match result {

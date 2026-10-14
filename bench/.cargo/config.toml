@@ -1,0 +1,12 @@
+# Windows: link the C runtime statically.
+#
+# sherpa-onnx (ZIPA, speakers) ships only static libraries built with /MT, and
+# whisper.cpp builds with /MD by default; MSVC refuses to link the two
+# ("mismatch detected for 'RuntimeLibrary'"). With crt-static, Rust uses /MT
+# and the cmake crate builds whisper.cpp with /MT to match. It also means the
+# app no longer needs the Visual C++ redistributable on the user's machine.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

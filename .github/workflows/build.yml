@@ -35,7 +35,9 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: |
+            src-tauri
+            bench
 
       - name: Linux packages
         if: runner.os == 'Linux'
@@ -78,6 +80,26 @@ jobs:
         with:
           name: lana-${{ matrix.os }}
           path: dist/*
+
+      # lana-bench, the timing tool for calibrating model recommendations. An
+      # artifact only, never attached to a release. Archived because artifact
+      # zips drop the executable bit on macOS and Linux.
+      - name: Build lana-bench
+        shell: bash
+        working-directory: bench
+        run: |
+          cargo build --release
+          mkdir -p ../bench-dist
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp target/release/lana-bench.exe ../bench-dist/
+          else
+            tar czf ../bench-dist/lana-bench-$RUNNER_OS.tar.gz -C target/release lana-bench
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lana-bench-${{ matrix.os }}
+          path: bench-dist/*
 
       - name: Attach to draft release
         if: startsWith(github.ref, 'refs/tags/')
