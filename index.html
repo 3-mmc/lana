@@ -119,7 +119,16 @@
   #overview{height:30px;cursor:pointer;border-bottom:1px solid var(--line2)}
   #intens{height:66px;cursor:crosshair}
   #spec{height:330px;cursor:crosshair}
-  #tiers{height:132px;cursor:pointer}
+  #tiers{height:132px;cursor:pointer;display:block;width:100%}
+  .tierwrap{position:relative}
+  #labEdit{position:absolute;z-index:4;box-sizing:border-box;padding:0 6px;text-align:center;
+           font:13px ui-sans-serif,system-ui,sans-serif;background:var(--panel);color:var(--ink);
+           border:1px solid var(--accent);border-radius:3px;outline:none}
+  .edbar{border-bottom:1px solid var(--line2)}
+  .edbar .sep{width:1px;align-self:stretch;background:var(--line2);margin:0 4px}
+  .edbar .hint{font-size:11px;color:var(--dim2)}
+  #saveState.err{color:var(--err)}
+  #saveState button{margin-left:6px}
   .legend{display:flex;gap:9px;font-size:10.5px;color:var(--dim);margin-left:auto;align-items:center}
   .legend i{font-style:normal}
   .swatch{display:inline-block;width:8px;height:8px;border-radius:2px;vertical-align:-1px;margin-right:3px}
@@ -466,9 +475,26 @@
   </div>
 
   <div class="pane">
-    <h2>Tiers <span class="sub" id="tierinfo">no annotation yet</span></h2>
-    <canvas id="tiers"></canvas>
+    <h2>Tiers <span class="sub" id="tierinfo">no annotation yet</span>
+      <span class="sp"></span><span class="sub" id="saveState"></span></h2>
+    <div class="row tight edbar">
+      <button class="tiny" id="edSplit" title="Add a boundary at the cursor on the selected tier (B)">+ boundary</button>
+      <button class="tiny" id="edMerge" title="Join the selected interval with the next one (M)">merge →</button>
+      <button class="tiny" id="edDel" title="Remove the selected interval (Delete)">delete</button>
+      <button class="tiny" id="edUndo" title="Undo (Ctrl+Z)">↶ undo</button>
+      <button class="tiny" id="edRedo" title="Redo (Ctrl+Shift+Z)">↷ redo</button>
+      <span class="sep"></span>
+      <button class="tiny" id="tierAdd" title="Add an empty tier to annotate by hand">+ tier</button>
+      <button class="tiny" id="tierRen" hidden>rename tier</button>
+      <button class="tiny" id="tierDel" hidden>remove tier</button>
+      <span class="sp"></span>
+      <span class="hint" title="Select a stretch on the waveform first to label only that stretch. Enter edits the selected interval, Tab moves to the next one.">double-click a tier to type a label · drag a boundary to move it</span>
+    </div>
+    <div class="tierwrap"><canvas id="tiers"></canvas><input id="labEdit" hidden autocomplete="off" spellcheck="false"></div>
     <div class="row tight">
+      <button id="openAnn" title="Open a Praat TextGrid or a Lana annotation file for the loaded recording">Open annotation…</button>
+      <input type="file" id="annFile" accept=".TextGrid,.textgrid,.json,.lana" hidden>
+      <button id="dlLana" disabled title="Everything on the tiers, with which model made each one, as a file Lana can open again">⬇ Lana file</button>
       <button id="dlTextGrid" disabled>⬇ TextGrid</button>
       <button id="dlSrt" disabled>⬇ SRT</button>
       <button id="dlAss" disabled>⬇ ASS</button>
@@ -704,7 +730,17 @@ readPalette();
 // One language box became two when it turned out that mms wants ISO 639-3 and
 // whisper wants 639-1, so a single field could not serve both tiers at once.
 if (CFG.lang) { CFG.langWord = CFG.langWord || CFG.lang; CFG.langPhone = CFG.langPhone || CFG.lang; delete CFG.lang; }
-const saveCfg = () => { try { localStorage.setItem(CFG_KEY, JSON.stringify(CFG)); } catch {} };
+/* In the desktop app localStorage does not outlast a launch (the server's port,
+   and with it the page's origin, changes every time), so the app keeps a copy
+   too; DESK.loadPrefs reads it back. */
+let prefsTimer = null, deskStore = false;   // deskStore: set once the app says it keeps files
+const saveCfg = () => {
+  try { localStorage.setItem(CFG_KEY, JSON.stringify(CFG)); } catch {}
+  if (deskStore) {
+    clearTimeout(prefsTimer);
+    prefsTimer = setTimeout(() => STORE.put('prefs', 'config', CFG).catch(() => {}), 400);
+  }
+};
 
 /* Where this page is mounted. llama-swap serves it under /upstream/praat/, and
    the broker lives beside it, so the API path has to be derived rather than
@@ -910,6 +946,10 @@ const S = {
   transcript: [],       // cues for the text panel, whichever model produced them
   queue: [], running: null, side: null, sideAbort: null,
   lastReadout: {},
+  extra: [],            // tiers added by hand or from a TextGrid: {key, label, items, ...}
+  activeLane: 'word',   // the tier the edit buttons and keys act on
+  undo: [], redo: [],
+  file: null,           // {name, size} of the loaded recording
 };
 for (const t of TIERS) S.tracks[t.key] = newTrack(t.role, t.label);
 
@@ -969,6 +1009,8 @@ function sampleAt(m, t, t0) {
 $('file').addEventListener('change', async ev => {
   const f = ev.target.files[0];
   if (!f) return;
+  await PROJ.flush();
+  closeLabelEditor(false);
   if (!S.praat) { status('waiting for Praat to finish loading…'); await praatReady; }
   if (!S.praat) return;
   S.name = f.name.replace(/\.[^.]+$/, '');
@@ -1021,6 +1063,11 @@ $('file').addEventListener('change', async ev => {
     Object.assign(t, { cues: [], items: [], state: t.model ? 'ready' : 'empty', note: '', source: '' });
   }
   S.tracks.speaker.cached = null;
+  for (const k of TKEYS) S.tracks[k].edited = false;
+  S.extra = []; S.undo = []; S.redo = []; S.selectedItem = null;
+  if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
+  S.file = { name: f.name, size: f.size };
+  PROJ.key = await PROJ.keyFor(bytes, f);
   S.transcript = [];
   S.sel = null;
   S.win = [0, Math.min(10, S.dur)];
@@ -1034,6 +1081,7 @@ $('file').addEventListener('change', async ev => {
   $('dlTextGrid').disabled = false;
   renderPlan(); renderSegments(); renderTranscript();
   drawAll();
+  await PROJ.restore();
   await analyse();
   adoptRunningJob();
 });
@@ -1553,29 +1601,34 @@ function laneCaption(t) {
   if (t.state === 'failed') return `${t.model}: failed`;
   if (t.state === 'cancelled') return `${t.model}: cancelled`;
   if (t.state === 'done' && !t.items.length) return `${t.model} returned no ${t.role}`;
-  if (t.model) return `${t.model}: not run`;
-  return 'no model chosen';
+  if (t.model) return `${t.model}: not run · or double-click to annotate by hand`;
+  if (t.custom) return 'double-click to add a label';
+  return 'no model chosen · double-click to annotate by hand';
 }
 
+const LANE_H = 36;
 function drawTiers() {
-  const F = fit($('tiers')); if (!F) return;
+  const all = lanes();
+  const cv = $('tiers'), want = PAD.t + PAD.b + all.length * LANE_H + 'px';
+  if (cv.style.height !== want) cv.style.height = want;
+  const F = fit(cv); if (!F) return;
   const { g, x0, y0, y1, iw } = F;
   const [t0, t1] = S.win, span = t1 - t0 || 1;
   const xOf = t => x0 + (t - t0) / span * iw;
-  const lanes = shownTiers();
-  const lh = (y1 - y0) / lanes.length;
+  const lh = (y1 - y0) / all.length;
   const mono = C.mono;
 
-  lanes.forEach((lane, i) => {
-    const t = S.tracks[lane.key];
+  all.forEach((lane, i) => {
+    const t = lane.track;
     const ly = y0 + i * lh;
     g.fillStyle = C.sunken; g.fillRect(x0, ly, iw, lh - 2);
     g.strokeStyle = C.line; g.strokeRect(x0 + .5, ly + .5, iw - 1, lh - 3);
 
     // gutter: tier name, then which model filled it
-    g.fillStyle = C.dim; g.textAlign = 'right'; g.textBaseline = 'middle';
-    g.font = '11px ui-sans-serif, system-ui, sans-serif';
-    g.fillText(lane.label, x0 - 6, ly + lh / 2 - 6);
+    const active = lane.key === S.activeLane;
+    g.fillStyle = active ? C.accent : C.dim; g.textAlign = 'right'; g.textBaseline = 'middle';
+    g.font = (active ? '600 ' : '') + '11px ui-sans-serif, system-ui, sans-serif';
+    g.fillText(lane.label.length > 9 ? lane.label.slice(0, 8) + '…' : lane.label, x0 - 6, ly + lh / 2 - 6);
     g.fillStyle = t.state === 'done' ? C.ok
                 : t.state === 'failed' ? C.err
                 : (t.state === 'running' || t.state === 'partial') ? C.accent : C.dim2;
@@ -1743,21 +1796,6 @@ $('spec').addEventListener('pointermove', e => {
   probe(xToTime(e, S.win[0], S.win[1]), (1 - Math.max(0, Math.min(1, fy))) * S.analysis.p.maxHz);
 });
 $('spec').addEventListener('pointerdown', e => { probe(xToTime(e, S.win[0], S.win[1])); drawAll(); });
-$('tiers').addEventListener('pointerdown', e => {
-  const t = xToTime(e, S.win[0], S.win[1]);
-  const r = e.currentTarget.getBoundingClientRect();
-  // Same lane geometry drawTiers uses, padding included, or a click near a
-  // boundary picks the neighbouring tier once there are three of them.
-  const lanes = shownTiers();
-  const lh = (r.height - PAD.t - PAD.b) / lanes.length;
-  const idx = Math.max(0, Math.min(lanes.length - 1,
-                       Math.floor((e.clientY - r.top - PAD.t) / lh)));
-  const key = lanes[idx].key;
-  const hit = S.tracks[key].items.find(it => it.start <= t && t <= it.end);
-  if (hit) { S.sel = [hit.start, hit.end]; S.selectedItem = hit; $('segWhich').value = key; renderSegments(); }
-  probe(t); drawAll();
-});
-
 function labelAt(t) {
   const w = S.tracks.word.items.find(it => it.start <= t && t <= it.end);
   const p = S.tracks.phone.items.find(it => it.start <= t && t <= it.end);
@@ -2027,14 +2065,16 @@ function updateTierInfo() {
     parts.push(`${n} ${T.key} interval${n === 1 ? '' : 's'}` +
                (t.source ? ` (${t.source})` : ''));
   }
-  const any = TKEYS.some(k => S.tracks[k].items.length);
+  for (const x of S.extra)
+    parts.push(`${x.items.length} ${x.label} interval${x.items.length === 1 ? '' : 's'}`);
+  const any = hasAnnotation();
   const spk = new Set(S.tracks.speaker.items.map(it => it.text)).size;
   if (spk) parts.push(spk === 1 ? 'one voice' : `${spk} voices`);
   $('tierinfo').textContent = any ? parts.join(' · ')
     : 'no annotation yet — export an empty TextGrid, or run a recogniser';
-  $('dlSrt').disabled = $('dlAss').disabled = $('dlVtt').disabled =
-    !(S.tracks.word.cues.length || S.tracks.phone.cues.length);
+  $('dlSrt').disabled = $('dlAss').disabled = $('dlVtt').disabled = !subtitleCues().length;
   $('dlTsv').disabled = !any;
+  $('dlLana').disabled = !any;
 }
 
 for (const T of TIERS) {
@@ -2187,7 +2227,8 @@ function assignTrack(key, cues, source, state) {
   const t = S.tracks[key];
   const { items, cueLevel } = itemsFrom(cues, key);
   t.cues = cues; t.items = items; t.source = source; t.state = state;
-  t.note = '';
+  t.note = ''; t.edited = false;
+  if (S.selectedItem && !lanes().some(l => l.track.items.includes(S.selectedItem))) S.selectedItem = null;
   if (state === 'done' && !items.length)
     t.note = { phone: 'this model returned no phone labels',
                word: 'this model returned no word timings',
@@ -2196,6 +2237,7 @@ function assignTrack(key, cues, source, state) {
     t.note = 'cue-level intervals: the model timed segments, not words';
   stampSpeakers();
   renderPlan(); renderSegments(); drawTiers(); updateTierInfo(); renderTranscript();
+  if (state === 'done') PROJ.dirty();
 }
 
 function setTrackState(key, state, note) {
@@ -2213,14 +2255,15 @@ function mergeTranscript(cues) {
 
 function renderTranscript() {
   const el = $('transcript');
-  if (!S.transcript.length) { el.className = 'hint'; el.textContent = 'nothing yet'; return; }
+  const cues = transcriptCues();
+  if (!cues.length) { el.className = 'hint'; el.textContent = 'nothing yet'; return; }
   el.className = '';
   /* Grouped by turn when there is a speaker tier, and byte-identical to what
      it was when there is not: `cur` starts undefined and every cue reports a
      null speaker, so no heading is ever emitted. */
   const out = [];
   let cur;
-  for (const c of S.transcript) {
+  for (const c of cues) {
     const spk = voiceLabel(c.voice, true) || null;
     if (spk !== cur) { cur = spk; if (spk) out.push(`<div class="turn">${esc(spk)}</div>`); }
     const text = (c.plain ?? (c.words || []).map(w => w.text).join(' ') ?? '').trim();
@@ -2233,8 +2276,9 @@ function renderTranscript() {
 }
 
 function renderSegments() {
+  fillSegWhich();
   const key = $('segWhich').value;
-  const items = S.tracks[key].items;
+  const items = trackOf(key)?.items || [];
   /* The voice column appears only where it says something: on the speaker tier
      itself the label already is the voice, and with no diarization there is
      nothing to put in it. */
@@ -2249,13 +2293,12 @@ function renderSegments() {
   $('segTable').tBodies[0].innerHTML = body ||
     `<tr><td colspan="${spk ? 6 : 5}" class="l" style="color:var(--dim2)">no intervals on this tier</td></tr>`;
 }
-$('segWhich').addEventListener('change', renderSegments);
 $('segTable').addEventListener('click', e => {
   const tr = e.target.closest('tr[data-i]');
   if (!tr) return;
-  const it = S.tracks[$('segWhich').value].items[+tr.dataset.i];
+  const it = trackOf($('segWhich').value)?.items[+tr.dataset.i];
   if (!it) return;
-  S.sel = [it.start, it.end]; S.selectedItem = it;
+  S.sel = [it.start, it.end]; S.selectedItem = it; setActiveLane($('segWhich').value, false);
   const pad = Math.max(0.25, (it.end - it.start) * 2);
   setWindow(it.start - pad, it.end + pad);
   probe((it.start + it.end) / 2);
@@ -2264,8 +2307,9 @@ $('segTable').addEventListener('click', e => {
 });
 $('segCopy').addEventListener('click', () => {
   const key = $('segWhich').value;
-  const spk = key !== 'speaker' && S.tracks[key].items.some(it => it.speaker);
-  const tsv = `start\tend\tduration${spk ? '\tspeaker' : ''}\tlabel\n` + S.tracks[key].items
+  const items = trackOf(key)?.items || [];
+  const spk = key !== 'speaker' && items.some(it => it.speaker);
+  const tsv = `start\tend\tduration${spk ? '\tspeaker' : ''}\tlabel\n` + items
     .map(it => `${it.start.toFixed(4)}\t${it.end.toFixed(4)}\t${(it.end - it.start).toFixed(4)}` +
                `${spk ? '\t' + (it.speaker || '') : ''}\t${it.text}`)
     .join('\n');
@@ -2542,6 +2586,12 @@ async function runPlan(only) {
   const jobs = buildJobs(only);
   if (!jobs.length) { status('choose a model for at least one tier', true); return; }
   S.aborted = false;
+  /* A run replaces whatever is on the tiers it fills, hand edits included.
+     Keep the state from before it, so Undo brings them back. */
+  const replacing = jobs.flatMap(j => j.claims).filter(k => S.tracks[k].edited);
+  pushUndo(snap());
+  if (replacing.length)
+    status(`running replaces your edits on the ${replacing.map(k => tierOf(k).label).join(' and ')} tier — Undo brings them back`);
   for (const job of jobs) for (const k of job.claims) setTrackState(k, 'queued', '');
 
   /* The CPU job is started, not awaited: that is the entire point of keeping
@@ -2627,11 +2677,13 @@ function toTextGrid(dur) {
      exports a grid you can annotate by hand in Praat. An optional tier is
      written only when it has intervals: nobody wants a blank speaker tier in
      every TextGrid this tool has ever produced. */
-  const emit = TIERS.filter(T => !T.optional || S.tracks[T.key].items.length);
+  const emit = [...TIERS.filter(T => !T.optional || S.tracks[T.key].items.length)
+                  .map(T => [nm(T.label, S.tracks[T.key]), S.tracks[T.key].items]),
+                ...S.extra.map(x => [x.label, x.items])];
   let out = 'File type = "ooTextFile"\nObject class = "TextGrid"\n\n';
   out += `xmin = 0\nxmax = ${dur}\ntiers? <exists>\nsize = ${emit.length}\nitem []:\n`;
-  emit.forEach((T, i) => {
-    out += `    item [${i + 1}]:\n${tier(nm(T.label, S.tracks[T.key]), S.tracks[T.key].items)}`;
+  emit.forEach(([name, items], i) => {
+    out += `    item [${i + 1}]:\n${tier(name, items)}`;
   });
   return out;
 }
@@ -2645,17 +2697,17 @@ const ts = (s, comma = true) => {
   return comma ? `${h}:${m}:${sec},${mil}` : `${h}:${m}:${sec}.${mil.slice(0, 2)}`;
 };
 
-const subtitleCues = () =>
-  (S.tracks.phone.cues.length ? S.tracks.phone.cues : S.tracks.word.cues) || [];
+const subtitleCues = () => derivedText() ? cuesFromItems()
+  : (S.tracks.phone.cues.length ? S.tracks.phone.cues : S.tracks.word.cues) || [];
 
 $('dlTextGrid').addEventListener('click', () =>
   download(S.name + '.TextGrid', toTextGrid(S.dur || 0)));
 
 $('dlTsv').addEventListener('click', () => {
   const rows = ['tier\tstart\tend\tduration\tspeaker\tlabel'];
-  for (const k of TKEYS)
-    for (const it of S.tracks[k].items)
-      rows.push(`${k}\t${it.start.toFixed(4)}\t${it.end.toFixed(4)}\t` +
+  for (const { key: k, label, track } of lanes())
+    for (const it of track.items)
+      rows.push(`${track.custom ? label : k}\t${it.start.toFixed(4)}\t${it.end.toFixed(4)}\t` +
                 `${(it.end - it.start).toFixed(4)}\t${it.speaker || ''}\t${it.text}`);
   download(S.name + '.intervals.tsv', rows.join('\n'), 'text/tab-separated-values');
 });
@@ -2705,6 +2757,675 @@ $('dlAss').addEventListener('click', () => {
   }).join('\n');
   download(S.name + '.ipa.ass', head + body);
 });
+
+/* ------------------------------------------------------------ annotation
+   Hand annotation, opening a TextGrid, and keeping the work between sessions.
+
+   The intervals on the lanes (each track's `items`) are the annotation. The
+   cues a model returned are kept beside them because they carry structure the
+   intervals lose, which phones belong to which word, and the transcript and
+   subtitles are built from them until someone edits a word or phone tier. After
+   that the cues no longer describe what is on screen, so the transcript and
+   subtitles are rebuilt from the intervals instead (cuesFromItems). */
+
+const trackOf = key => S.tracks[key] || S.extra.find(x => x.key === key) || null;
+function lanes() {
+  return [...shownTiers().map(T => ({ key: T.key, label: T.label, track: S.tracks[T.key] })),
+          ...S.extra.map(x => ({ key: x.key, label: x.label, track: x }))];
+}
+const hasAnnotation = () => TKEYS.some(k => S.tracks[k].items.length) || S.extra.length > 0;
+const busyTrack = t => ['running', 'queued', 'partial'].includes(t.state);
+const derivedText = () => S.tracks.word.edited || S.tracks.phone.edited ||
+  (!S.tracks.word.cues.length && !S.tracks.phone.cues.length &&
+   (S.tracks.word.items.length > 0 || S.tracks.phone.items.length > 0));
+const transcriptCues = () => derivedText() ? cuesFromItems() : S.transcript;
+
+function newExtra(label, items = []) {
+  let n = S.extra.length + 1, key;
+  do key = 'x' + n++; while (S.extra.some(x => x.key === key));
+  return { key, label, role: 'custom', custom: true, model: '', source: 'hand', state: 'done',
+           note: '', cues: [], items, edited: true };
+}
+
+/* Words with their phones, grouped into lines, from the intervals alone. A
+   phone belongs to the word its midpoint falls in. A new line starts at a
+   pause, a change of voice, or after twelve words or six seconds, which is
+   roughly where the recognisers break theirs. */
+function cuesFromItems() {
+  const W = S.tracks.word.items, P = S.tracks.phone.items;
+  let words = W.map(w => ({ text: w.text, start: w.start, end: w.end, phones: [], phone_times: [] }));
+  if (!words.length && P.length) {
+    // Phones and no words: runs of phones between pauses stand in for words.
+    for (const p of P) {
+      const last = words[words.length - 1];
+      if (last && p.start - last.end < 0.15) last.end = p.end;
+      else words.push({ text: '', start: p.start, end: p.end, phones: [], phone_times: [] });
+    }
+  }
+  for (const p of P) {
+    const mid = (p.start + p.end) / 2;
+    const w = words.find(w => w.start <= mid && mid <= w.end);
+    if (w) { w.phones.push(p.text); w.phone_times.push(p.start); }
+  }
+  const cues = [];
+  for (const w of words) {
+    const voice = S.tracks.speaker.items.length ? speakerFor(w.start, w.end) : null;
+    w.speaker = voice ? voice.name : null;
+    const c = cues[cues.length - 1];
+    if (!c || w.start - c.end > 0.6 || c.words.length >= 12 || w.end - c.start > 6 || w.speaker !== c.speaker)
+      cues.push({ start: w.start, end: w.end, words: [w], speaker: w.speaker, voice });
+    else { c.words.push(w); c.end = w.end; }
+  }
+  return cues;
+}
+
+/* ----------------------------------------------------------- undo / redo */
+const plain = items => items.map(({ start, end, text }) => ({ start, end, text }));
+function snap() {
+  const tracks = {};
+  for (const k of TKEYS) {
+    const t = S.tracks[k];
+    tracks[k] = { items: plain(t.items), cues: t.cues, source: t.source,
+                  state: busyTrack(t) ? (t.items.length ? 'done' : 'empty') : t.state,
+                  note: t.note, edited: !!t.edited };
+  }
+  return { tracks, transcript: S.transcript,
+           extra: S.extra.map(x => ({ ...x, items: plain(x.items) })) };
+}
+function applySnap(sn) {
+  for (const k of TKEYS) Object.assign(S.tracks[k], sn.tracks[k], { items: plain(sn.tracks[k].items) });
+  S.extra = sn.extra.map(x => ({ ...x, items: plain(x.items) }));
+  S.transcript = sn.transcript;
+  S.selectedItem = null;
+  if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
+  afterEdit();
+}
+function pushUndo(sn) {
+  S.undo.push(sn);
+  if (S.undo.length > 200) S.undo.shift();
+  S.redo = [];
+}
+function undo() {
+  if (!S.undo.length) return status('nothing to undo');
+  if (anyBusy() || S.side) return status('wait for the running model to finish, then undo', true);
+  closeLabelEditor(false);
+  S.redo.push(snap());
+  applySnap(S.undo.pop());
+  status('undone');
+}
+function redo() {
+  if (!S.redo.length) return status('nothing to redo');
+  if (anyBusy() || S.side) return status('wait for the running model to finish, then redo', true);
+  closeLabelEditor(false);
+  S.undo.push(snap());
+  applySnap(S.redo.pop());
+  status('redone');
+}
+
+/* Every change to the intervals goes through here: one undo step, the tier
+   marked as edited, and everything that reads the intervals redrawn. */
+function edit(keys, fn) {
+  pushUndo(snap());
+  fn();
+  for (const k of keys) {
+    const t = trackOf(k);
+    if (!t) continue;
+    t.items.sort((a, b) => a.start - b.start);
+    t.edited = true;
+    if (!t.source) t.source = 'hand';
+    else if (!/\bhand\b/.test(t.source)) t.source += ' + hand';
+    t.state = t.items.length ? 'done' : (t.model ? 'ready' : 'empty');
+    t.note = '';
+  }
+  afterEdit();
+}
+function afterEdit() {
+  stampSpeakers();
+  renderPlan(); renderSegments(); updateTierInfo(); renderTranscript(); drawAll();
+  PROJ.dirty();
+}
+
+function setActiveLane(key, redraw = true) {
+  S.activeLane = key;
+  const custom = !!S.extra.find(x => x.key === key);
+  $('tierRen').hidden = $('tierDel').hidden = !custom;
+  fillSegWhich();
+  if ($('segWhich').value !== key) { $('segWhich').value = key; renderSegments(); }
+  if (redraw) drawTiers();
+}
+function fillSegWhich() {
+  // The table always shows the tier the edit keys act on.
+  const el = $('segWhich'), cur = S.activeLane;
+  const opts = [...TIERS.map(T => [T.key, { word: 'words', phone: 'phones', speaker: 'speakers' }[T.key]]),
+                ...S.extra.map(x => [x.key, x.label])];
+  const html = opts.map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join('');
+  if (el.innerHTML !== html) el.innerHTML = html;
+  el.value = opts.some(o => o[0] === cur) ? cur : 'word';
+}
+const selectedOnActive = () => {
+  const t = trackOf(S.activeLane);
+  return t && S.selectedItem && t.items.includes(S.selectedItem) ? S.selectedItem : null;
+};
+
+/* ------------------------------------------------------ lane geometry */
+function laneAtY(clientY) {
+  const r = $('tiers').getBoundingClientRect(), all = lanes();
+  const lh = (r.height - PAD.t - PAD.b) / all.length;
+  return all[Math.max(0, Math.min(all.length - 1, Math.floor((clientY - r.top - PAD.t) / lh)))];
+}
+function timeAtX(clientX) {
+  const r = $('tiers').getBoundingClientRect();
+  const frac = (clientX - r.left - PAD.l) / Math.max(1, r.width - PAD.l - PAD.r);
+  return S.win[0] + Math.max(0, Math.min(1, frac)) * (S.win[1] - S.win[0]);
+}
+const pxPerSec = () => ($('tiers').clientWidth - PAD.l - PAD.r) / ((S.win[1] - S.win[0]) || 1);
+
+/* The boundary under the pointer, within 5 px. Where one interval ends exactly
+   where the next begins, that is one boundary and moving it moves both. */
+function boundaryNear(track, t) {
+  const tol = 5 / pxPerSec(), items = track.items;
+  let best = null;
+  items.forEach((it, i) => {
+    for (const [edge, at] of [['start', it.start], ['end', it.end]]) {
+      const d = Math.abs(at - t);
+      if (d <= tol && (!best || d < best.d)) best = { i, edge, at, d };
+    }
+  });
+  if (!best) return null;
+  let left = null, right = null;
+  if (best.edge === 'end') {
+    left = best.i;
+    if (items[best.i + 1] && Math.abs(items[best.i + 1].start - best.at) < 1e-6) right = best.i + 1;
+  } else {
+    right = best.i;
+    if (items[best.i - 1] && Math.abs(items[best.i - 1].end - best.at) < 1e-6) left = best.i - 1;
+  }
+  const lo = left != null ? items[left].start + MIN_IV : (items[right - 1]?.end ?? 0);
+  const hi = right != null ? items[right].end - MIN_IV : (items[left + 1]?.start ?? S.dur);
+  return { left: left != null ? items[left] : null, right: right != null ? items[right] : null, lo, hi };
+}
+
+/* --------------------------------------------------------- pointer */
+let bdrag = null;
+$('tiers').addEventListener('pointerdown', e => {
+  if (!S.audio) return;
+  closeLabelEditor(true);
+  const lane = laneAtY(e.clientY), t = timeAtX(e.clientX);
+  if (lane.key !== S.activeLane) setActiveLane(lane.key, false);
+  const b = !busyTrack(lane.track) && boundaryNear(lane.track, t);
+  if (b) {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    bdrag = { lane, b, before: snap(), moved: false };
+    return;
+  }
+  const hit = lane.track.items.find(it => it.start <= t && t <= it.end);
+  if (hit) { S.sel = [hit.start, hit.end]; S.selectedItem = hit; renderSegments(); }
+  else S.selectedItem = null;
+  probe(t); drawAll();
+});
+$('tiers').addEventListener('pointermove', e => {
+  if (!bdrag) {
+    if (!S.audio) return;
+    const lane = laneAtY(e.clientY);
+    e.currentTarget.style.cursor =
+      !busyTrack(lane.track) && boundaryNear(lane.track, timeAtX(e.clientX)) ? 'col-resize' : 'pointer';
+    return;
+  }
+  const { b } = bdrag;
+  const t = Math.max(b.lo, Math.min(b.hi, timeAtX(e.clientX)));
+  if (b.left) b.left.end = t;
+  if (b.right) b.right.start = t;
+  bdrag.moved = true;
+  drawTiers();
+});
+$('tiers').addEventListener('pointerup', () => {
+  if (!bdrag) return;
+  const { lane, before, moved } = bdrag;
+  bdrag = null;
+  if (!moved) return;
+  // The items were moved live; record the state from before the drag.
+  const after = snap();
+  applySnap(before);
+  edit([lane.key], () => applySnapQuiet(after));
+});
+function applySnapQuiet(sn) {
+  for (const k of TKEYS) S.tracks[k].items = plain(sn.tracks[k].items);
+  S.extra = sn.extra.map(x => ({ ...x, items: plain(x.items) }));
+}
+
+/* Double-click: type a label. On an interval, edit it. On empty space, make an
+   interval there first: the stretch selected on the waveform if the click is
+   inside it, otherwise the whole gap between the neighbouring intervals, which
+   is what an empty interval is in Praat. */
+$('tiers').addEventListener('dblclick', e => {
+  if (!S.audio) return;
+  const lane = laneAtY(e.clientY), t = timeAtX(e.clientX);
+  if (busyTrack(lane.track)) return status(`${lane.label}: wait for the model to finish`, true);
+  let it = lane.track.items.find(x => x.start <= t && t <= x.end), isNew = false;
+  if (!it) {
+    const items = lane.track.items;
+    const prev = items.filter(x => x.end <= t).pop(), next = items.find(x => x.start >= t);
+    let a = prev ? prev.end : 0, b = next ? next.start : S.dur;
+    if (S.sel && S.sel[0] <= t && t <= S.sel[1])
+      [a, b] = [Math.max(a, S.sel[0]), Math.min(b, S.sel[1])];
+    if (b - a < MIN_IV) return;
+    it = { start: a, end: b, text: '' };
+    edit([lane.key], () => lane.track.items.push(it));
+    isNew = true;
+  }
+  S.selectedItem = it; S.sel = [it.start, it.end];
+  openLabelEditor(lane.key, it, isNew);
+});
+
+/* ------------------------------------------------------- label editor */
+let LABEL = null;
+function openLabelEditor(key, it, isNew = false) {
+  const all = lanes(), idx = all.findIndex(l => l.key === key);
+  if (idx < 0) return;
+  // Bring the interval into view first if Tab moved past the window.
+  if (it.end < S.win[0] || it.start > S.win[1]) {
+    const span = S.win[1] - S.win[0];
+    setWindow(it.start - span * 0.2, it.start + span * 0.8);
+  }
+  const cv = $('tiers'), inp = $('labEdit');
+  const lh = (cv.clientHeight - PAD.t - PAD.b) / all.length;
+  const xOf = t => PAD.l + (t - S.win[0]) * pxPerSec();
+  let a = Math.max(PAD.l, xOf(it.start)), b = Math.min(cv.clientWidth - PAD.r, xOf(it.end));
+  if (b - a < 140) { const c = (a + b) / 2; a = Math.max(0, c - 70); b = a + 140; }
+  Object.assign(inp.style, { left: a + 'px', top: PAD.t + idx * lh + 'px',
+                             width: b - a + 'px', height: lh - 3 + 'px' });
+  inp.value = it.text || '';
+  inp.hidden = false;
+  LABEL = { key, it, isNew };
+  inp.focus(); inp.select();
+  drawTiers();
+}
+function closeLabelEditor(commit) {
+  if (!LABEL) return;
+  const { key, it, isNew } = LABEL, value = $('labEdit').value;
+  LABEL = null;
+  $('labEdit').hidden = true;
+  if (commit && value !== (it.text || '')) {
+    if (isNew) { it.text = value; afterEdit(); }        // the creation is already one undo step
+    else edit([key], () => { it.text = value; });
+  } else if (!commit && isNew) {
+    // Escape on an interval that only existed to be labelled takes it back.
+    S.undo.length && applySnap(S.undo.pop());
+  }
+}
+$('labEdit').addEventListener('keydown', e => {
+  if (!LABEL) return;
+  if (e.key === 'Enter') { e.preventDefault(); closeLabelEditor(true); }
+  else if (e.key === 'Escape') { e.preventDefault(); closeLabelEditor(false); }
+  else if (e.key === 'Tab') {
+    // Tab moves along the tier, the way one transcribes: label, Tab, label.
+    e.preventDefault();
+    const { key, it } = LABEL;
+    closeLabelEditor(true);
+    const items = trackOf(key).items, i = items.indexOf(it);
+    const next = items[e.shiftKey ? i - 1 : i + 1];
+    if (next) { S.selectedItem = next; S.sel = [next.start, next.end]; play(next.start, next.end); openLabelEditor(key, next); }
+  }
+  e.stopPropagation();
+});
+$('labEdit').addEventListener('blur', () => closeLabelEditor(true));
+
+/* ------------------------------------------------------------ actions */
+function splitAtCursor() {
+  const t = S.cursor, track = trackOf(S.activeLane);
+  if (!S.audio || t == null) return status('click where the boundary should go, then press B', true);
+  if (busyTrack(track)) return status('wait for the model to finish', true);
+  const it = track.items.find(x => x.start + MIN_IV < t && t < x.end - MIN_IV);
+  if (!it) return status('no interval under the cursor on this tier — double-click to make one', true);
+  edit([S.activeLane], () => {
+    track.items.push({ start: t, end: it.end, text: '' });
+    it.end = t;
+  });
+  status(`boundary added at ${f3(t)} s`);
+}
+function mergeNext() {
+  const it = selectedOnActive(), track = trackOf(S.activeLane);
+  if (!it) return status('select an interval first', true);
+  const items = track.items, next = items[items.indexOf(it) + 1];
+  if (!next) return status('this is the last interval on the tier', true);
+  // Phones join without a space (t + ʰ is tʰ); words and free text with one.
+  // On the speaker tier the left label stands.
+  const sep = S.activeLane === 'phone' ? '' : ' ';
+  edit([S.activeLane], () => {
+    if (S.activeLane !== 'speaker') it.text = [it.text, next.text].filter(Boolean).join(sep);
+    it.end = next.end;
+    items.splice(items.indexOf(next), 1);
+  });
+  S.selectedItem = it; S.sel = [it.start, it.end]; drawAll();
+}
+function deleteSelected() {
+  const it = selectedOnActive(), track = trackOf(S.activeLane);
+  if (!it) return status('select an interval first', true);
+  edit([S.activeLane], () => track.items.splice(track.items.indexOf(it), 1));
+  S.selectedItem = null; drawAll();
+}
+function addTier() {
+  if (!S.audio) return status('open a recording first', true);
+  const x = newExtra('tier ' + (S.extra.length + 1));
+  edit([], () => S.extra.push(x));
+  setActiveLane(x.key);
+  renameTier();
+}
+/* The gutter is too narrow to type in, so the name editor sits over the
+   tier's first visible stretch instead. */
+function renameTier() {
+  const x = S.extra.find(t => t.key === S.activeLane);
+  if (!x) return;
+  const all = lanes(), idx = all.findIndex(l => l.key === x.key), cv = $('tiers'), inp = $('labEdit');
+  const lh = (cv.clientHeight - PAD.t - PAD.b) / all.length;
+  Object.assign(inp.style, { left: '4px', top: PAD.t + idx * lh + 'px', width: '200px', height: lh - 3 + 'px' });
+  inp.value = x.label; inp.hidden = false; inp.focus(); inp.select();
+  const done = commit => {
+    inp.removeEventListener('keydown', onKey, true); inp.removeEventListener('blur', onBlur, true);
+    inp.hidden = true;
+    const v = inp.value.trim();
+    if (commit && v && v !== x.label) edit([], () => { x.label = v; });
+  };
+  const onKey = e => {
+    if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); done(e.key === 'Enter'); }
+  };
+  const onBlur = e => { e.stopImmediatePropagation(); done(true); };
+  inp.addEventListener('keydown', onKey, true); inp.addEventListener('blur', onBlur, true);
+}
+function removeTier() {
+  const x = S.extra.find(t => t.key === S.activeLane);
+  if (!x) return;
+  edit([], () => { S.extra = S.extra.filter(t => t !== x); });
+  setActiveLane('word');
+  status(`removed the tier "${x.label}" — Undo brings it back`);
+}
+$('edSplit').addEventListener('click', splitAtCursor);
+$('edMerge').addEventListener('click', mergeNext);
+$('edDel').addEventListener('click', deleteSelected);
+$('edUndo').addEventListener('click', undo);
+$('edRedo').addEventListener('click', redo);
+$('tierAdd').addEventListener('click', addTier);
+$('tierRen').addEventListener('click', renameTier);
+$('tierDel').addEventListener('click', removeTier);
+$('segWhich').addEventListener('change', () => setActiveLane($('segWhich').value));
+
+addEventListener('keydown', e => {
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+  if (mod || e.altKey) return;
+  if (e.key === 'Enter') {
+    const it = selectedOnActive();
+    if (it) { e.preventDefault(); openLabelEditor(S.activeLane, it); }
+  } else if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (selectedOnActive()) { e.preventDefault(); deleteSelected(); }
+  } else if (e.key === 'b' || e.key === 'B') splitAtCursor();
+  else if (e.key === 'm' || e.key === 'M') mergeNext();
+});
+
+/* --------------------------------------------------- opening a TextGrid */
+/* Praat's long and short text formats are the same sequence of values with
+   different decoration, so one tokeniser reads both: quoted strings, numbers
+   and the <exists> flag, skipping names, `=` and `[n]` indices. Praat writes
+   UTF-16 whenever a label is not ASCII, so the byte-order mark decides the
+   decoding. */
+function parseTextGrid(buf) {
+  const u8 = new Uint8Array(buf);
+  const text = u8[0] === 0xFE && u8[1] === 0xFF ? new TextDecoder('utf-16be').decode(u8)
+             : u8[0] === 0xFF && u8[1] === 0xFE ? new TextDecoder('utf-16le').decode(u8)
+             : new TextDecoder('utf-8').decode(u8);
+  if (text.startsWith('ooBinaryFile'))
+    throw new Error('this is a binary TextGrid; in Praat, save it with "Save as text file…"');
+  const toks = [];
+  const re = /"((?:[^"]|"")*)"|\[\s*\d*\s*\]|(-?\d+(?:\.\d*)?(?:[eE][-+]?\d+)?)|<(exists|absent)>/g;
+  let m;
+  while ((m = re.exec(text))) {
+    if (m[1] !== undefined) toks.push({ s: m[1].replace(/""/g, '"') });
+    else if (m[2] !== undefined) toks.push({ n: Number(m[2]) });
+    else if (m[3]) toks.push({ f: m[3] });
+  }
+  let i = 0;
+  const bad = () => new Error('this does not look like a Praat TextGrid');
+  const str = () => { const t = toks[i++]; if (!t || t.s === undefined) throw bad(); return t.s; };
+  const num = () => { const t = toks[i++]; if (!t || t.n === undefined) throw bad(); return t.n; };
+  // Older Praat versions label the short format "ooTextFile short".
+  if (!/^ooTextFile\b/.test(str()) || str() !== 'TextGrid') throw bad();
+  const xmin = num(), xmax = num();
+  const tiers = [];
+  if (toks[i]?.f === 'absent') return { xmin, xmax, tiers };
+  if (toks[i]?.f === 'exists') i++;
+  const n = num();
+  for (let k = 0; k < n; k++) {
+    const cls = str(), name = str();
+    num(); num();
+    const count = num(), items = [];
+    if (cls === 'IntervalTier') {
+      for (let j = 0; j < count; j++) {
+        const a = num(), b = num(), label = str();
+        if (label.trim()) items.push({ start: a, end: b, text: label });
+      }
+      tiers.push({ name, kind: 'interval', items });
+    } else {
+      for (let j = 0; j < count; j++) { num(); str(); }
+      tiers.push({ name, kind: 'point', items });
+    }
+  }
+  return { xmin, xmax, tiers };
+}
+
+/* Tiers named like Lana's own fill the word, phone and speaker tiers; any
+   other interval tier becomes a tier of its own. A name exported with "name
+   tiers by model" carries its source in brackets, which is kept. */
+function importTextGrid(tg, filename) {
+  const used = new Set(), extra = [];
+  const builtin = name => {
+    const n = name.toLowerCase();
+    for (const [k, re] of [['word', /^(words?|orth\w*|transcri\w*|wort\w*)\b/],
+                           ['phone', /^(phones?|phonemes?|segments?|ipa|phon\w*)\b/],
+                           ['speaker', /^(speakers?|spk|turns?|voices?)\b/]])
+      if (!used.has(k) && re.test(n)) { used.add(k); return k; }
+    return null;
+  };
+  const points = tg.tiers.filter(t => t.kind === 'point');
+  const fresh = {};
+  for (const t of tg.tiers.filter(t => t.kind === 'interval')) {
+    const key = builtin(t.name);
+    const src = (t.name.match(/\(([^)]+)\)\s*$/) || [])[1] || filename;
+    const items = tidy(t.items, S.dur);
+    if (key) fresh[key] = { items, source: src };
+    else extra.push(newExtra(t.name.trim() || 'tier ' + (extra.length + 1), items));
+  }
+  edit([...Object.keys(fresh), ...extra.map(x => x.key)], () => {
+    for (const k of TKEYS) {
+      const t = S.tracks[k], f = fresh[k];
+      Object.assign(t, { items: f ? f.items : [], cues: [], source: f ? f.source : '', note: '',
+                         edited: !!f, cached: null });
+    }
+    S.extra = extra;
+    S.transcript = [];
+  });
+  // edit() appended "+ hand"; an opened file has not been touched yet.
+  for (const k of Object.keys(fresh)) S.tracks[k].source = fresh[k].source;
+  for (const x of S.extra) x.source = filename;
+  afterEdit();
+  const notes = [];
+  if (points.length) notes.push(`${points.length} point tier${points.length === 1 ? '' : 's'} skipped (Lana shows interval tiers only)`);
+  if (Math.abs(tg.xmax - S.dur) > 0.05)
+    notes.push(`the TextGrid is ${f2(tg.xmax)} s long and the recording ${f2(S.dur)} s — is it the right file?`);
+  status(`opened ${filename}` + (notes.length ? ' · ' + notes.join(' · ') : ''), notes.length > 0);
+}
+
+/* ------------------------------------------------- Lana annotation files */
+const ANN_FORMAT = 'lana-annotation';
+function annotationData() {
+  const tier = (k, t) => ({ key: k, label: t.label, source: t.source, note: t.note, edited: !!t.edited,
+                            items: plain(t.items), cues: t.cues });
+  return {
+    format: ANN_FORMAT, version: 1, saved: new Date().toISOString(),
+    lana: document.querySelector('meta[name="lana-version"]')?.content || null,
+    audio: { name: S.file?.name, size: S.file?.size, duration: S.dur, key: PROJ.key },
+    tiers: TKEYS.map(k => tier(k, S.tracks[k])),
+    extra: S.extra.map(x => ({ key: x.key, label: x.label, source: x.source, items: plain(x.items) })),
+    transcript: S.transcript,
+  };
+}
+function applyAnnotation(d) {
+  if (!d || d.format !== ANN_FORMAT) throw new Error('this is not a Lana annotation file');
+  for (const k of TKEYS) {
+    const src = (d.tiers || []).find(t => t.key === k) || {};
+    const t = S.tracks[k];
+    const items = tidy(src.items || [], S.dur);
+    Object.assign(t, { items, cues: src.cues || [], source: src.source || '', note: src.note || '',
+                       edited: !!src.edited, state: items.length ? 'done' : (t.model ? 'ready' : 'empty') });
+  }
+  S.extra = (d.extra || []).map(x => Object.assign(newExtra(x.label || 'tier', tidy(x.items || [], S.dur)),
+                                                   { key: x.key, source: x.source || 'hand' }));
+  S.transcript = d.transcript || [];
+  S.selectedItem = null;
+  if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
+}
+
+$('openAnn').addEventListener('click', () => {
+  if (!S.audio) return status('open the recording first, then its annotation', true);
+  $('annFile').click();
+});
+$('annFile').addEventListener('change', async () => {
+  const f = $('annFile').files[0];
+  $('annFile').value = '';
+  if (!f) return;
+  try {
+    const buf = await f.arrayBuffer();
+    if (/\.(json|lana)$/i.test(f.name)) {
+      const d = JSON.parse(new TextDecoder().decode(buf));
+      edit([], () => applyAnnotation(d));
+      const other = d.audio?.key && PROJ.key && d.audio.key !== PROJ.key;
+      status(`opened ${f.name}` + (other ? ` · it was saved for ${d.audio.name || 'a different recording'}` : ''), !!other);
+    } else importTextGrid(parseTextGrid(buf), f.name.replace(/\.textgrid$/i, ''));
+  } catch (e) { status(`could not open ${f.name}: ${e.message}`, true); }
+});
+$('dlLana').addEventListener('click', () =>
+  download(S.name + '.lana.json', JSON.stringify(annotationData()), 'application/json'));
+
+/* ------------------------------------------------------------- saving */
+/* Every change is saved a moment after it is made, under a key derived from
+   the recording's contents, so the same audio finds its annotation again
+   whatever it is called and wherever it was opened from. In the desktop app
+   the app keeps the files (see store.rs for why the page cannot); in a
+   browser they live in this browser's IndexedDB. */
+const IDB = {
+  db: null,
+  open() {
+    return IDB.db ||= new Promise((ok, fail) => {
+      const r = indexedDB.open('lana', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('annotations');
+      r.onsuccess = () => ok(r.result);
+      r.onerror = () => fail(r.error);
+    });
+  },
+  async run(mode, fn) {
+    const db = await IDB.open();
+    return new Promise((ok, fail) => {
+      const tx = db.transaction('annotations', mode), req = fn(tx.objectStore('annotations'));
+      tx.oncomplete = () => ok(req.result);
+      tx.onerror = () => fail(tx.error);
+    });
+  },
+};
+const STORE = {
+  server: () => !!DESK.caps?.store,
+  async get(space, key) {
+    if (STORE.server()) {
+      const r = await fetch(apiUrl(`/store/${space}/${enc(key)}`), { cache: 'no-store' });
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error(`error ${r.status}`);
+      return r.json();
+    }
+    return (await IDB.run('readonly', s => s.get(`${space}/${key}`))) ?? null;
+  },
+  async put(space, key, value) {
+    if (STORE.server()) {
+      const r = await fetch(apiUrl(`/store/${space}/${enc(key)}`), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `error ${r.status}`);
+      return;
+    }
+    await IDB.run('readwrite', s => s.put(value, `${space}/${key}`));
+  },
+  async del(space, key) {
+    if (STORE.server()) { await fetch(apiUrl(`/store/${space}/${enc(key)}`), { method: 'DELETE' }); return; }
+    await IDB.run('readwrite', s => s.delete(`${space}/${key}`));
+  },
+};
+
+const PROJ = {
+  key: null, timer: null,
+  async keyFor(bytes, f) {
+    try {
+      const d = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+      return [...d.slice(0, 16)].map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch {
+      // No WebCrypto outside a secure context (a plain-http address on a
+      // network): fall back to name, size and date, which a copy keeps too.
+      let h = 2166136261;
+      for (const ch of `${f.name}:${f.size}:${f.lastModified}`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+      return 'n' + h.toString(16) + '-' + f.size.toString(16);
+    }
+  },
+  show(text, err = false, button = null) {
+    const el = $('saveState');
+    el.textContent = text;
+    el.classList.toggle('err', err);
+    if (button) {
+      const b = document.createElement('button');
+      b.className = 'tiny'; b.textContent = button.label; b.onclick = button.run;
+      el.append(b);
+    }
+  },
+  dirty() {
+    if (!PROJ.key) return;
+    clearTimeout(PROJ.timer);
+    PROJ.show('saving…');
+    PROJ.timer = setTimeout(PROJ.save, 700);
+  },
+  async flush() {
+    if (!PROJ.timer) return;
+    clearTimeout(PROJ.timer);
+    await PROJ.save();
+  },
+  async save() {
+    PROJ.timer = null;
+    if (!PROJ.key) return;
+    try {
+      await STORE.put('annotations', PROJ.key, annotationData());
+      PROJ.show(STORE.server() ? 'saved' : 'saved in this browser');
+    } catch (e) { PROJ.show('not saved: ' + e.message, true); }
+  },
+  async restore() {
+    PROJ.show('');
+    if (!PROJ.key) return false;
+    let d;
+    try { d = await STORE.get('annotations', PROJ.key); } catch { return false; }
+    if (!d || !(d.tiers || []).some(t => (t.items || []).length) && !(d.extra || []).length) return false;
+    try { applyAnnotation(d); } catch { return false; }
+    stampSpeakers();
+    renderPlan(); renderSegments(); updateTierInfo(); renderTranscript(); drawAll();
+    const when = d.saved ? new Date(d.saved).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'earlier';
+    PROJ.show(`restored your annotation from ${when}`, false, { label: 'start over', run: PROJ.startOver });
+    return true;
+  },
+  startOver() {
+    edit([], () => {
+      for (const k of TKEYS) {
+        const t = S.tracks[k];
+        Object.assign(t, { items: [], cues: [], source: '', note: '', edited: false, cached: null,
+                           state: t.model ? 'ready' : 'empty' });
+      }
+      S.extra = []; S.transcript = [];
+    });
+    status('cleared — Undo brings the annotation back');
+  },
+};
 
 /* ------------------------------------------------------------------ boot */
 addEventListener('resize', () => drawAll());
@@ -2772,10 +3493,32 @@ const DESK = {
     $('fsBroker').querySelector('.hint.pad').hidden = true;
     $('modeBroker').parentElement.lastChild.textContent = ' Recognisers in this app';
     NET.onchange = () => DESK.renderList();
+    deskStore = !!DESK.caps.store;
+    if (deskStore) await DESK.loadPrefs();
     // The recording the app was opened with ("Open with Lana", or a path on the
     // command line). The server hands out that one file and nothing else.
     if (DESK.caps.launch_file) DESK.openLaunchFile(DESK.caps.launch_file);
     await DESK.load();
+  },
+
+  /* Settings from the last session. Applied after the fact, since the page has
+     already drawn itself from whatever this origin's localStorage held. */
+  async loadPrefs() {
+    let p;
+    try { p = await STORE.get('prefs', 'config'); } catch { return; }
+    if (!p || typeof p !== 'object') return;
+    Object.assign(CFG, p);
+    document.documentElement.dataset.theme = CFG.theme || 'graphite';
+    $('theme').value = CFG.theme || 'graphite';
+    readPalette();
+    $('lngWord').value = CFG.langWord || ''; $('lngPhone').value = CFG.langPhone || '';
+    $('asrsize').value = CFG.size || 'medium';
+    $('nameTiers').checked = !!CFG.nameTiers;
+    $('spkN').value = CFG.spkCount || ''; $('spkTh').value = CFG.spkThreshold || '0.7';
+    for (const T of TIERS) if (!S.tracks[T.key].model) S.tracks[T.key].model = CFG[T.cfg] || '';
+    try { localStorage.setItem(CFG_KEY, JSON.stringify(CFG)); } catch {}
+    await NET.discover();
+    drawAll();
   },
 
   async openLaunchFile(name) {
