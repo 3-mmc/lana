@@ -330,7 +330,14 @@ async fn test(State(s): State<Settings>, Json(body): Json<Value>) -> Response {
             }
         }
     }
-    let mut req = s.http.get(format!("{base}/v1/models")).timeout(Duration::from_secs(10));
+    // Workers AI has no /v1/models; its model search proves both the account id
+    // in the address and the token, which is all a test needs to show.
+    let cloudflare = body.get("kind").and_then(Value::as_str) == Some("cloudflare");
+    if cloudflare && base.contains("ACCOUNT_ID") {
+        return Json(json!({ "ok": false, "message": "Replace ACCOUNT_ID in the address with your Cloudflare account id." })).into_response();
+    }
+    let probe = if cloudflare { format!("{base}/models/search?search=whisper") } else { format!("{base}/v1/models") };
+    let mut req = s.http.get(probe).timeout(Duration::from_secs(10));
     if let Some(k) = &key {
         req = req.bearer_auth(k);
     }
@@ -349,6 +356,11 @@ async fn test(State(s): State<Settings>, Json(body): Json<Value>) -> Response {
             let status = r.status();
             let doc: Value = r.json().await.unwrap_or(Value::Null);
             match status.as_u16() {
+                200..=299 if cloudflare => {
+                    let n = doc.get("result").and_then(Value::as_array).map_or(0, Vec::len);
+                    json!({ "ok": true, "models": [],
+                            "message": format!("Connected to Cloudflare. The account can use {n} Whisper model{}.", if n == 1 { "" } else { "s" }) })
+                }
                 200..=299 => {
                     let ids: Vec<Value> = doc
                         .get("data")

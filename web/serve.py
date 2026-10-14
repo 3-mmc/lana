@@ -41,6 +41,7 @@ falls back to talking to an endpoint you type in yourself. Everything except
 recognition — analysis, tiers, TextGrid export — needs no backend at all.
 """
 import argparse
+import base64
 import io
 import json
 import mimetypes
@@ -142,17 +143,44 @@ def find_provider(pid: str):
 
 def provider_key(p: dict):
     """The provider's API key, or None. Checked in the order a user expects:
-    an explicit key in the file beats the environment."""
-    return p.get('api_key') or (os.environ.get(p['api_key_env']) if p.get('api_key_env') else None)
+    an explicit key in the file beats a key file, which beats the environment.
+
+    api_key_file exists because providers.json often lives on a Windows drive,
+    where file permissions mean nothing; a key file under ~ can be chmod 600.
+    """
+    if p.get('api_key'):
+        return p['api_key']
+    if p.get('api_key_file'):
+        try:
+            return Path(os.path.expanduser(p['api_key_file'])).read_text(encoding='utf-8').strip() or None
+        except OSError:
+            return None
+    return os.environ.get(p['api_key_env']) if p.get('api_key_env') else None
+
+
+def cloudflare_base(p: dict):
+    """https://api.cloudflare.com/client/v4/accounts/<id>/ai, or None.
+
+    The account id may ride in `base` (what the desktop app's form writes, so it
+    needs no extra field) or come from `account_id` / `account_id_env`.
+    """
+    base = (p.get('base') or '').strip()
+    if base and 'ACCOUNT_ID' not in base:
+        return base.rstrip('/')
+    acct = p.get('account_id') or (os.environ.get(p['account_id_env']) if p.get('account_id_env') else None)
+    return f'https://api.cloudflare.com/client/v4/accounts/{acct}/ai' if acct else None
 
 
 def public_provider(p: dict) -> dict:
     """What the browser is allowed to know. No key, ever — not even its length."""
-    needs_key = bool(p.get('api_key') or p.get('api_key_env'))
+    needs_key = bool(p.get('api_key') or p.get('api_key_file') or p.get('api_key_env'))
     has_key = bool(provider_key(p))
     note = ''
     if needs_key and not has_key:
-        note = f"no key: set {p.get('api_key_env') or 'api_key'} and reload"
+        note = f"no key: set {p.get('api_key_env') or p.get('api_key_file') or 'api_key'} and reload"
+    if p.get('kind') == 'cloudflare' and not cloudflare_base(p):
+        has_key = False
+        note = 'no account: put the Cloudflare account id in the address'
     return {
         'id': p['id'],
         'label': p.get('label') or p['id'],
@@ -252,12 +280,80 @@ def normalise(payload: dict) -> dict:
     return out
 
 
+def http_error(e: urllib.error.HTTPError, p: dict) -> tuple[int, dict]:
+    """An upstream error as {'error': message}. OpenAI nests it as
+    error.message, Cloudflare as errors[0].message; anything else is raw text."""
+    detail = e.read().decode('utf-8', 'replace')[:600]
+    try:
+        doc = json.loads(detail)
+        if isinstance(doc.get('errors'), list) and doc['errors']:
+            detail = doc['errors'][0].get('message', detail)
+        else:
+            detail = doc.get('error', detail)
+    except Exception:
+        pass
+    if isinstance(detail, dict):
+        detail = detail.get('message') or json.dumps(detail)[:600]
+    return e.code, {'error': detail, 'provider': p['id']}
+
+
+CLOUDFLARE_MAX = 25 * 1024 * 1024   # base64 inflates this by a third; larger bodies are refused
+
+
+def forward_cloudflare(p: dict, fields: dict, blob: bytes) -> tuple[int, dict]:
+    """Workers AI's Whisper (e.g. @cf/openai/whisper-large-v3-turbo).
+
+    Not OpenAI-shaped: the audio goes base64 in a JSON body to {base}/run/<model>,
+    and the answer is wrapped in {result: ...} with each word nested inside its
+    segment rather than in a flat top-level list. The words are lifted out so
+    normalise() can treat it like any other verbose_json response.
+    """
+    base = cloudflare_base(p)
+    key = provider_key(p)
+    if not base or not key:
+        return 400, {'error': 'Cloudflare needs both an account id and an API token', 'provider': p['id']}
+    if len(blob) > CLOUDFLARE_MAX:
+        return 413, {'error': f'Cloudflare accepts audio up to {CLOUDFLARE_MAX // 2**20} MB; '
+                              'this file is larger. Convert it to 16 kHz mono or trim it.',
+                     'provider': p['id']}
+    send = {'audio': base64.b64encode(blob).decode('ascii'), 'task': 'transcribe'}
+    # Whisper takes ISO 639-1. A 639-3 code (what MMS wants) would be refused, so
+    # anything that is not two letters is left to Whisper's language detection.
+    lang = (fields.get('language') or '').strip()
+    if len(lang) == 2:
+        send['language'] = lang
+    if (fields.get('translate_to') or '').lower() == 'en':
+        send['task'] = 'translate'
+    send.update(p.get('fields') or {})
+
+    url = f"{base}/run/{fields.get('model')}"
+    req = urllib.request.Request(url, data=json.dumps(send).encode(), method='POST')
+    req.add_header('Content-Type', 'application/json')
+    req.add_header('Authorization', 'Bearer ' + key)
+    try:
+        with urllib.request.urlopen(req, timeout=ASR_TIMEOUT) as r:
+            doc = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return http_error(e, p)
+    except urllib.error.URLError as e:
+        return 502, {'error': f'cannot reach Cloudflare: {e.reason}', 'provider': p['id']}
+    res = doc.get('result') or {}
+    info = res.get('transcription_info') or {}
+    segs = res.get('segments') or []
+    words = [dict(w, word=(w.get('word') or '').strip()) for s in segs for w in (s.get('words') or [])]
+    words += [dict(w, word=(w.get('word') or '').strip()) for w in (res.get('words') or [])]
+    return 200, normalise({'text': res.get('text', ''), 'language': info.get('language'),
+                           'duration': info.get('duration'), 'segments': segs, 'words': words})
+
+
 def forward_transcription(p: dict, fields: dict, filename: str, filetype: str,
                           blob: bytes) -> tuple[int, dict]:
     kind = p.get('kind', 'openai')
+    if kind == 'cloudflare':
+        return forward_cloudflare(p, fields, blob)
     if kind != 'openai':
-        return 400, {'error': f'provider kind {kind!r} is not implemented. '
-                              'Add it to KINDS in serve.py — see normalise().'}
+        return 400, {'error': f'provider kind {kind!r} is not implemented '
+                              '(known kinds: openai, cloudflare)'}
     send = {
         'model': fields.get('model'),
         'response_format': fields.get('response_format') or 'verbose_json',
@@ -289,14 +385,7 @@ def forward_transcription(p: dict, fields: dict, filename: str, filetype: str,
         with urllib.request.urlopen(req, timeout=ASR_TIMEOUT) as r:
             raw = r.read()
     except urllib.error.HTTPError as e:
-        detail = e.read().decode('utf-8', 'replace')[:600]
-        try:
-            detail = json.loads(detail).get('error', detail)
-        except Exception:
-            pass
-        if isinstance(detail, dict):
-            detail = detail.get('message') or json.dumps(detail)[:600]
-        return e.code, {'error': detail, 'provider': p['id']}
+        return http_error(e, p)
     except urllib.error.URLError as e:
         return 502, {'error': f"cannot reach {p['id']} at {p.get('base')}: {e.reason}"}
     try:

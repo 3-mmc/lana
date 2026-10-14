@@ -10,6 +10,8 @@
     "kind: 'openai' means the provider implements POST {base}/v1/audio/transcriptions",
     "in the OpenAI shape. That covers OpenAI itself, Groq, Fireworks, Together,",
     "llama-swap, faster-whisper-server, whisper.cpp's server, and most others.",
+    "kind: 'cloudflare' is Workers AI, which is not OpenAI-shaped: put your",
+    "account id in base in place of ACCOUNT_ID (dash.cloudflare.com shows it).",
     "",
     "role tells the interface which tier a model can fill before it has run:",
     "  words  - orthographic transcription only",
@@ -48,6 +50,18 @@
       "models": [
         { "id": "whisper-1",        "role": "words", "label": "whisper-1 (word timings)" },
         { "id": "gpt-4o-transcribe", "role": "words", "label": "gpt-4o-transcribe (no word timings)" }
+      ]
+    },
+
+    {
+      "id": "cloudflare",
+      "label": "Cloudflare Workers AI",
+      "kind": "cloudflare",
+      "base": "https://api.cloudflare.com/client/v4/accounts/ACCOUNT_ID/ai",
+      "api_key_file": "~/.config/lana/cloudflare.token",
+      "models": [
+        { "id": "@cf/openai/whisper-large-v3-turbo", "role": "words",
+          "label": "whisper-large-v3-turbo (word timings; free tier ~10k neurons/day = ~3.5 h audio)" }
       ]
     },
 

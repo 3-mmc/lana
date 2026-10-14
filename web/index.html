@@ -370,6 +370,7 @@
       <select id="mgPreset">
         <option value="openai">OpenAI (cloud, needs an API key)</option>
         <option value="groq">Groq (cloud, needs an API key)</option>
+        <option value="cloudflare">Cloudflare Workers AI (cloud, free daily allowance)</option>
         <option value="server">A speech server on this computer or network</option>
       </select>
       <button id="mgAdd" class="tiny">Add…</button>
@@ -3501,6 +3502,14 @@ const PRESETS = {
     ],
     hint: 'Create a key at console.groq.com, under API Keys. It starts with gsk_. Recordings you send are uploaded to Groq.',
   },
+  cloudflare: {
+    id: 'cloudflare', label: 'Cloudflare Workers AI', kind: 'cloudflare', key: true,
+    base: 'https://api.cloudflare.com/client/v4/accounts/ACCOUNT_ID/ai',
+    models: [
+      { id: '@cf/openai/whisper-large-v3-turbo', role: 'words', label: 'whisper-large-v3-turbo (word timings)' },
+    ],
+    hint: 'Replace ACCOUNT_ID in the address with your account id (dash.cloudflare.com, on the Workers AI page). Create an API token with Workers AI permission. The free allowance is about 3½ hours of audio a day. Recordings you send are uploaded to Cloudflare.',
+  },
   server: {
     id: 'server', label: 'Speech server', base: 'http://127.0.0.1:9292', key: false,
     models: [], discover: true,
@@ -3729,7 +3738,7 @@ const DESK = {
     const P = PRESETS[preset] || PRESETS.server;
     const p = existing || {
       id: DESK.freeId(P.id), label: P.label, base: P.base, models: P.models.map(m => ({ ...m })),
-      ...(P.fields ? { fields: P.fields } : {}), ...(P.pass_extras === false ? { pass_extras: false } : {}),
+      ...(P.kind ? { kind: P.kind } : {}), ...(P.fields ? { fields: P.fields } : {}), ...(P.pass_extras === false ? { pass_extras: false } : {}),
     };
     DESK.form = { preset, isNew: !existing, p: JSON.parse(JSON.stringify(p)), offered: [] };
     $('mgLabel').value = p.label || p.id;
@@ -3805,7 +3814,7 @@ const DESK = {
     try {
       const r = await fetch(apiUrl('/settings/test'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base: p.base, key: $('mgKey').value.trim() || undefined,
+        body: JSON.stringify({ base: p.base, kind: p.kind, key: $('mgKey').value.trim() || undefined,
                                id: DESK.form.isNew ? undefined : p.id, headers: p.headers }),
       });
       const j = await r.json();
@@ -3823,6 +3832,8 @@ const DESK = {
     const key = $('mgKey').value.trim();
     if (!p.models.length) return DESK.msg('Tick at least one model, or Lana has nothing to offer for the tiers.', 'bad');
     const P = PRESETS[DESK.form.preset];
+    if (p.kind === 'cloudflare' && p.base.includes('ACCOUNT_ID'))
+      return DESK.msg('Replace ACCOUNT_ID in the address with your Cloudflare account id.', 'bad');
     if (P?.key && DESK.form.isNew && !key) return DESK.msg(`Paste the API key from ${P.label} first.`, 'bad');
     // Mark a cloud provider as keyed, so a missing key shows as "needs a key" in
     // the list instead of as a 401 halfway through a transcription.
@@ -3930,7 +3941,7 @@ $('mgList').addEventListener('click', e => {
   const id = btn.closest('.mgrow').dataset.id;
   const p = DESK.providers.find(q => q.id === id);
   if (btn.dataset.act === 'edit' && p)
-    DESK.open(Object.keys(PRESETS).find(k => PRESETS[k].base === p.base) || 'server', p);
+    DESK.open(Object.keys(PRESETS).find(k => (p.kind && PRESETS[k].kind === p.kind) || PRESETS[k].base === p.base) || 'server', p);
   if (btn.dataset.act === 'remove') DESK.remove(id, btn);
 });
 if (!DEMO.on) DESK.init();

@@ -137,12 +137,41 @@ fn provider_key(p: &Value) -> Option<String> {
             return Some(k);
         }
     }
+    let file = str_of(p, "api_key_file");
+    if !file.is_empty() {
+        return std::fs::read_to_string(expand_home(file)).ok().map(|s| s.trim().to_owned()).and_then(nonempty);
+    }
     let env = str_of(p, "api_key_env");
     if env.is_empty() {
         None
     } else {
         std::env::var(env).ok().and_then(nonempty)
     }
+}
+
+fn expand_home(path: &str) -> PathBuf {
+    match (path.strip_prefix("~/"), std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))) {
+        (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
+        _ => PathBuf::from(path),
+    }
+}
+
+/// Workers AI's account-scoped base, https://api.cloudflare.com/client/v4/accounts/<id>/ai.
+/// The id may ride in `base` (what the settings form writes) or come from
+/// `account_id` / `account_id_env`, as in serve.py.
+fn cloudflare_base(p: &Value) -> Option<String> {
+    let base = str_of(p, "base").trim();
+    if !base.is_empty() && !base.contains("ACCOUNT_ID") {
+        return Some(base.trim_end_matches('/').to_owned());
+    }
+    let acct = match str_of(p, "account_id") {
+        "" => match str_of(p, "account_id_env") {
+            "" => None,
+            env => std::env::var(env).ok().filter(|s| !s.is_empty()),
+        },
+        a => Some(a.to_owned()),
+    };
+    acct.map(|a| format!("https://api.cloudflare.com/client/v4/accounts/{a}/ai"))
 }
 
 pub fn keychain_get(account: &str) -> Option<String> {
@@ -155,9 +184,18 @@ pub fn keychain_get(account: &str) -> Option<String> {
 /// What the page may know. No key, ever, not even its length.
 fn public_provider(p: &Value) -> Value {
     let keychain = p.get("keychain").and_then(Value::as_bool).unwrap_or(false);
-    let needs_key = !str_of(p, "api_key").is_empty() || !str_of(p, "api_key_env").is_empty() || keychain;
-    let has_key = provider_key(p).is_some();
-    let note = if needs_key && !has_key {
+    let needs_key = !str_of(p, "api_key").is_empty()
+        || !str_of(p, "api_key_file").is_empty()
+        || !str_of(p, "api_key_env").is_empty()
+        || keychain;
+    let mut has_key = provider_key(p).is_some();
+    let no_account = str_of(p, "kind") == "cloudflare" && cloudflare_base(p).is_none();
+    if no_account {
+        has_key = false;
+    }
+    let note = if no_account {
+        "no account: put the Cloudflare account id in the address".to_owned()
+    } else if needs_key && !has_key {
         if keychain {
             "no key: add one in Settings".to_owned()
         } else {
@@ -373,8 +411,11 @@ async fn forward_transcription(
     blob: axum::body::Bytes,
 ) -> (u16, Value) {
     let kind = p.get("kind").and_then(Value::as_str).unwrap_or("openai");
+    if kind == "cloudflare" {
+        return forward_cloudflare(b, p, fields, blob).await;
+    }
     if kind != "openai" {
-        return (400, json!({ "error": format!("provider kind '{kind}' is not implemented") }));
+        return (400, json!({ "error": format!("provider kind '{kind}' is not implemented (known kinds: openai, cloudflare)") }));
     }
     let field = |k: &str| fields.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
     let mut send: Vec<(String, String)> = Vec::new();
@@ -431,6 +472,86 @@ async fn forward_transcription(
     }
 }
 
+const CLOUDFLARE_MAX: usize = 25 * 1024 * 1024; // base64 inflates this by a third
+
+/// Workers AI's Whisper (e.g. @cf/openai/whisper-large-v3-turbo). Not OpenAI-shaped:
+/// base64 audio in a JSON body to {base}/run/<model>, the answer wrapped in
+/// {result}, and each word nested inside its segment. The words are lifted out so
+/// normalise() sees an ordinary verbose_json response. Mirrors serve.py.
+async fn forward_cloudflare(
+    b: &Broker,
+    p: &Value,
+    fields: &Map<String, Value>,
+    blob: axum::body::Bytes,
+) -> (u16, Value) {
+    use base64::Engine;
+    let id = str_of(p, "id");
+    let Some(base) = cloudflare_base(p) else {
+        return (400, json!({ "error": "Cloudflare needs both an account id and an API token", "provider": id }));
+    };
+    if blob.len() > CLOUDFLARE_MAX {
+        return (413, json!({
+            "error": format!("Cloudflare accepts audio up to {} MB; this file is larger. Convert it to 16 kHz mono or trim it.", CLOUDFLARE_MAX >> 20),
+            "provider": id,
+        }));
+    }
+    let field = |k: &str| fields.get(k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+    let mut send = json!({
+        "audio": base64::engine::general_purpose::STANDARD.encode(&blob),
+        "task": "transcribe",
+    });
+    // Whisper takes ISO 639-1; a 639-3 code (what MMS wants) would be refused, so
+    // anything that is not two letters is left to Whisper's language detection.
+    if let Some(lang) = field("language").filter(|l| l.chars().count() == 2) {
+        send["language"] = json!(lang);
+    }
+    if field("translate_to").is_some_and(|t| t.eq_ignore_ascii_case("en")) {
+        send["task"] = json!("translate");
+    }
+    if let Some(fixed) = p.get("fields").and_then(Value::as_object) {
+        for (k, v) in fixed {
+            send[k.as_str()] = v.clone();
+        }
+    }
+    let url = format!("{base}/run/{}", field("model").unwrap_or(""));
+    let req = with_auth(b.http.post(&url).json(&send).timeout(ASR_TIMEOUT), p);
+    let resp = match req.send().await {
+        Ok(r) => r,
+        Err(e) => return (502, json!({ "error": format!("cannot reach Cloudflare: {e}"), "provider": id })),
+    };
+    let status = resp.status().as_u16();
+    let raw = resp.bytes().await.unwrap_or_default();
+    if status >= 400 {
+        return (status, json!({ "error": error_detail(&raw), "provider": id }));
+    }
+    let doc: Value = serde_json::from_slice(&raw).unwrap_or(Value::Null);
+    let res = doc.get("result").cloned().unwrap_or_else(|| json!({}));
+    let info = res.get("transcription_info").cloned().unwrap_or_else(|| json!({}));
+    let segs = res.get("segments").cloned().unwrap_or_else(|| json!([]));
+    let trimmed = |w: &Value| {
+        let mut w = w.clone();
+        if let Some(t) = w.get("word").and_then(Value::as_str) {
+            w["word"] = json!(t.trim());
+        }
+        w
+    };
+    let mut words: Vec<Value> = segs
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|s| s.get("words").and_then(Value::as_array).cloned().unwrap_or_default())
+        .map(|w| trimmed(&w))
+        .collect();
+    words.extend(res.get("words").and_then(Value::as_array).into_iter().flatten().map(trimmed));
+    (200, normalise(json!({
+        "text": res.get("text").cloned().unwrap_or_else(|| json!("")),
+        "language": info.get("language").cloned().unwrap_or(Value::Null),
+        "duration": info.get("duration").cloned().unwrap_or(Value::Null),
+        "segments": segs,
+        "words": words,
+    })))
+}
+
 fn with_auth(mut req: reqwest::RequestBuilder, p: &Value) -> reqwest::RequestBuilder {
     if let Some(key) = provider_key(p) {
         req = req.bearer_auth(key);
@@ -446,9 +567,14 @@ fn with_auth(mut req: reqwest::RequestBuilder, p: &Value) -> reqwest::RequestBui
 }
 
 /// The upstream's error as one readable string, as serve.py extracts it.
+/// OpenAI nests it as error.message, Cloudflare as errors[0].message.
 fn error_detail(raw: &[u8]) -> Value {
     let text: String = String::from_utf8_lossy(raw).chars().take(600).collect();
-    match serde_json::from_str::<Value>(&text).ok().and_then(|v| v.get("error").cloned()) {
+    let doc = serde_json::from_str::<Value>(&text).ok();
+    if let Some(m) = doc.as_ref().and_then(|v| v.get("errors")?.get(0)?.get("message").cloned()) {
+        return m;
+    }
+    match doc.and_then(|v| v.get("error").cloned()) {
         Some(Value::Object(o)) => o
             .get("message")
             .cloned()
