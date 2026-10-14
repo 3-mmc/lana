@@ -1,42 +1,62 @@
-# Lana — desktop
+# Lana
 
-**L**inguistic **ANA**lysis. Lana is built on [Praat](https://www.fon.hum.uva.nl/praat/) (Paul Boersma & David Weenink) but is not part of the Praat project or endorsed by its authors.
+**L**inguistic **ANA**lysis: Praat's acoustic analysis with word, phone and speaker tiers filled by speech recognition, exported as a TextGrid. Lana runs in a browser or as a desktop app for macOS (Apple Silicon), Windows 11 and Linux. It is built on [Praat](https://www.fon.hum.uva.nl/praat/) (Paul Boersma and David Weenink) but is not part of the Praat project or endorsed by its authors.
 
-Lana's browser interface (in [`web/`](web/), runnable on its own with `web/serve.py`) as a
-desktop app for macOS (Apple Silicon), Windows 11 and Linux: Praat's analysis with word, phone and speaker tiers filled by speech
-recognition, exported as a TextGrid. Design and milestones are in [PLAN.md](PLAN.md).
+![Lana analysing a German recording: waveform, intensity, spectrogram with formant and f0 tracks, and word and phone tiers underneath](web/docs/fig-german.png)
 
-**Built-in recognition:** Whisper models (base, small, large-v3 turbo) can be downloaded from
-⚙ Connection and run inside the app with whisper.cpp, offline, with word timings from DTW. Models
-go to the app's data directory and are checked against HuggingFace's published SHA-256.
+Most tools that time annotation to a recording begin from orthography. A forced aligner looks each word up in a pronunciation dictionary and fits the expected phones to the signal, so the labels describe what the lexicon predicts rather than what the speaker produced. Lana takes its phone tier from recognisers that read IPA off the acoustics, with no dictionary in the path, and its word tier from a separate model. The two tiers are therefore independent observations of the same signal, and where they diverge the divergence is itself the data. The same design is what makes the tool usable for languages that have no pronunciation dictionary at all, which is to say most of the languages documentation work is concerned with.
 
-**Status: milestone 2.** A native window with the web interface and praat-wasm analysis,
-and a Rust port of `serve.py`'s recognition broker. Providers come from `providers.json` in the
-app's config directory (same format as `web/serve.py`'s; `LANA_PROVIDERS` overrides the path). A
-provider with `"keychain": true` takes its API key from the OS keychain (service `lana`,
-account = provider id). Recognisers and keys are managed from ⚙ Connection → *Recognisers in
-this app*. Where there is no keychain (Linux without a Secret Service, e.g. WSL) a key can be
-saved in the settings file instead, after the user explicitly agrees.
+Everything a phonetician would otherwise have to trust is on screen. Pitch, formants, intensity and the spectrogram are computed by Praat itself, compiled to WebAssembly, and every argument that shaped them is an editable field beneath which the page prints the literal Praat commands. Machine labels are a first pass to be checked against the spectrogram, not a measurement, and the interface is built to make that checking cheap. The reasoning behind these choices, and what CTC phone timings can and cannot support, is set out in [`web/README.md`](web/README.md).
 
-`scripts/parity-test.py` sends the same requests to `web/serve.py` and the Rust broker through a
-mock recogniser and fails on any difference that is not listed as deliberate.
+## Two ways to run it
 
-## Build
+**In a browser.** `web/` is a static page and a standard-library Python server. Run `python3 web/serve.py` and open `http://127.0.0.1:8710`. The audio is analysed in the browser and never leaves it unless you send it to a recogniser you have configured. The browser version brings no recognition of its own: it connects to a service you run, such as a local GPU server, or to a provider such as OpenAI. Adding `?demo` to the address replays recorded results for two readings of a FLEURS sentence, in Georgian and German, over live Praat analysis.
 
-Prerequisites: [Rust](https://rustup.rs), the Tauri CLI (`cargo install tauri-cli --locked`),
-the [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/) for your platform,
-and, for the built-in speech recognition (whisper.cpp), **cmake** and **libclang**:
+**As a desktop app.** The same interface in a native window, with recognition built in. Models are downloaded from the settings screen and run on the computer's own processor, offline, so a researcher with no server and no command-line experience can go from an audio file to a TextGrid with IPA in it. API keys for online providers are kept in the operating system's keychain rather than in a file.
 
-- **macOS:** `xcode-select --install` provides libclang. Install cmake from
-  [cmake.org](https://cmake.org/download/) or with `brew install cmake`.
+Both versions support hand annotation and TextGrid import, so a machine tier can be corrected in place and an existing annotation, from Praat or exported from ELAN, can be opened beside the recording. Both record directly from a microphone. Both also save the annotation as it changes, under a key derived from the content of the audio rather than its file name, so a renamed or moved recording still opens with its tiers. The desktop app keeps these saves as files in its data folder, while the browser keeps them in its own storage, which means they do not travel between browsers or machines.
+
+There is no tagged release yet. Installers for all three platforms are built by the [build workflow](https://github.com/3-mmc/lana/actions/workflows/build.yml) and can be downloaded from its most recent run.
+
+## Built-in recognition
+
+The desktop app's catalogue covers each tier with at least one model that runs on an ordinary laptop. Each entry states its size and licence before anything is downloaded, and the downloaded files are checked against the checksums HuggingFace publishes for them.
+
+| Model | Tier | Download | Licence |
+| --- | --- | --- | --- |
+| Whisper base, small, large-v3 turbo | words | 142–547 MB | MIT |
+| Omnilingual ASR 300M, 1B (Meta) | words | 365 MB, 1 GB | Apache 2.0 |
+| MMS-1b-all (Meta), per language | words | 1 GB once, then about 9 MB a language | CC BY-NC 4.0 |
+| ZIPA small, large | IPA phones | 71 MB, 310 MB | CC BY 4.0 |
+| Speakers (pyannote segmentation + speaker embedding) | speakers | 36 MB | MIT, CC BY 4.0 |
+
+The choice of word model depends on the language more than on the size of the model. Omnilingual covers some 1,600 languages, but it is not told which language it is hearing, and where the writing system is ambiguous it guesses. On 40 held-out Common Voice recordings each, it wrote Dargwa in Arabic or Latin letters rather than Cyrillic:
+
+| Character error rate | Dargwa | Ossetian |
+| --- | --- | --- |
+| MMS, with the language's adapter | **10.1%** | **12.1%** |
+| Omnilingual 300M | 68.1% | 38.7% |
+| Omnilingual 1B | 85.3% | 38.6% |
+
+MMS avoids the problem because it loads a separate adapter for each of its 1,162 languages, so the language, and with it the alphabet, is fixed before recognition begins. Lana downloads the shared part of the model once and each adapter on request; the adapter files come from Meta's own repository and are fitted to the shared part on the user's computer. The MMS figures above are from Lana's converted model, against 10.0% and 11.7% for Meta's original. Georgian shows the other side of the comparison: its script is unambiguous, so Omnilingual 1B made 2.2% character errors on the demo recording, while MMS made 0.7%.
+
+MMS is licensed for non-commercial use only. The settings screen therefore explains the licence and asks the user to accept it before anything is downloaded, and every MMS entry in the model menus is labelled as non-commercial. The converted shared files are published at [3mmc/lana-mms-1b-all-onnx](https://huggingface.co/3mmc/lana-mms-1b-all-onnx) under the same licence, with the conversion scripts in [`scripts/mms`](scripts/mms).
+
+Languages a researcher returns to can be pinned, which moves them to the top of the language list and of the word tier's menu. The app ships no preset list of languages, because the languages that matter are the user's, not the developer's.
+
+Recognition services remain available alongside the built-in models. A provider is any service that implements OpenAI's `/v1/audio/transcriptions`, added from the settings screen or listed in `providers.json` in the app's configuration folder, in the same format `web/serve.py` reads. The tier contract that a service must meet to fill the word and phone tiers is documented in [`web/README.md`](web/README.md#the-tier-contract).
+
+## Building from source
+
+Prerequisites: [Rust](https://rustup.rs), the Tauri CLI (`cargo install tauri-cli --locked`), the [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/) for your platform, and, for the built-in Whisper models (whisper.cpp), **cmake** and **libclang**:
+
+- **macOS:** `xcode-select --install` provides libclang. Install cmake from [cmake.org](https://cmake.org/download/) or with `brew install cmake`.
 - **Linux (Debian/Ubuntu):** `sudo apt install cmake libclang-dev`
-- **Windows:** Visual Studio Build Tools ships cmake (add its `CMake\bin` to `PATH`). For libclang,
-  set `LIBCLANG_PATH` to a folder containing `libclang.dll` (from an LLVM install, or the
-  `libclang` wheel on PyPI). Do not set `WHISPER_DONT_GENERATE_BINDINGS`: the bundled bindings
-  are generated on Linux and their struct layouts do not compile on Windows.
+- **Windows:** Visual Studio Build Tools ships cmake (add its `CMake\bin` to `PATH`). For libclang, set `LIBCLANG_PATH` to a folder containing `libclang.dll`, from an LLVM install or the `libclang` wheel on PyPI. Do not set `WHISPER_DONT_GENERATE_BINDINGS`: the bundled bindings are generated on Linux, and their struct layouts do not compile on Windows.
 
 ```sh
 git clone https://github.com/3-mmc/lana
+cd lana
 scripts/fetch-praat-wasm.sh              # 24 MB, once, into vendor/
 cd src-tauri
 cargo run                                # development
@@ -44,10 +64,16 @@ cargo run -- path/to/recording.wav       # open a recording at start
 cargo tauri build                        # installer for this platform
 ```
 
-On macOS without an Apple Developer ID the build is ad-hoc signed. A copy built on the Mac
-itself opens normally. A downloaded copy must be allowed once under System Settings → Privacy &
-Security → **Open Anyway**.
+The desktop app serves `web/index.html` unchanged from an embedded local server and reimplements `serve.py`'s `/api/*` routes in Rust, so the browser and desktop versions share one interface rather than maintaining two. Features that only the desktop can offer, such as model downloads and the keychain, are switched on by the page after it asks the server what it supports, which leaves the browser version unaffected. `scripts/parity-test.py` sends identical requests to `web/serve.py` and to the Rust server through a mock recogniser, and fails on any difference that is not listed as deliberate. The design and its milestones are in [PLAN.md](PLAN.md).
 
-## Licence
+Without an Apple Developer ID, macOS builds are ad-hoc signed. A copy built on the Mac itself opens normally; a downloaded copy has to be allowed once under System Settings → Privacy & Security → **Open Anyway**.
 
-GPL-3.0-or-later, as required by praat-wasm.
+## Credits and licence
+
+The analysis is Praat by Paul Boersma and David Weenink, through [praat-wasm](https://www.npmjs.com/package/praat-wasm) by reynoldsnlp. If Praat contributed to published work, cite it as its authors ask:
+
+> Boersma, Paul & Weenink, David. *Praat: doing phonetics by computer* [Computer program]. http://www.praat.org/
+
+The built-in models are the work of their authors: Whisper (OpenAI), MMS and Omnilingual ASR (Meta), ZIPA (Zhu et al. 2025), and pyannote's segmentation model, run through [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). MMS is described in Pratap et al. (2023), *Scaling Speech Technology to 1,000+ Languages*.
+
+Lana is GPL-3.0-or-later, as praat-wasm requires. Until October 2026 the browser interface was a separate repository, `3-mmc/lana-web`, formerly `praat-web`; its history is preserved in `web/`.
