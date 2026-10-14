@@ -10,6 +10,7 @@
 mod broker;
 mod local;
 mod recordings;
+mod store;
 mod server;
 mod settings;
 
@@ -31,6 +32,7 @@ fn main() {
         let mut roots = server::Roots::locate(None, providers.into()).expect("source tree");
         roots.models = std::env::var_os("LANA_MODELS").map(Into::into).unwrap_or_else(|| std::env::temp_dir().join("lana-models"));
         roots.recordings = std::env::var_os("LANA_RECORDINGS").map(Into::into).unwrap_or_else(|| std::env::temp_dir().join("lana-recordings"));
+        roots.store = std::env::var_os("LANA_STORE").map(Into::into).unwrap_or_else(|| std::env::temp_dir().join("lana-store"));
         tauri::async_runtime::block_on(async move {
             let port = server::start_on(roots, port).await.expect("bind");
             eprintln!("lana-desktop serving http://127.0.0.1:{port}/ (no window)");
@@ -65,6 +67,10 @@ fn main() {
                     .or_else(|_| app.path().home_dir().map(|h| h.join("Documents")))
                     .or_else(|_| app.path().app_data_dir())?
                     .join("Lana Recordings"),
+            };
+            roots.store = match std::env::var_os("LANA_STORE") {
+                Some(p) => p.into(),
+                None => app.path().app_data_dir()?.join("store"),
             };
             roots.launch = std::env::args_os().skip(1).map(std::path::PathBuf::from).find(|p| p.is_file());
             let port = tauri::async_runtime::block_on(server::start(roots))?;

@@ -84,6 +84,9 @@ async fn capabilities(State(s): State<Settings>) -> Json<Value> {
     let available = tokio::task::spawn_blocking(keychain_available).await.unwrap_or(false);
     Json(json!({
         "desktop": true,
+        // Annotations and settings are kept by the app (/api/store), because
+        // browser storage does not survive the port changing between launches.
+        "store": true,
         "version": env!("CARGO_PKG_VERSION"),
         "keychain": available.then_some(keychain_name()),
         "providers_file": s.file.display().to_string(),

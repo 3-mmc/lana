@@ -24,15 +24,17 @@ pub struct Roots {
     pub models: PathBuf,
     /// Where live recordings are written (Documents/Lana Recordings).
     pub recordings: PathBuf,
+    /// Saved annotations and the page's settings (the app's data directory).
+    pub store: PathBuf,
 }
 
 impl Roots {
     /// Bundled resources in a release build; the source tree under `cargo run`.
     pub fn locate(resource_dir: Option<PathBuf>, providers: PathBuf) -> Result<Self, String> {
         let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-        let source = Roots { web: src.join("web"), vendor: src.join("vendor"), providers: providers.clone(), launch: None, models: PathBuf::new(), recordings: PathBuf::new() };
+        let source = Roots { web: src.join("web"), vendor: src.join("vendor"), providers: providers.clone(), launch: None, models: PathBuf::new(), recordings: PathBuf::new(), store: PathBuf::new() };
         let bundled = resource_dir
-            .map(|r| Roots { web: r.join("web"), vendor: r.join("vendor"), providers, launch: None, models: PathBuf::new(), recordings: PathBuf::new() });
+            .map(|r| Roots { web: r.join("web"), vendor: r.join("vendor"), providers, launch: None, models: PathBuf::new(), recordings: PathBuf::new(), store: PathBuf::new() });
         // A development build reads the source tree, which is what is being
         // edited. Tauri also copies the resources next to the binary at build
         // time, and preferring that copy served a page from the last build.
@@ -65,6 +67,7 @@ pub async fn start_on(roots: Roots, port: u16) -> std::io::Result<u16> {
         .merge(crate::broker::router(roots.providers.clone(), local.clone()))
         .merge(crate::local::router(local))
         .merge(crate::recordings::router(roots.recordings.clone()))
+        .merge(crate::store::router(roots.store.clone()))
         .merge(crate::settings::router(roots.providers.clone(), roots.launch.clone()))
         .route_service("/", ServeFile::new(&index))
         .route_service("/index.html", ServeFile::new(&index))
