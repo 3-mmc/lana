@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// MMS (Meta, 2023): words in 1,198 languages, one small adapter each.
+// MMS (Meta, 2023): words in 1,159 languages (1,198 adapters, some per script
+// or dialect), one small adapter each.
 //
 // MMS-1b-all is one large shared network plus, per language, a few MB of
 // adapter layers and an output layer for that language's alphabet. Lana keeps

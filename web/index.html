@@ -361,7 +361,7 @@
     <legend>Recognisers in this app</legend>
     <div class="mghead">Built into Lana <span>— runs on this computer, works offline, nothing is uploaded</span></div>
     <div id="lcList"></div>
-    <div class="mghead">MMS <span>— words in 1,198 languages, added one language at a time · non-commercial licence</span></div>
+    <div class="mghead">MMS <span>— words in more than 1,150 languages, added one at a time · non-commercial licence</span></div>
     <div id="mmsBox"></div>
     <div class="mghead">Other recognisers <span>— cloud services, or a speech server you run</span></div>
     <div id="mgList"></div>
@@ -3601,7 +3601,7 @@ const DESK = {
 
   /* MMS: a licence step, the shared part, and the languages. Each language is
      its own small download, so the list is searchable rather than a wall of
-     1,198 buttons, with the languages of the Caucasus one click away. */
+     1,198 buttons. Languages a researcher returns to can be pinned. */
   mms: null, mmsLangs: null, mmsQuery: '',
   async loadMms() {
     try {
@@ -3630,7 +3630,7 @@ const DESK = {
     };
     if (!m.accepted) {
       box.innerHTML = `<div class="gate">
-        <div><b>MMS</b> (Meta, 2023) recognises words in 1,198 languages, among them Avar, Chechen,
+        <div><b>MMS</b> (Meta, 2023) recognises words in more than 1,150 languages, among them Avar, Chechen,
           Dargwa, Georgian and Ossetian. In Lana's tests it was by far the most accurate model here for
           languages of the Caucasus: about 10% of characters wrong on Dargwa, where the next best got
           two thirds wrong.</div>
