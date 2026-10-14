@@ -1,0 +1,39 @@
+# Publish openlana.app: the landing page in site/, the browser build in web/ at /app/,
+# and praat-wasm fetched from npm. scripts/build-site.sh does the assembly, so a local
+# run of it produces exactly what is deployed.
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', 'web/index.html', 'web/demo/**', 'scripts/build-site.sh', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/build-site.sh _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

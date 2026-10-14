@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lana — phonetic analysis with recognised tiers</title>
+<meta name="description" content="Lana is an open workbench for phonetic analysis: Praat's measurements, with word, phone and speaker tiers filled by speech recognition and exported as a TextGrid. In the browser, or offline on macOS, Windows and Linux.">
+<meta property="og:title" content="Lana — Linguistic ANAlysis">
+<meta property="og:description" content="Praat's measurements, with word, phone and speaker tiers filled by speech recognition. Try it in the browser.">
+<meta property="og:image" content="https://openlana.app/img/hero.webp">
+<meta property="og:url" content="https://openlana.app/">
+<meta name="theme-color" content="#ffffff">
+<link rel="icon" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#ffffff; --ink:#111113; --dim:#6b6b73; --faint:#9a9aa2; --line:#e8e8ec;
+    --card:#f6f6f8; --btn:#111113; --btn-ink:#ffffff;
+    --frame:#1b1b1d; --frame-edge:#2c2c31; --accent:#3d8bfd;
+    --sans:"Inter","Noto Sans",ui-sans-serif,system-ui,sans-serif;
+    --ipa:"Noto Sans","Inter",system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#0e0e10; --ink:#ececf0; --dim:#9a9aa3; --faint:#6c6c75; --line:#232328;
+      --card:#17171a; --btn:#ececf0; --btn-ink:#0e0e10; --frame-edge:#34343a; }
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans);
+    -webkit-font-smoothing:antialiased;font-feature-settings:"cv11","ss01"}
+  a{color:inherit}
+  img{display:block;max-width:100%;height:auto}
+  .ipa{font-family:var(--ipa)}
+
+  /* ---- top bar ---- */
+  .top{position:fixed;inset:0 0 auto 0;z-index:10;display:flex;justify-content:space-between;
+    align-items:center;padding:14px 24px;pointer-events:none;border-bottom:1px solid transparent;
+    transition:background .25s,border-color .25s}
+  .top.scrolled{background:color-mix(in srgb,var(--bg) 82%,transparent);border-color:var(--line);
+    -webkit-backdrop-filter:saturate(1.4) blur(14px);backdrop-filter:saturate(1.4) blur(14px);pointer-events:auto}
+  .top>*{pointer-events:auto}
+  .top .mark{opacity:0;transition:opacity .25s}
+  .top.scrolled .mark{opacity:1}
+  .top .mark img{width:26px;height:26px;display:block}
+  .top nav{display:flex;gap:18px;font-size:13px;font-weight:500}
+  .top nav a{text-decoration:none;color:var(--ink)}
+  .top nav a:hover{color:var(--dim)}
+
+  /* ---- hero ---- */
+  .hero{text-align:center;padding:72px 16px 0}
+  .hero .icon{width:76px;height:76px;margin:0 auto 22px}
+  .hero h1{font-size:17px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .hero .sub{font-size:17px;color:var(--dim);margin:2px auto 0;max-width:46ch}
+  .ctas{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:24px}
+  .btn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 18px;border-radius:10px;
+    font:500 14px var(--sans);text-decoration:none;border:1px solid transparent;cursor:pointer}
+  .btn.primary{background:var(--btn);color:var(--btn-ink)}
+  .btn.primary:hover{opacity:.86}
+  .btn.ghost{border-color:var(--line);color:var(--ink);background:transparent}
+  .btn.ghost:hover{background:var(--card)}
+  .btn svg{width:15px;height:15px}
+  .note{font-size:13px;color:var(--faint);margin-top:12px}
+
+  /* ---- app frame ---- */
+  .frame{position:relative;background:var(--frame);border:1px solid var(--frame-edge);border-radius:14px;
+    overflow:hidden;box-shadow:0 30px 80px -30px rgba(0,0,0,.35)}
+  .frame .bar{display:flex;align-items:center;gap:7px;height:34px;padding:0 14px;background:#232326;
+    border-bottom:1px solid #2e2e33;color:#8d8d96;font-size:12px}
+  .frame .bar i{width:11px;height:11px;border-radius:50%;background:#ff5f57}
+  .frame .bar i:nth-child(2){background:#febc2e}.frame .bar i:nth-child(3){background:#28c840}
+  .frame .bar span{margin-left:10px}
+  .frame .bar .live{margin-left:auto;color:#6fd08c}
+  .stage{max-width:1260px;margin:56px auto 0;padding:0 24px;scroll-margin-top:68px}
+  .stage .frame .shot{aspect-ratio:2400/1867;width:100%;background:#1b1b1d}
+  .stage .frame .shot img{width:100%;height:100%;object-fit:cover;object-position:top}
+  .stage iframe{display:block;width:100%;height:min(86vh,980px);border:0;background:#1b1b1d}
+  .play{position:absolute;left:50%;top:55%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:10px;
+    padding:12px 20px;border-radius:999px;border:0;background:rgba(255,255,255,.94);color:#111;
+    font:500 14px var(--sans);white-space:nowrap;cursor:pointer;box-shadow:0 10px 30px rgba(0,0,0,.35);transition:transform .2s}
+  .play:hover{transform:translate(-50%,-50%) scale(1.04)}
+  .play svg{width:14px;height:14px}
+  .stage .cap{font-size:13px;color:var(--faint);text-align:center;margin-top:14px}
+
+  /* ---- feature rows ---- */
+  .features{max-width:1340px;margin:140px auto 0;padding:0 24px;display:grid;gap:150px}
+  .row{display:grid;grid-template-columns:minmax(200px,260px) 1fr;gap:56px;align-items:start}
+  .row.flip{grid-template-columns:1fr minmax(200px,260px)}
+  .row.flip .text{order:2}
+  .row .text{position:sticky;top:42vh}
+  .row h2{font-size:15px;font-weight:600;margin:0;letter-spacing:-.005em}
+  .row p{color:var(--dim);margin:2px 0 0}
+  .row p + p{margin-top:10px}
+  .row .media{display:grid;gap:18px}
+  .row .media.pair{grid-template-columns:1fr 1fr;align-items:start}
+  .row .frame img{width:100%}
+  .row .frame.tall{max-width:420px;justify-self:center}
+  .kbd{font-family:var(--mono);font-size:12.5px;color:var(--ink);background:var(--card);
+    border:1px solid var(--line);border-radius:6px;padding:1px 6px;white-space:nowrap}
+
+  /* ---- plain sections ---- */
+  .section{max-width:1080px;margin:170px auto 0;padding:0 24px}
+  .section>h2{font-size:15px;font-weight:600;margin:0}
+  .section>.lead{color:var(--dim);margin:2px 0 30px;max-width:62ch}
+  .ways{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .way{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 22px 20px;display:flex;flex-direction:column}
+  .way h3{font-size:15px;font-weight:600;margin:0}
+  .way p{color:var(--dim);margin:4px 0 18px;flex:1}
+  .way code{font-family:var(--mono);font-size:12.5px;display:block;background:var(--bg);border:1px solid var(--line);
+    border-radius:8px;padding:9px 11px;margin-bottom:16px;overflow-x:auto;white-space:nowrap}
+  .way .btn{align-self:flex-start;height:36px;padding:0 14px;font-size:13px}
+  .platforms{display:flex;flex-wrap:wrap;gap:6px;margin:-6px 0 16px}
+  .platforms span{font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:11px 12px 11px 0;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-weight:500;color:var(--faint);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+  td:nth-child(3),td:nth-child(4){color:var(--dim);white-space:nowrap}
+  .tier{font-size:12px;border-radius:999px;padding:2px 9px;white-space:nowrap;border:1px solid var(--line)}
+  .tablewrap{overflow-x:auto}
+  .fine{font-size:13px;color:var(--faint);margin-top:14px;max-width:80ch}
+
+  .formats{display:flex;flex-wrap:wrap;gap:8px}
+  .formats span{font-family:var(--mono);font-size:13px;border:1px solid var(--line);border-radius:8px;padding:6px 11px}
+
+  .closing{text-align:center;margin:190px auto 0;padding:0 16px}
+  .closing .icon{width:56px;height:56px;margin:0 auto 18px}
+  .closing h2{font-size:17px;font-weight:600;margin:0}
+  .closing p{font-size:17px;color:var(--dim);margin:2px 0 0}
+
+  footer{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;max-width:1340px;margin:140px auto 0;
+    padding:22px 24px 30px;font-size:12.5px;color:var(--faint)}
+  footer nav{display:flex;gap:16px}
+  footer a{text-decoration:none}
+  footer a:hover{color:var(--ink)}
+
+  /* ---- reveal (content is visible without JS; .js opts in) ---- */
+  .js .reveal{opacity:0;transform:translateY(18px);transition:opacity .7s ease,transform .7s ease}
+  .js .reveal.in{opacity:1;transform:none}
+  @media (prefers-reduced-motion: reduce){ .js .reveal{opacity:1;transform:none;transition:none} }
+
+  @media (max-width: 900px){
+    .row,.row.flip{grid-template-columns:1fr;gap:20px}
+    .row.flip .text{order:0}
+    .row .text{position:static;max-width:52ch}
+    .features{gap:96px;margin-top:96px}
+    .ways{grid-template-columns:1fr}
+    .section{margin-top:110px}
+  }
+  @media (max-width: 600px){
+    .top{padding:12px 16px}
+    .hero{padding-top:64px}
+    .stage,.features,.section{padding:0 16px}
+    .stage{margin-top:40px}
+    .row .media.pair{grid-template-columns:1fr}
+    .frame .bar span:not(.live){display:none}
+    footer{padding:22px 16px 28px}
+  }
+</style>
+</head>
+<body>
+<script>document.documentElement.classList.add('js')</script>
+
+<header class="top" id="top">
+  <a class="mark" href="#" aria-label="Lana"><img src="lana-icon.svg" alt=""></a>
+  <nav>
+    <a href="app/?demo">Demo</a>
+    <a href="#install">Download</a>
+    <a href="https://github.com/3-mmc/lana">GitHub</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <img class="icon" src="lana-icon.svg" alt="The Lana icon: the waveform and formant tracks of the word Lana">
+    <h1>Lana is an open workbench for phonetic analysis.</h1>
+    <p class="sub">Praat's measurements, with word, phone and speaker tiers filled by speech recognition and exported as a TextGrid.</p>
+    <div class="ctas">
+      <a class="btn primary" href="app/?demo">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>
+        Try it in your browser</a>
+      <a class="btn ghost" href="#install" id="dl">Download</a>
+    </div>
+    <div class="note">Version 0.1 preview, for macOS (Apple Silicon), Windows 11 and Linux. Free and open source.</div>
+  </section>
+
+  <div class="stage reveal">
+    <div class="frame" id="demoFrame">
+      <div class="bar"><i></i><i></i><i></i><span>Lana — de-vinson.wav</span><span class="live" hidden id="liveTag">● live</span></div>
+      <div class="shot" id="shot">
+        <img src="img/hero.webp" width="2400" height="1867" fetchpriority="high"
+             alt="Lana analysing a German recording: waveform, intensity and a spectrogram with pitch and formant tracks, above word, phone and speaker tiers">
+        <button class="play" id="play" type="button">
+          <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>
+          Run the live demo here</button>
+      </div>
+    </div>
+    <p class="cap">The demo runs Praat in this page and replays what real models returned for two readings of one sentence, in German and Georgian.</p>
+  </div>
+
+  <div class="features">
+    <div class="row reveal">
+      <div class="text">
+        <h2>Phones from the signal</h2>
+        <p>The phone tier is read off the acoustics by an IPA recogniser, with no pronunciation dictionary in the way. The word tier comes from a separate model.</p>
+        <p>So <span class="ipa">ანტარქტიკის</span> comes out as <span class="ipa">ɑ n tʼ ɑ r kʼ tʼ i kʼ i s</span>, ejectives and all, and the method works for languages that have no dictionary.</p>
+      </div>
+      <div class="media">
+        <div class="frame"><img src="img/tiers-georgian.webp" width="1800" height="1018" loading="lazy"
+          alt="A Georgian recording in Lana: spectrogram, the word ანტარქტიკის in Mkhedruli from MMS, and IPA phones underneath"></div>
+      </div>
+    </div>
+
+    <div class="row flip reveal">
+      <div class="text">
+        <h2>Praat underneath, in plain sight</h2>
+        <p>Pitch, formants, intensity and the spectrogram are Praat's own, compiled to WebAssembly. Every argument is a field you can edit, and the page prints the commands it ran.</p>
+      </div>
+      <div class="media pair">
+        <div class="frame"><img src="img/analysis.webp" width="690" height="1160" loading="lazy"
+          alt="The analysis panel: spectrogram, pitch and formant settings as editable fields, with the literal Praat commands beneath"></div>
+        <div class="frame"><img src="img/recognition.webp" width="690" height="825" loading="lazy"
+          alt="The recognition panel: one model for the word tier, one for the phone tier, and a speaker diarizer"></div>
+      </div>
+    </div>
+
+    <div class="row reveal">
+      <div class="text">
+        <h2>Tiers fill as it runs</h2>
+        <p>Each tier has its own model, and results appear while the job is still going. A lane that is still being computed looks different from one that is empty.</p>
+      </div>
+      <div class="media">
+        <div class="frame"><img src="img/progressive.webp" width="1800" height="1200" loading="lazy"
+          alt="A long recording with the word tier filled and the phone tier still being computed"></div>
+      </div>
+    </div>
+
+    <div class="row flip reveal">
+      <div class="text">
+        <h2>Who is speaking</h2>
+        <p>A speaker tier keys on the voice, not the words, so it needs no language code and runs alongside the recogniser.</p>
+        <p>Here the speaker changes from S1 to S2 at 6.04 s, and the silence between them is left unassigned.</p>
+      </div>
+      <div class="media">
+        <div class="frame"><img src="img/speakers.webp" width="1800" height="1200" loading="lazy"
+          alt="Three tiers: words, phones, and a speaker tier showing a change of voice from S1 to S2"></div>
+      </div>
+    </div>
+
+    <div class="row reveal">
+      <div class="text">
+        <h2>Offline, on a laptop</h2>
+        <p>The desktop app has recognition built in. Download a model once and the recording never leaves the computer.</p>
+        <p>This Dargwa sentence was transcribed in under six seconds on a laptop CPU: words by MMS, phones by ZIPA.</p>
+      </div>
+      <div class="media">
+        <div class="frame"><img src="img/desktop-dargwa.webp" width="1440" height="1035" loading="lazy"
+          alt="Lana desktop with a Dargwa sentence: MMS words in Cyrillic and ZIPA phones in IPA under the spectrogram"></div>
+      </div>
+    </div>
+
+    <div class="row flip reveal">
+      <div class="text">
+        <h2>Models, stated plainly</h2>
+        <p>Each model shows its tier, size and licence before anything downloads, and the files are checked against published checksums.</p>
+      </div>
+      <div class="media">
+        <div class="frame"><img src="img/desktop-models.webp" width="1440" height="900" loading="lazy"
+          alt="The settings screen listing built-in models with sizes, licences and notes"></div>
+      </div>
+    </div>
+  </div>
+
+  <section class="section reveal" id="install">
+    <h2>Three ways to run it</h2>
+    <p class="lead">Every version supports hand annotation, TextGrid import from Praat or ELAN, and recording from a microphone. Annotations save as you work.</p>
+    <div class="ways">
+      <div class="way">
+        <h3>In this browser</h3>
+        <p>Praat runs in the page, and the demo replays recorded results from real models. To analyse your own audio, open a file. It stays on your computer.</p>
+        <a class="btn primary" href="app/?demo">Open the demo</a>
+      </div>
+      <div class="way">
+        <h3>Desktop app</h3>
+        <p>Built-in, offline recognition for words, IPA phones and speakers. API keys for online providers go in the system keychain.</p>
+        <div class="platforms"><span>macOS · Apple Silicon</span><span>Windows 11</span><span>Debian / Ubuntu</span><span>AppImage</span></div>
+        <a class="btn primary" href="https://github.com/3-mmc/lana/releases" id="dl2">Download</a>
+      </div>
+      <div class="way">
+        <h3>Your own server</h3>
+        <p>Connect the browser version to a GPU server you run, or to a provider such as OpenAI or Cloudflare. Keys stay on the server.</p>
+        <code>python3 web/serve.py</code>
+        <a class="btn ghost" href="https://github.com/3-mmc/lana#two-ways-to-run-it">Read the setup</a>
+      </div>
+    </div>
+    <p class="fine">The installers are not signed with Apple or Microsoft certificates yet, so both systems warn you before the first launch. The <a href="https://github.com/3-mmc/lana#installing">install notes</a> explain how to continue.</p>
+  </section>
+
+  <section class="section reveal">
+    <h2>Built-in recognition</h2>
+    <p class="lead">At least one model per tier runs on an ordinary laptop. Which word model to use depends more on the language than on model size. MMS loads an adapter for each language, so it gets the script right where Omnilingual has to guess.</p>
+    <div class="tablewrap">
+    <table>
+      <thead><tr><th>Model</th><th>Tier</th><th>Download</th><th>Licence</th></tr></thead>
+      <tbody>
+        <tr><td>Whisper base, small, large-v3 turbo</td><td><span class="tier">words</span></td><td>142–547 MB</td><td>MIT</td></tr>
+        <tr><td>Omnilingual ASR 300M, 1B</td><td><span class="tier">words</span></td><td>365 MB, 1 GB</td><td>Apache 2.0</td></tr>
+        <tr><td>MMS-1b-all, 1,150+ languages</td><td><span class="tier">words</span></td><td>1 GB, then ~9 MB a language</td><td>CC BY-NC 4.0</td></tr>
+        <tr><td>ZIPA small, large</td><td><span class="tier">IPA phones</span></td><td>71 MB, 310 MB</td><td>CC BY 4.0</td></tr>
+        <tr><td>Speakers (pyannote segmentation + embedding)</td><td><span class="tier">speakers</span></td><td>36 MB</td><td>MIT, CC BY 4.0</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="fine">On 40 held-out Common Voice recordings each, MMS made 10.1% character errors on Dargwa and 12.1% on Ossetian. Omnilingual made 38–85% errors on the same recordings, mostly because it wrote them in the wrong script.</p>
+  </section>
+
+  <section class="section reveal">
+    <h2>Takes and gives standard files</h2>
+    <p class="lead">Export the tiers to Praat, subtitle tools or a spreadsheet, or open an existing annotation next to the recording and correct it in place.</p>
+    <div class="formats"><span>TextGrid</span><span>Lana file</span><span>SRT</span><span>ASS</span><span>VTT</span><span>TSV</span></div>
+  </section>
+
+  <section class="closing reveal">
+    <img class="icon" src="lana-icon.svg" alt="">
+    <h2>Linguistic ANAlysis.</h2>
+    <p>Machine labels are a first pass. Check them against the spectrogram.</p>
+    <div class="ctas">
+      <a class="btn primary" href="app/?demo">Try it in your browser</a>
+      <a class="btn ghost" href="https://github.com/3-mmc/lana">View on GitHub</a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div>© 2026 Lana, open source under GPL-3.0-or-later. Built on <a href="https://www.fon.hum.uva.nl/praat/">Praat</a> by Paul Boersma and David Weenink, but not part of the Praat project.</div>
+  <nav>
+    <a href="https://github.com/3-mmc/lana">GitHub</a>
+    <a href="https://github.com/3-mmc/lana/releases">Releases</a>
+    <a href="https://huggingface.co/3mmc">Hugging Face</a>
+  </nav>
+</footer>
+
+<script>
+  // Top-bar mark appears once the hero icon has scrolled away.
+  const topBar = document.getElementById('top');
+  addEventListener('scroll', () => topBar.classList.toggle('scrolled', scrollY > 160), { passive: true });
+
+  // Name the visitor's platform on the download buttons.
+  const ua = navigator.userAgent, plat = navigator.userAgentData?.platform || navigator.platform || '';
+  const os = /Mac/i.test(plat) && !/iPhone|iPad/.test(ua) ? 'Mac' : /Win/i.test(plat) ? 'Windows'
+           : /Linux/i.test(plat) && !/Android/i.test(ua) ? 'Linux' : null;
+  if (os) {
+    document.getElementById('dl').textContent = `Download for ${os}`;
+    document.getElementById('dl2').textContent = `Download for ${os}`;
+  }
+
+  // The live demo is ~25 MB of WebAssembly, so it loads only on request, and
+  // on small screens it opens full-page instead of in the frame.
+  document.getElementById('play').addEventListener('click', () => {
+    if (innerWidth < 900) { location.href = 'app/?demo=de-vinson'; return; }
+    const f = document.createElement('iframe');
+    f.src = 'app/?demo=de-vinson';
+    f.title = 'Lana live demo';
+    f.allow = 'microphone; clipboard-write';
+    document.getElementById('shot').replaceWith(f);
+    document.getElementById('liveTag').hidden = false;
+    document.querySelector('.stage').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  // Fade sections in as they arrive.
+  const io = new IntersectionObserver(es => es.forEach(e => {
+    if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }), { rootMargin: '0px 0px -8% 0px' });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+</script>
+</body>
+</html>

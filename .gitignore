@@ -3,3 +3,4 @@ AGENTS.md
 target/
 node_modules/
 vendor/
+_site/
