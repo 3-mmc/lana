@@ -36,7 +36,7 @@ const META: &str = "https://huggingface.co/facebook/mms-1b-all/resolve/main";
 /// Lana's conversion of the shared part. LANA_MMS_BASE points elsewhere, such
 /// as a local mirror for testing; downloads from an override are not
 /// checksummed unless the server sends checksums.
-const SHARED: &str = "https://huggingface.co/3-mmc/lana-mms-1b-all-onnx/resolve/main";
+const SHARED: &str = "https://huggingface.co/3mmc/lana-mms-1b-all-onnx/resolve/main";
 const SHARED_FILES: &[&str] = &["model.onnx", "mms-base.bin", "adapters.json"];
 pub const SHARED_MB: u32 = 1018;
 const ADAPTER_MB: u32 = 9;
