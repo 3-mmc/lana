@@ -11,32 +11,74 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 
-const HF_REPO: &str = "ggerganov/whisper.cpp";
+const WHISPER: &str = "ggerganov/whisper.cpp";
+const SHERPA_SEG: &str = "csukuangfj/sherpa-onnx-pyannote-segmentation-3-0";
+const SHERPA_EMB: &str = "csukuangfj/speaker-embedding-models";
+
+/// What a model does, which decides the engine that runs it and the tier it fills.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Kind {
+    /// whisper.cpp: words, with DTW word timings.
+    Whisper,
+    /// A CTC phone recogniser run by sherpa-onnx: IPA phones with frame times.
+    Phones,
+    /// pyannote segmentation + a speaker embedding, run by sherpa-onnx.
+    Speakers,
+}
+
+/// One file of a model, from a HuggingFace repository.
+pub struct File {
+    pub repo: &'static str,
+    pub path: &'static str,
+    /// The name it is saved under; several models call their file model.onnx.
+    pub local: &'static str,
+}
 
 pub struct Entry {
     pub id: &'static str,
-    pub file: &'static str,
+    pub kind: Kind,
+    pub files: &'static [File],
     pub label: &'static str,
     pub note: &'static str,
+    pub licence: &'static str,
     pub size_mb: u32,
     /// whisper.cpp's alignment-head preset, which DTW word timing needs.
     pub dtw: whisper_rs::DtwModelPreset,
 }
 
-/// Short and opinionated. The first one fits nearly every computer; the last
-/// one is the best of these and still under 600 MB thanks to quantisation.
+/// Short and opinionated. The first Whisper fits nearly every computer; the
+/// last one is the best of these and still under 600 MB thanks to quantisation.
+/// Every model here may be used for any purpose, commercial work included.
 pub fn catalogue() -> Vec<Entry> {
     use whisper_rs::DtwModelPreset as P;
     vec![
-        Entry { id: "whisper-base", file: "ggml-base.bin", size_mb: 142, dtw: P::Base,
+        Entry { id: "whisper-base", kind: Kind::Whisper, size_mb: 142, dtw: P::Base, licence: "MIT",
+                files: &[File { repo: WHISPER, path: "ggml-base.bin", local: "ggml-base.bin" }],
                 label: "Whisper base",
-                note: "Small and quick. Good enough to try Lana out; misses more words in noisy or fast speech." },
-        Entry { id: "whisper-small", file: "ggml-small.bin", size_mb: 466, dtw: P::Small,
+                note: "Words. Small and quick. Good enough to try Lana out; misses more words in noisy or fast speech." },
+        Entry { id: "whisper-small", kind: Kind::Whisper, size_mb: 466, dtw: P::Small, licence: "MIT",
+                files: &[File { repo: WHISPER, path: "ggml-small.bin", local: "ggml-small.bin" }],
                 label: "Whisper small",
-                note: "A good balance on an ordinary laptop." },
-        Entry { id: "whisper-large-v3-turbo-q5", file: "ggml-large-v3-turbo-q5_0.bin", size_mb: 547, dtw: P::LargeV3Turbo,
+                note: "Words. A good balance on an ordinary laptop." },
+        Entry { id: "whisper-large-v3-turbo-q5", kind: Kind::Whisper, size_mb: 547, dtw: P::LargeV3Turbo, licence: "MIT",
+                files: &[File { repo: WHISPER, path: "ggml-large-v3-turbo-q5_0.bin", local: "ggml-large-v3-turbo-q5_0.bin" }],
                 label: "Whisper large-v3 turbo",
-                note: "The most accurate here, especially for languages other than English. Slower without a fast processor." },
+                note: "Words. The most accurate here, especially for languages other than English. Slower without a fast processor." },
+        Entry { id: "zipa-small", kind: Kind::Phones, size_mb: 71, dtw: P::Base, licence: "CC BY 4.0",
+                files: &[File { repo: "anyspeech/zipa-small-crctc-500k", path: "model.int8.onnx", local: "model.int8.onnx" },
+                         File { repo: "anyspeech/zipa-small-crctc-500k", path: "tokens.txt", local: "tokens.txt" }],
+                label: "ZIPA small",
+                note: "IPA phones read straight off the sound, in any language, with no dictionary. Small and fast." },
+        Entry { id: "zipa-large", kind: Kind::Phones, size_mb: 310, dtw: P::Base, licence: "CC BY 4.0",
+                files: &[File { repo: "anyspeech/zipa-large-crctc-500k", path: "model.int8.onnx", local: "model.int8.onnx" },
+                         File { repo: "anyspeech/zipa-large-crctc-500k", path: "tokens.txt", local: "tokens.txt" }],
+                label: "ZIPA large",
+                note: "IPA phones, like ZIPA small. Larger; in testing it was not reliably better, so try small first." },
+        Entry { id: "speakers", kind: Kind::Speakers, size_mb: 36, dtw: P::Base, licence: "MIT (segmentation), CC BY 4.0 (voices)",
+                files: &[File { repo: SHERPA_SEG, path: "model.onnx", local: "segmentation.onnx" },
+                         File { repo: SHERPA_EMB, path: "wespeaker_en_voxceleb_CAM++.onnx", local: "campplus.onnx" }],
+                label: "Speakers",
+                note: "Who is talking, by voice: fills the speaker tier, beside whichever recogniser runs." },
     ]
 }
 
@@ -70,12 +112,30 @@ impl Models {
         }
     }
 
+    /// Where one of a model's files lives. Whisper files sit directly in the
+    /// models folder, where the first versions of Lana put them; everything
+    /// else gets a folder of its own.
+    pub fn file(&self, e: &Entry, f: &File) -> PathBuf {
+        if e.kind == Kind::Whisper { self.dir.join(f.local) } else { self.dir.join(e.id).join(f.local) }
+    }
+
+    /// The model's only file, or its first: the one an engine is given.
     pub fn path(&self, e: &Entry) -> PathBuf {
-        self.dir.join(e.file)
+        self.file(e, &e.files[0])
+    }
+
+    /// A file of the model by its saved name.
+    pub fn named(&self, e: &Entry, local: &str) -> PathBuf {
+        let f = e.files.iter().find(|f| f.local == local).expect("a file of this model");
+        self.file(e, f)
+    }
+
+    pub fn is_installed(&self, e: &Entry) -> bool {
+        e.files.iter().all(|f| self.file(e, f).is_file())
     }
 
     pub fn installed(&self) -> Vec<Entry> {
-        catalogue().into_iter().filter(|e| self.path(e).is_file()).collect()
+        catalogue().into_iter().filter(|e| self.is_installed(e)).collect()
     }
 
     /// The catalogue as the settings screen shows it.
@@ -87,7 +147,9 @@ impl Models {
                 let d = downloads.get(e.id);
                 json!({
                     "id": e.id, "label": e.label, "note": e.note, "size_mb": e.size_mb,
-                    "installed": self.path(e).is_file(),
+                    "kind": match e.kind { Kind::Whisper => "words", Kind::Phones => "phones", Kind::Speakers => "speakers" },
+                    "licence": e.licence,
+                    "installed": self.is_installed(e),
                     "downloading": d.filter(|d| d.error.is_none()).map(|d| json!({ "done": d.done, "total": d.total })),
                     "error": d.and_then(|d| d.error.clone()),
                 })
@@ -98,12 +160,19 @@ impl Models {
 
     pub fn delete(&self, id: &str) -> Result<(), String> {
         let e = find(id).ok_or("no such model")?;
-        let _ = std::fs::remove_file(self.path(&e).with_extension("part"));
-        match std::fs::remove_file(self.path(&e)) {
-            Ok(()) => Ok(()),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(err) => Err(err.to_string()),
+        for f in e.files {
+            let p = self.file(&e, f);
+            let _ = std::fs::remove_file(part_of(&p));
+            match std::fs::remove_file(&p) {
+                Ok(()) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => return Err(err.to_string()),
+            }
         }
+        if e.kind != Kind::Whisper {
+            let _ = std::fs::remove_dir(self.dir.join(e.id));
+        }
+        Ok(())
     }
 
     /// Start a download in the background. Returns at once; poll `list()`.
@@ -141,20 +210,43 @@ impl Models {
     }
 
     /// Resumable: bytes already in `<file>.part` are kept and the rest asked
-    /// for with a Range request. Checked against the SHA-256 HuggingFace
-    /// publishes for the file before it is renamed into place, so a truncated
-    /// or corrupted download is never mistaken for a model.
+    /// for with a Range request. Each file is checked against the SHA-256
+    /// HuggingFace publishes for it before it is renamed into place, so a
+    /// truncated or corrupted download is never mistaken for a model. Progress
+    /// is reported over all of a model's files together.
     async fn fetch(&self, e: &Entry) -> Result<(), String> {
-        tokio::fs::create_dir_all(&self.dir)
+        let mut want = Vec::new();
+        let mut lists: HashMap<&str, Value> = HashMap::new();
+        for f in e.files {
+            if !lists.contains_key(f.repo) {
+                lists.insert(f.repo, self.listing(f.repo).await?);
+            }
+            want.push((f, expected(&lists[f.repo], f)?));
+        }
+        let total: u64 = want.iter().map(|(_, (_, size))| size).sum();
+        let mut before = 0u64;
+        for (f, (sha, size)) in want {
+            let dest = self.file(e, f);
+            if !dest.is_file() {
+                self.fetch_file(e.id, f, &dest, &sha, size, before, total).await?;
+            }
+            before += size;
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn fetch_file(&self, id: &str, f: &File, dest: &Path, sha: &str, size: u64, before: u64, total: u64) -> Result<(), String> {
+        let parent = dest.parent().unwrap_or(&self.dir);
+        tokio::fs::create_dir_all(parent)
             .await
-            .map_err(|err| format!("Cannot create {}: {err}", self.dir.display()))?;
-        let (sha, size) = self.expected(e).await?;
-        let part = self.path(e).with_extension("part");
+            .map_err(|err| format!("Cannot create {}: {err}", parent.display()))?;
+        let part = part_of(dest);
         let mut have = tokio::fs::metadata(&part).await.map(|m| m.len()).unwrap_or(0);
         if have > size {
             have = 0;
         }
-        let url = format!("https://huggingface.co/{HF_REPO}/resolve/main/{}", e.file);
+        let url = format!("https://huggingface.co/{}/resolve/main/{}", f.repo, f.path);
         let mut req = self.http.get(&url);
         if have > 0 {
             req = req.header("Range", format!("bytes={have}-"));
@@ -177,7 +269,7 @@ impl Models {
         while let Some(chunk) = resp.chunk().await.map_err(|err| offline(&err))? {
             file.write_all(&chunk).await.map_err(|err| disk(&err))?;
             done += chunk.len() as u64;
-            self.report(e.id, done, size);
+            self.report(id, before + done, total);
         }
         file.flush().await.map_err(|err| disk(&err))?;
         drop(file);
@@ -186,37 +278,76 @@ impl Models {
         let actual = tokio::task::spawn_blocking(move || sha256_file(&part2))
             .await
             .map_err(|err| err.to_string())??;
-        if actual != sha {
+        if !actual.split('|').any(|a| a == sha) {
             let _ = tokio::fs::remove_file(&part).await;
             return Err("The download was damaged (its checksum did not match). Please try again.".into());
         }
-        tokio::fs::rename(&part, self.path(e)).await.map_err(|err| disk(&err))
+        tokio::fs::rename(&part, dest).await.map_err(|err| disk(&err))
     }
 
-    /// The file's SHA-256 and size, from the HuggingFace tree listing.
-    async fn expected(&self, e: &Entry) -> Result<(String, u64), String> {
-        let url = format!("https://huggingface.co/api/models/{HF_REPO}/tree/main");
-        let list: Value = self
-            .http
+    /// A repository's file listing, which carries each file's SHA-256 and size.
+    async fn listing(&self, repo: &str) -> Result<Value, String> {
+        let url = format!("https://huggingface.co/api/models/{repo}/tree/main");
+        self.http
             .get(&url)
             .send()
             .await
             .map_err(|err| offline(&err))?
             .json()
             .await
-            .map_err(|err| format!("Unexpected answer from HuggingFace: {err}"))?;
-        let item = list
-            .as_array()
-            .and_then(|a| a.iter().find(|i| i.get("path").and_then(Value::as_str) == Some(e.file)))
-            .ok_or_else(|| format!("HuggingFace no longer lists {}.", e.file))?;
-        let lfs = item.get("lfs").ok_or("HuggingFace gave no checksum for this file.")?;
-        let sha = lfs.get("oid").and_then(Value::as_str).ok_or("HuggingFace gave no checksum for this file.")?;
-        let size = lfs.get("size").and_then(Value::as_u64).unwrap_or(0);
-        Ok((sha.to_owned(), size))
+            .map_err(|err| format!("Unexpected answer from HuggingFace: {err}"))
     }
 }
 
+/// `x.onnx` downloads into `x.onnx.part`.
+fn part_of(p: &Path) -> PathBuf {
+    let mut s = p.as_os_str().to_owned();
+    s.push(".part");
+    PathBuf::from(s)
+}
+
+/// The file's SHA-256 and size from a repository listing. Small files that
+/// are not in LFS (tokens.txt) have only a git blob id, so for those the
+/// checksum is the git one, recomputed the same way.
+fn expected(list: &Value, f: &File) -> Result<(String, u64), String> {
+    let item = list
+        .as_array()
+        .and_then(|a| a.iter().find(|i| i.get("path").and_then(Value::as_str) == Some(f.path)))
+        .ok_or_else(|| format!("HuggingFace no longer lists {}.", f.path))?;
+    if let Some(lfs) = item.get("lfs") {
+        let sha = lfs.get("oid").and_then(Value::as_str).ok_or("HuggingFace gave no checksum for this file.")?;
+        let size = lfs.get("size").and_then(Value::as_u64).unwrap_or(0);
+        return Ok((sha.to_owned(), size));
+    }
+    let oid = item.get("oid").and_then(Value::as_str).ok_or("HuggingFace gave no checksum for this file.")?;
+    let size = item.get("size").and_then(Value::as_u64).unwrap_or(0);
+    Ok((format!("git:{oid}"), size))
+}
+
+/// SHA-256 of the file, or for a `git:` expectation the git blob id
+/// (SHA-1 over "blob <size>\0" and the contents), which is what HuggingFace
+/// lists for small files kept outside LFS.
 fn sha256_file(path: &Path) -> Result<String, String> {
+    let bytes_len = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
+    if bytes_len < 1 << 20 {
+        // Small enough to hash both ways; the caller compares with whichever
+        // it expects, so return the matching form below.
+        let data = std::fs::read(path).map_err(|e| e.to_string())?;
+        let sha = Sha256::digest(&data).iter().map(|b| format!("{b:02x}")).collect::<String>();
+        return Ok(format!("{sha}|git:{}", git_blob_id(&data)));
+    }
+    sha256_large(path)
+}
+
+fn git_blob_id(data: &[u8]) -> String {
+    use sha1::{Digest as _, Sha1};
+    let mut h = Sha1::new();
+    h.update(format!("blob {}\0", data.len()).as_bytes());
+    h.update(data);
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn sha256_large(path: &Path) -> Result<String, String> {
     use std::io::Read;
     let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut h = Sha256::new();

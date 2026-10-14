@@ -21,6 +21,9 @@ mime_guess = "2"
 whisper-rs = "0.16"
 symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4", "alac"] }
 sha2 = "0.10"
+sha1 = "0.10"
+# ZIPA (IPA phones) and speaker diarization. Static: links its own ONNX Runtime.
+sherpa-onnx = "1.13.8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [profile.release]

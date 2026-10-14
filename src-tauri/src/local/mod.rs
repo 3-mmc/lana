@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Recognition that runs inside Lana: whisper.cpp, no server, no key.
+// Recognition that runs inside Lana, with no server and no key: whisper.cpp
+// for words, ZIPA through sherpa-onnx for IPA phones, and pyannote with CAM++
+// through sherpa-onnx for speakers.
 //
 // It presents itself to the page as one more provider ("lana", kind "builtin"),
-// answering the same progress / partial / cancel contract as the llama-swap
-// services, so the page needs nothing special for it.
+// answering the same progress / partial / cancel / recluster contract as the
+// llama-swap services, so the page needs nothing special for it.
 
 pub mod audio;
 pub mod models;
+pub mod phones;
+pub mod speakers;
 
 use std::{
     sync::{
@@ -20,6 +24,18 @@ use serde_json::{json, Value};
 use whisper_rs::{DtwMode, DtwParameters, FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 pub use models::Models;
+use models::Kind;
+
+/// One transcription request, as the broker received it.
+pub struct Request {
+    pub model: String,
+    pub bytes: Vec<u8>,
+    pub filename: String,
+    pub language: Option<String>,
+    /// Speaker models only: an exact count, and the clustering threshold.
+    pub speakers: Option<i32>,
+    pub threshold: Option<f32>,
+}
 
 pub const PROVIDER_ID: &str = "lana";
 
@@ -40,6 +56,12 @@ pub struct Local {
     cancel: Arc<AtomicBool>,
     /// Rises once per job, as the llama-swap services' `job` does.
     serial: Arc<AtomicU64>,
+    /// A speaker pass runs beside the recogniser, not after it, as the
+    /// diarizer service does; it has its own slot and no progress feed.
+    side: Arc<AtomicBool>,
+    /// The last speaker pass, kept so the speaker count can be changed
+    /// without reading the audio again.
+    held: Arc<Mutex<Option<speakers::Held>>>,
 }
 
 impl Local {
@@ -50,6 +72,8 @@ impl Local {
             percent: Default::default(),
             cancel: Default::default(),
             serial: Default::default(),
+            side: Default::default(),
+            held: Default::default(),
         }
     }
 
@@ -59,7 +83,10 @@ impl Local {
             .models
             .installed()
             .iter()
-            .map(|e| json!({ "id": e.id, "role": "words", "label": format!("{} (on this computer)", e.label) }))
+            .map(|e| {
+                let role = match e.kind { Kind::Whisper => "words", Kind::Phones => "phones", Kind::Speakers => "speakers" };
+                json!({ "id": e.id, "role": role, "label": format!("{} (on this computer)", e.label) })
+            })
             .collect();
         (!models.is_empty()).then(|| {
             json!({
@@ -106,14 +133,18 @@ impl Local {
     }
 
     /// Transcribe one upload. Blocking; call from spawn_blocking.
-    pub fn transcribe(&self, model_id: &str, bytes: Vec<u8>, filename: &str, language: Option<&str>) -> (u16, Value) {
+    pub fn transcribe(&self, req: Request) -> (u16, Value) {
+        let model_id = req.model.as_str();
         let Some(entry) = models::find(model_id) else {
             return (404, json!({ "error": format!("Lana has no model called '{model_id}'.") }));
         };
-        let path = self.models.path(&entry);
-        if !path.is_file() {
+        if !self.models.is_installed(&entry) {
             return (400, json!({ "error": format!("{} is not downloaded yet. Download it in Connection → Recognisers.", entry.label) }));
         }
+        if entry.kind == Kind::Speakers {
+            return self.diarize(&entry, req);
+        }
+        let path = self.models.path(&entry);
         {
             let mut job = self.job.lock().unwrap();
             if let Some(j) = job.as_ref() {
@@ -126,11 +157,99 @@ impl Local {
         self.percent.store(0, Ordering::Relaxed);
         self.cancel.store(false, Ordering::Relaxed);
 
-        let result = self.run(&entry, &path, bytes, filename, language);
+        let result = match entry.kind {
+            Kind::Phones => self.run_phones(&entry, req.bytes, &req.filename),
+            _ => self.run(&entry, &path, req.bytes, &req.filename, req.language.as_deref()),
+        };
         *self.job.lock().unwrap() = None;
         match result {
             Ok(v) => (200, v),
             Err(_) if self.cancel.load(Ordering::Relaxed) => (499, json!({ "error": "stopped" })),
+            Err(e) => (500, json!({ "error": e })),
+        }
+    }
+
+    fn run_phones(&self, entry: &models::Entry, bytes: Vec<u8>, filename: &str) -> Result<Value, String> {
+        let samples = audio::decode_16k_mono(bytes, filename)?;
+        let duration = samples.len() as f64 / audio::WHISPER_RATE as f64;
+        if let Some(j) = self.job.lock().unwrap().as_mut() {
+            j.total = duration;
+        }
+        self.stage("loading model");
+        let rec = phones::Phones::load(&self.models.named(entry, "model.int8.onnx"), &self.models.named(entry, "tokens.txt"), threads())?;
+        self.stage("reading phones");
+        let t = Instant::now();
+        let (pct, cancel) = (self.percent.clone(), self.cancel.clone());
+        let found = rec.recognise(&samples, audio::WHISPER_RATE, |done| {
+            pct.store((done / duration.max(1e-3) * 100.0).clamp(0.0, 100.0) as u64, Ordering::Relaxed);
+            !cancel.load(Ordering::Relaxed)
+        })?;
+        eprintln!("lana: {} read {} phones in {duration:.1} s of audio in {:.1} s", entry.id, found.len(), t.elapsed().as_secs_f64());
+        let cues = phones::cues(&found, duration);
+        let text = cues
+            .iter()
+            .map(|c| c["words"][0]["phones"].as_array().map(|p| p.iter().filter_map(Value::as_str).collect::<String>()).unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join(" ");
+        Ok(json!({ "text": text, "duration": round3(duration), "cues": cues }))
+    }
+
+    fn speaker_models(&self, entry: &models::Entry) -> speakers::Models {
+        speakers::models_at(&self.models.named(entry, "segmentation.onnx"), &self.models.named(entry, "campplus.onnx"), threads())
+    }
+
+    /// One speaker pass, in its own slot. Answers as the diarizer service
+    /// does, hash included, so the page can re-cluster it afterwards.
+    fn diarize(&self, entry: &models::Entry, req: Request) -> (u16, Value) {
+        if self.side.swap(true, Ordering::SeqCst) {
+            return (429, json!({ "error": "busy: the speaker model is already running. Wait for it to finish." }));
+        }
+        let result = (|| -> Result<Value, String> {
+            use sha2::{Digest, Sha256};
+            let hash: String = Sha256::digest(&req.bytes)[..16].iter().map(|b| format!("{b:02x}")).collect();
+            let samples = audio::decode_16k_mono(req.bytes, &req.filename)?;
+            let duration = samples.len() as f64 / speakers::RATE as f64;
+            if duration < 0.5 {
+                return Err("The recording is too short to tell voices apart.".into());
+            }
+            let t = Instant::now();
+            let n = req.speakers.unwrap_or(0);
+            let turns = speakers::diarize(&self.speaker_models(entry), &samples, n, req.threshold.unwrap_or(0.7))?;
+            let found = speakers::count(&turns);
+            eprintln!("lana: speakers: {duration:.1} s of audio, {found} voices, {} turns, {:.1} s", turns.len(), t.elapsed().as_secs_f64());
+            let cues = speakers::cues(&turns);
+            *self.held.lock().unwrap() = Some(speakers::Held { hash: hash.clone(), samples, turns: turns.clone(), windows: None });
+            Ok(json!({
+                "model": entry.id, "embedding": "campplus", "duration": round3(duration),
+                "speakers": found, "turns": turns.len(), "cues": cues, "hash": hash,
+            }))
+        })();
+        self.side.store(false, Ordering::SeqCst);
+        match result {
+            Ok(v) => (200, v),
+            Err(e) => (500, json!({ "error": e })),
+        }
+    }
+
+    /// Change the number of voices without reading the audio again.
+    pub fn recluster(&self, hash: &str, speakers: usize) -> (u16, Value) {
+        let Some(entry) = models::catalogue().into_iter().find(|e| e.kind == Kind::Speakers) else {
+            return (404, json!({ "error": "no speaker model" }));
+        };
+        if speakers < 1 {
+            return (400, json!({ "error": "speakers must be 1 or more" }));
+        }
+        let mut held = self.held.lock().unwrap();
+        let Some(h) = held.as_mut().filter(|h| h.hash == hash) else {
+            return (409, json!({ "error": "the speaker model no longer holds this recording", "stale": true }));
+        };
+        let t = Instant::now();
+        match speakers::recluster(&self.speaker_models(&entry), h, speakers) {
+            Ok((turns, split)) => (200, json!({
+                "model": entry.id, "speakers": speakers::count(&turns), "turns": turns.len(),
+                "cues": speakers::cues(&turns), "hash": hash, "reclustered": true,
+                "window_resolution": split, "wall_seconds": round3(t.elapsed().as_secs_f64()),
+            })),
             Err(e) => (500, json!({ "error": e })),
         }
     }

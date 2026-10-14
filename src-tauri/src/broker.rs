@@ -279,6 +279,15 @@ async fn recluster(State(b): State<Broker>, body: axum::body::Bytes) -> Response
         Ok(p) => p,
         Err(r) => return r,
     };
+    if str_of(&p, "kind") == "builtin" {
+        let local = b.local.clone();
+        let hash = want.get("hash").and_then(Value::as_str).unwrap_or("").to_owned();
+        let n = want.get("speakers").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let (code, body) = tokio::task::spawn_blocking(move || local.recluster(&hash, n))
+            .await
+            .unwrap_or_else(|e| (500, json!({ "error": format!("the speaker model crashed: {e}") })));
+        return reply(code, body);
+    }
     let send = json!({ "hash": want.get("hash"), "speakers": want.get("speakers") });
     let model = want.get("model").and_then(Value::as_str);
     let (code, body) = proxy_control(&b, &p, "/recluster", true, model, Some(send)).await;
@@ -327,8 +336,16 @@ async fn transcribe(State(b): State<Broker>, mut form: Multipart) -> Response {
     let (code, mut payload) = if str_of(&p, "kind") == "builtin" {
         let local = b.local.clone();
         let model = fields.get("model").and_then(Value::as_str).unwrap_or("").to_owned();
-        let lang = fields.get("language").and_then(Value::as_str).map(str::to_owned);
-        tokio::task::spawn_blocking(move || local.transcribe(&model, blob.to_vec(), &filename, lang.as_deref()))
+        let field = |k: &str| fields.get(k).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty()).map(str::to_owned);
+        let req = crate::local::Request {
+            model,
+            bytes: blob.to_vec(),
+            filename,
+            language: field("language"),
+            speakers: field("speakers").and_then(|v| v.parse().ok()),
+            threshold: field("threshold").and_then(|v| v.parse().ok()),
+        };
+        tokio::task::spawn_blocking(move || local.transcribe(req))
             .await
             .unwrap_or_else(|e| (500, json!({ "error": format!("the recogniser crashed: {e}") })))
     } else {
