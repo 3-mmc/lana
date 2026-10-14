@@ -1,6 +1,6 @@
-# lana-desktop — plan
+# Lana — plan
 
-Native builds of [lana-web](https://github.com/3-mmc/lana-web) for **Apple Silicon macOS,
+Native builds of Lana's browser interface (`web/`) for **Apple Silicon macOS,
 Windows 11 and Linux**. Same interface and feature set as the web version: spectrogram, pitch,
 formant and intensity panes, word/phone/speaker tiers, pluggable recognition providers, and
 TextGrid export. On top of that, two things only a native app can do well:
@@ -10,20 +10,22 @@ TextGrid export. On top of that, two things only a native app can do well:
    with IPA in it"** without editing a JSON file, setting an environment variable or running a
    server.
 
-GPL-3.0-or-later, inherited from praat-wasm through lana-web.
+GPL-3.0-or-later, inherited from praat-wasm.
 
 ## Layout
 
 ```
-lana-desktop/
-  web/          git submodule -> 3-mmc/lana-web (the UI; do not fork it here)
+lana/
+  web/          the UI, also served on its own by web/serve.py
   src-tauri/    Rust shell: window, embedded server, broker, model manager   (to come)
   PLAN.md
 ```
 
-`web/` is a submodule, not a copy. The interface has one source of truth. A change the desktop
-app needs goes into lana-web behind feature detection, and the submodule pointer gets bumped.
-A vendored copy would drift on the first commit.
+`web/` is the interface's one source of truth, for the browser and the desktop app alike. Until
+2026-10-14 it was the separate repository 3-mmc/lana-web, included as a submodule; it was merged
+in with its history because every interface change needed a second commit to bump the pointer.
+A change the desktop app needs still goes in behind feature detection, so the browser build is
+unaffected.
 
 ## The seam: keep lana-web's `/api/*` contract
 

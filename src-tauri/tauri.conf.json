@@ -29,7 +29,7 @@
     "copyright": "GPL-3.0-or-later. Built on Praat by Paul Boersma and David Weenink.",
     "shortDescription": "Phonetic analysis with speech-recognised tiers",
     "longDescription": "Lana (Linguistic ANAlysis) shows Praat's acoustic analysis of a recording and fills word, phone and speaker tiers by speech recognition, then exports a TextGrid. Built on Praat; not affiliated with the Praat project.",
-    "homepage": "https://github.com/3-mmc/lana-desktop",
+    "homepage": "https://github.com/3-mmc/lana",
     "macOS": {
       "signingIdentity": "-",
       "minimumSystemVersion": "11.0"

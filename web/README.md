@@ -1,6 +1,6 @@
 # Lana
 
-**L**inguistic **ANA**lysis: Praat's acoustic analysis with word, phone and speaker tiers filled by speech recognition. Formerly *praat-web*. Lana is built on Praat but is not part of the Praat project or endorsed by its authors. A desktop version for macOS, Windows and Linux is at [lana-desktop](https://github.com/3-mmc/lana-desktop).
+**L**inguistic **ANA**lysis: Praat's acoustic analysis with word, phone and speaker tiers filled by speech recognition. Formerly *praat-web*. Lana is built on Praat but is not part of the Praat project or endorsed by its authors. The desktop version for macOS, Windows and Linux is built from the same repository; see the [top-level README](../README.md).
 
 Phonetic analysis in the browser, with annotation tiers that can record what a speaker articulated rather than what a pronunciation dictionary predicts.
 

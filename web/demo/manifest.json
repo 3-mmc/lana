@@ -1,7 +1,7 @@
 {
   "about": "Lana's demo: two readings of the same FLEURS sentence, with the answers real models gave for them. Regenerate the results with demo/record.py against a running serve.py.",
   "recorded": "2026-10-13",
-  "install": "https://github.com/3-mmc/lana-desktop/releases",
+  "install": "https://github.com/3-mmc/lana/releases",
   "models": [
     {
       "id": "owsm",

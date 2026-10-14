@@ -2,17 +2,17 @@
 
 **L**inguistic **ANA**lysis. Lana is built on [Praat](https://www.fon.hum.uva.nl/praat/) (Paul Boersma & David Weenink) but is not part of the Praat project or endorsed by its authors.
 
-[lana-web](https://github.com/3-mmc/lana-web) as a desktop app for macOS (Apple Silicon),
-Windows 11 and Linux: Praat's analysis with word, phone and speaker tiers filled by speech
+Lana's browser interface (in [`web/`](web/), runnable on its own with `web/serve.py`) as a
+desktop app for macOS (Apple Silicon), Windows 11 and Linux: Praat's analysis with word, phone and speaker tiers filled by speech
 recognition, exported as a TextGrid. Design and milestones are in [PLAN.md](PLAN.md).
 
 **Built-in recognition:** Whisper models (base, small, large-v3 turbo) can be downloaded from
 ⚙ Connection and run inside the app with whisper.cpp, offline, with word timings from DTW. Models
 go to the app's data directory and are checked against HuggingFace's published SHA-256.
 
-**Status: milestone 2.** A native window with the lana-web interface and praat-wasm analysis,
+**Status: milestone 2.** A native window with the web interface and praat-wasm analysis,
 and a Rust port of `serve.py`'s recognition broker. Providers come from `providers.json` in the
-app's config directory (same format as lana-web's; `LANA_PROVIDERS` overrides the path). A
+app's config directory (same format as `web/serve.py`'s; `LANA_PROVIDERS` overrides the path). A
 provider with `"keychain": true` takes its API key from the OS keychain (service `lana`,
 account = provider id). Recognisers and keys are managed from ⚙ Connection → *Recognisers in
 this app*. Where there is no keychain (Linux without a Secret Service, e.g. WSL) a key can be
@@ -36,7 +36,7 @@ and, for the built-in speech recognition (whisper.cpp), **cmake** and **libclang
   are generated on Linux and their struct layouts do not compile on Windows.
 
 ```sh
-git clone --recursive <this repo>        # web/ is a submodule
+git clone https://github.com/3-mmc/lana
 scripts/fetch-praat-wasm.sh              # 24 MB, once, into vendor/
 cd src-tauri
 cargo run                                # development
