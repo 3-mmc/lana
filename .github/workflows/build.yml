@@ -54,6 +54,16 @@ jobs:
         shell: bash
         run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
 
+      # whisper.cpp otherwise compiles for the build server's own processor
+      # (GGML_NATIVE), which has AVX-512: the result crashed with an illegal
+      # instruction on an ordinary i7-9700K. Off, it targets AVX2/FMA/F16C/BMI2,
+      # which every Intel Core since 2013 and every AMD Zen has; the app refuses
+      # Whisper on processors without them (local::whisper_supported).
+      - name: Portable whisper.cpp
+        if: runner.os != 'macOS'
+        shell: bash
+        run: echo "GGML_NATIVE=OFF" >> "$GITHUB_ENV"
+
       - name: praat-wasm
         shell: bash
         run: bash scripts/fetch-praat-wasm.sh

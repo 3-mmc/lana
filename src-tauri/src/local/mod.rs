@@ -158,6 +158,11 @@ impl Local {
         if entry.kind == Kind::Speakers {
             return self.diarize(&entry, req);
         }
+        if entry.kind == Kind::Whisper {
+            if let Err(e) = whisper_supported() {
+                return (400, json!({ "error": e }));
+            }
+        }
         let path = self.models.path(&entry);
         self.with_job(model_id, |me| match entry.kind {
             Kind::Phones | Kind::Letters => me.run_ctc(&entry, req.bytes, &req.filename),
@@ -408,6 +413,25 @@ fn preset(id: &str) -> whisper_rs::DtwModelPreset {
 
 fn round3(x: f64) -> f64 {
     (x * 1000.0).round() / 1000.0
+}
+
+/// Whether whisper.cpp can run here. Release builds target AVX2, FMA, F16C
+/// and BMI2 on x86 (see GGML_NATIVE in .github/workflows/build.yml); on a
+/// processor without them it would die with an illegal instruction, taking
+/// the app with it. ARM builds have no such floor.
+pub fn whisper_supported() -> Result<(), String> {
+    #[cfg(target_arch = "x86_64")]
+    {
+        let ok = std::arch::is_x86_feature_detected!("avx2")
+            && std::arch::is_x86_feature_detected!("fma")
+            && std::arch::is_x86_feature_detected!("f16c")
+            && std::arch::is_x86_feature_detected!("bmi2");
+        if !ok {
+            return Err("This processor cannot run Whisper: it lacks AVX2, which Lana's Whisper needs. \
+                        The other built-in models (ZIPA, Omnilingual, MMS, Speakers) work.".into());
+        }
+    }
+    Ok(())
 }
 
 /// Leave a core for the interface and Praat.

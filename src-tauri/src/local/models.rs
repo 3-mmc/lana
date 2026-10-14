@@ -163,7 +163,8 @@ impl Models {
                     "licence": e.licence,
                     "installed": self.is_installed(e),
                     "downloading": d.filter(|d| d.error.is_none()).map(|d| json!({ "done": d.done, "total": d.total })),
-                    "error": d.and_then(|d| d.error.clone()),
+                    "error": d.and_then(|d| d.error.clone())
+                        .or_else(|| (e.kind == Kind::Whisper).then(super::whisper_supported).and_then(Result::err)),
                 })
             })
             .collect();
