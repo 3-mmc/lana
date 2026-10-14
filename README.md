@@ -80,7 +80,7 @@ Languages a researcher returns to can be pinned, which moves them to the top of 
 
 ![Adding an MMS language: a search for "avar" finds Avar (Avaric), offered as a 9 MB download beside the installed Dargwa and Ossetian](web/docs/fig-desktop-mms-search.png)
 
-Recognition services remain available alongside the built-in models. A provider is any service that implements OpenAI's `/v1/audio/transcriptions`, added from the settings screen or listed in `providers.json` in the app's configuration folder, in the same format `web/serve.py` reads. The tier contract that a service must meet to fill the word and phone tiers is documented in [`web/README.md`](web/README.md#the-tier-contract).
+Recognition services remain available alongside the built-in models, for recordings that need a larger model than a laptop can run. The settings screen offers OpenAI, Groq and Cloudflare Workers AI as presets. Cloudflare's free daily allowance covers about three and a half hours of audio with Whisper large-v3 turbo, which makes it the cheapest route to a large Whisper model; like every Whisper, it does well on German and poorly on Georgian. Any other service that implements OpenAI's `/v1/audio/transcriptions` can be added from the same screen, or listed in `providers.json` in the app's configuration folder, in the same format `web/serve.py` reads. Recordings sent to a cloud provider are uploaded to it, and the settings screen says so when one is added. The tier contract that a service must meet to fill the word and phone tiers is documented in [`web/README.md`](web/README.md#the-tier-contract).
 
 ## Building from source
 
