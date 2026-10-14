@@ -8,18 +8,24 @@ import json, sys, time, uuid, urllib.request
 from pathlib import Path
 DEMO = Path(__file__).resolve().parent
 BASE = (sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].startswith("http") else "http://127.0.0.1:8710") + "/api/transcribe"
+# (model, language, whisper size). A size goes into the file name, so the demo
+# can answer for whichever size the visitor picks; the first size listed for a
+# model is also saved without one, as the fallback.
 RUNS = {
-    'ka-vinson': [('mms', 'kat'), ('ipa', 'ka'), ('whisper', 'ka'), ('owsm', ''), ('diarize', '')],
-    'de-vinson': [('whisper', 'de'), ('ipa', 'de'), ('mms', 'deu'), ('owsm', ''), ('diarize', '')],
+    'ka-vinson': [('owsm', 'kat', None), ('ipa', 'ka', 'large-v3'), ('ipa', 'ka', 'medium'), ('mms', 'kat', None),
+                  ('whisper', 'ka', 'large-v3'), ('whisper', 'ka', 'medium'), ('diarize', '', None)],
+    'de-vinson': [('owsm', 'deu', None), ('ipa', 'de', 'medium'), ('mms', 'deu', None),
+                  ('whisper', 'de', 'medium'), ('whisper', 'de', 'large-v3'), ('diarize', '', None)],
 }
 only = [a for a in sys.argv[1:] if not a.startswith("http")]
 for clip, runs in RUNS.items():
     blob = (DEMO / f'{clip}.wav').read_bytes()
-    for model, lang in runs:
+    seen = set()
+    for model, lang, size in runs:
         if only and model not in only: continue
         fields = {'provider': 'local', 'model': model, 'response_format': 'verbose_json'}
         if lang: fields['language'] = lang
-        if model in ('ipa', 'whisper'): fields['asr_model'] = 'medium'
+        if size: fields['asr_model'] = size
         b = uuid.uuid4().hex
         body = b''.join(f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode() for k, v in fields.items())
         body += f'--{b}\r\nContent-Disposition: form-data; name="file"; filename="{clip}.wav"\r\nContent-Type: audio/wav\r\n\r\n'.encode() + blob + f'\r\n--{b}--\r\n'.encode()
@@ -32,8 +38,13 @@ for clip, runs in RUNS.items():
         secs = round(time.time() - t, 2)
         out['_recorded'] = {'seconds': secs, 'language_sent': lang, 'asr_model': fields.get('asr_model'),
                             'date': time.strftime('%Y-%m-%d')}
-        (DEMO / 'results' / f'{clip}.{model}.json').write_text(json.dumps(out, ensure_ascii=False, indent=1) + '\n')
-        print(clip, model, secs, 's', len(out.get('cues', [])), 'cues |', (out.get('text') or '')[:90])
+        body = json.dumps(out, ensure_ascii=False, indent=1) + '\n'
+        if size:
+            (DEMO / 'results' / f'{clip}.{model}.{size}.json').write_text(body)
+        if model not in seen:
+            (DEMO / 'results' / f'{clip}.{model}.json').write_text(body)
+        seen.add(model)
+        print(clip, model, size or '', secs, 's', len(out.get('cues', [])), 'cues |', (out.get('text') or '')[:90])
         if model == 'diarize' and out.get('hash'):
             for n in (1, 2, 3):
                 rq = urllib.request.Request(BASE.replace('/transcribe', '/recluster'), headers={'Content-Type': 'application/json'},

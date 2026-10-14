@@ -1,28 +1,254 @@
 {
- "text": "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis,\ndas Vinson-Massiv dessen höchster Gipfel mit 4.892 Metern Höhe der Mount Vinson ist.",
+ "text": "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis,\ndas Vinson -Massiv dessen höchster Gipfel mit 4 .892 Metern Höhe der Mount Vinson ist.",
  "language": "de",
  "model": "whisper",
- "transcript": "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis, das Vinson-Massiv dessen höchster Gipfel mit 4.892 Metern Höhe der Mount Vinson ist.",
- "duration": 11.27,
+ "transcript": "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis, das Vinson -Massiv dessen höchster Gipfel mit 4 .892 Metern Höhe der Mount Vinson ist.",
+ "duration": 10.67,
  "asr_model": "medium",
  "cues": [
   {
    "start": 0.27,
-   "end": 4.27,
-   "words": [],
-   "plain": "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis,"
+   "end": 4.55,
+   "words": [
+    {
+     "text": "Der",
+     "start": 0.27,
+     "end": 0.83,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "nördliche",
+     "start": 0.83,
+     "end": 1.25,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Teil",
+     "start": 1.25,
+     "end": 1.49,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "oder",
+     "start": 1.49,
+     "end": 1.69,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "die",
+     "start": 1.69,
+     "end": 1.91,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Sentinel",
+     "start": 1.91,
+     "end": 2.27,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Range",
+     "start": 2.27,
+     "end": 2.55,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "hat",
+     "start": 2.55,
+     "end": 2.75,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "die",
+     "start": 2.75,
+     "end": 2.95,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "höchsten",
+     "start": 2.95,
+     "end": 3.23,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Berge",
+     "start": 3.23,
+     "end": 3.55,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "der",
+     "start": 3.55,
+     "end": 3.67,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Antarktis,",
+     "start": 3.67,
+     "end": 4.55,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    }
+   ],
+   "plain": null
   },
   {
-   "start": 4.27,
-   "end": 11.27,
-   "words": [],
-   "plain": "das Vinson-Massiv dessen höchster Gipfel mit 4.892 Metern Höhe der Mount Vinson ist."
+   "start": 4.73,
+   "end": 10.67,
+   "words": [
+    {
+     "text": "das",
+     "start": 4.73,
+     "end": 4.91,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Vinson",
+     "start": 4.91,
+     "end": 5.25,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "-Massiv",
+     "start": 5.25,
+     "end": 5.75,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "dessen",
+     "start": 5.75,
+     "end": 6.07,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "höchster",
+     "start": 6.07,
+     "end": 6.33,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Gipfel",
+     "start": 6.33,
+     "end": 6.65,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "mit",
+     "start": 6.65,
+     "end": 6.89,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "4",
+     "start": 6.89,
+     "end": 7.27,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": ".892",
+     "start": 7.27,
+     "end": 8.61,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Metern",
+     "start": 8.61,
+     "end": 9.31,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Höhe",
+     "start": 9.31,
+     "end": 9.69,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "der",
+     "start": 9.69,
+     "end": 9.85,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Mount",
+     "start": 9.85,
+     "end": 10.03,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Vinson",
+     "start": 10.03,
+     "end": 10.41,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ist.",
+     "start": 10.41,
+     "end": 10.67,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    }
+   ],
+   "plain": null
   }
  ],
  "provider": "local",
- "wall_seconds": 10.8,
+ "wall_seconds": 3.34,
  "_recorded": {
-  "seconds": 10.81,
+  "seconds": 3.35,
   "language_sent": "de",
   "asr_model": "medium",
   "date": "2026-10-13"

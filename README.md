@@ -244,6 +244,6 @@ If Praat contributed to published work, cite it as its authors ask:
 
 The German recording in the figures is a listening-comprehension text published by MFL Sunderland, and it is not distributed here. The Georgian recording is from Google's [FLEURS](https://huggingface.co/datasets/google/fleurs) corpus, CC-BY-4.0.
 
-The demo (`index.html?demo`) opens two readings of FLEURS sentence 1618, one Georgian and one German, from the dev split, converted to 16-bit WAV, CC-BY-4.0 (Conneau et al. 2022). Its recognition results were recorded from the models named in `demo/manifest.json` and are replayed, while Praat's analysis runs live. `demo/record.py` regenerates them against a running `serve.py`.
+The demo (`index.html?demo`) opens two readings of FLEURS sentence 1618, one Georgian and one German, from the dev split, converted to 16-bit WAV, CC-BY-4.0 (Conneau et al. 2022). Its recognition results were recorded from the models named in `demo/manifest.json`, Whisper at both medium and large-v3, and are replayed, while Praat's analysis runs live. `demo/record.py` regenerates them against a running `serve.py`.
 
 Praat and praat-wasm are GPL-3.0-or-later, and so is this project. See [LICENSE](LICENSE). `vendor/` is not committed. Either let `serve.py` fetch it, or run `npm pack praat-wasm@6.4.6200 && tar xzf praat-wasm-6.4.6200.tgz && mv package vendor`.

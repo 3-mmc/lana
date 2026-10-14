@@ -165,9 +165,9 @@
   }
  ],
  "provider": "local",
- "wall_seconds": 23.06,
+ "wall_seconds": 5.2,
  "_recorded": {
-  "seconds": 23.09,
+  "seconds": 5.22,
   "language_sent": "kat",
   "asr_model": null,
   "date": "2026-10-13"

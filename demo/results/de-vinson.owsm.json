@@ -1,21 +1,229 @@
 {
  "text": "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis, das Vincent-Massiv, dessen höchster Gipfel mit .48292 Metern Höhe der Mount Vincent ist.",
- "language": "eng",
+ "language": "deu",
  "duration": 11.16,
  "cues": [
   {
    "start": 0.0,
    "end": 11.16,
-   "words": [],
-   "plain": "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis, das Vincent-Massiv, dessen höchster Gipfel mit .48292 Metern Höhe der Mount Vincent ist."
+   "words": [
+    {
+     "text": "Der",
+     "start": 0.481,
+     "end": 0.642,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "nördliche",
+     "start": 0.642,
+     "end": 1.203,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Teil",
+     "start": 1.203,
+     "end": 1.444,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "oder",
+     "start": 1.444,
+     "end": 1.604,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "die",
+     "start": 1.604,
+     "end": 1.765,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Sentinel",
+     "start": 1.765,
+     "end": 2.246,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Range",
+     "start": 2.246,
+     "end": 2.567,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "hat",
+     "start": 2.567,
+     "end": 2.727,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "die",
+     "start": 2.727,
+     "end": 2.807,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "höchsten",
+     "start": 2.807,
+     "end": 3.209,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Berge",
+     "start": 3.209,
+     "end": 3.449,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "der",
+     "start": 3.449,
+     "end": 3.61,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Antarktis,",
+     "start": 3.61,
+     "end": 4.171,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "das",
+     "start": 4.652,
+     "end": 4.893,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Vincent-Massiv,",
+     "start": 4.893,
+     "end": 5.695,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "dessen",
+     "start": 5.695,
+     "end": 5.936,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "höchster",
+     "start": 5.936,
+     "end": 6.337,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Gipfel",
+     "start": 6.337,
+     "end": 6.658,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "mit",
+     "start": 6.658,
+     "end": 6.898,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": ".48292",
+     "start": 6.898,
+     "end": 8.583,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Metern",
+     "start": 8.583,
+     "end": 8.824,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Höhe",
+     "start": 9.305,
+     "end": 9.626,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "der",
+     "start": 9.626,
+     "end": 9.786,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Mount",
+     "start": 9.786,
+     "end": 10.027,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Vincent",
+     "start": 10.027,
+     "end": 10.107,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ist.",
+     "start": 10.428,
+     "end": 10.508,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    }
+   ]
   }
  ],
  "provider": "local",
  "model": "owsm",
- "wall_seconds": 26.95,
+ "wall_seconds": 25.17,
  "_recorded": {
-  "seconds": 26.97,
-  "language_sent": "",
+  "seconds": 25.19,
+  "language_sent": "deu",
   "asr_model": null,
   "date": "2026-10-13"
  }

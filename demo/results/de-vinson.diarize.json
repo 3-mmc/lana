@@ -12,10 +12,10 @@
   }
  ],
  "hash": "579ecf746a1f34c8bfc887516a44fa57",
- "wall_seconds": 0.38,
+ "wall_seconds": 0.6,
  "provider": "local",
  "_recorded": {
-  "seconds": 0.39,
+  "seconds": 0.62,
   "language_sent": "",
   "asr_model": null,
   "date": "2026-10-13"

@@ -787,8 +787,15 @@ const DEMO = {
     if (!DEMO.clip || f !== DEMO.file && !(f && f.name === DEMO.file.name && f.size === DEMO.file.size))
       return A(400, { error: 'The demo has recorded results for its sample recordings only. ' +
         'Your file is analysed here in full; to run a recogniser on it, install Lana.' });
-    const rec = await DEMO.load(`results/${DEMO.clip.id}.${model}.json`);
-    if (!rec) return A(400, { error: `The demo has no recorded run of ${model} on this recording.` });
+    /* Whisper's size changes the answer, so runs were recorded per size. A
+       size that was not recorded is refused rather than quietly answered with
+       another size's result. */
+    const size = fd.get('asr_model');
+    const rec = size ? await DEMO.load(`results/${DEMO.clip.id}.${model}.${size}.json`)
+                     : await DEMO.load(`results/${DEMO.clip.id}.${model}.json`);
+    if (!rec) return A(400, { error: size
+      ? `The demo recorded ${model} with whisper size ${DEMO.manifest.sizes.join(' or ')} only.`
+      : `The demo has no recorded run of ${model} on this recording.` });
     const secs = DEMO.replaySeconds(rec);
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     if (DEMO.manifest.models.find(m => m.id === model)?.role === 'speakers') {
@@ -822,6 +829,7 @@ const DEMO = {
     for (const t of TIERS) S.tracks[t.key].model = clip.tiers[t.key] || '';
     $('lngWord').value = clip.lang.word || '';
     $('lngPhone').value = clip.lang.phone || '';
+    if (clip.size) $('asrsize').value = clip.size;
     fillModelSelects();
     openFile(DEMO.file);
   },
@@ -1976,7 +1984,7 @@ function renderPlan() {
     const spin = (t.state === 'running' || t.state === 'partial') ? '<i class="spin"></i>' : '';
     el.innerHTML = spin + ({
       empty: 'no model', ready: 'ready', queued: 'queued', running: 'reading<span class="dots"></span>',
-      partial: `${n} so far`, done: `${n} intervals`, failed: 'failed', cancelled: 'cancelled',
+      partial: `${n} so far`, done: `${n} interval${n === 1 ? '' : 's'}`, failed: 'failed', cancelled: 'cancelled',
     }[t.state] || t.state);
     const bits = [T.gist];
     if (t.source) bits.push('from ' + t.source);

@@ -1,42 +1,191 @@
 {
- "text": "ἀνταρκτοῖκ εἰς Ὀμαγλέσυμ τᾷ confidence, n. X. Vinson,\nὈμαγλέσυμ τσόρ by Vinson,\nῥᾶ ὅ Thermiae Bares ὁ က AJ impact by Cedric billion,\nὈμᾶ ὄ ὐᶊ ὀ Ḵ᾽ ᡷᾷ᾿ ὅ᾽ ḁᾷ᾽ ḵᾯ ḥᾶ ᶩᾮᾶᾔ᾽ ာ᾽ᑢᾶ ဗ᾵ᾷᾮ᾽ᓂ�,",
+ "text": "ანტარტიკის უმაღლესიმ თები ვინსონის მასივი, რომლის უმაღლესიმ წვერვალი ვინსონის\nრომსიმ თაბდებარეობს ყვეთას რვასოთხმოზე თორმეტმადრსე ტანლაგებულია სენტინელის ქედის\nსილოედ ნაწილში",
  "language": "ka",
  "model": "whisper",
- "transcript": "ἀνταρκτοῖκ εἰς Ὀμαγλέσυμ τᾷ confidence, n. X. Vinson, Ὀμαγλέσυμ τσόρ by Vinson, ῥᾶ ὅ Thermiae Bares ὁ က AJ impact by Cedric billion, Ὀμᾶ ὄ ὐᶊ ὀ Ḵ᾽ ᡷᾷ᾿ ὅ᾽ ḁᾷ᾽ ḵᾯ ḥᾶ ᶩᾮᾶᾔ᾽ ာ᾽ᑢᾶ ဗ᾵ᾷᾮ᾽ᓂ�,",
- "duration": 13.99,
- "asr_model": "medium",
+ "transcript": "ანტარტიკის უმაღლესიმ თები ვინსონის მასივი, რომლის უმაღლესიმ წვერვალი ვინსონის რომსიმ თაბდებარეობს ყვეთას რვასოთხმოზე თორმეტმადრსე ტანლაგებულია სენტინელის ქედის სილოედ ნაწილში",
+ "duration": 14.29,
+ "asr_model": "large-v3",
  "cues": [
   {
    "start": 0.53,
-   "end": 5.01,
-   "words": [],
-   "plain": "ἀνταρκτοῖκ εἰς Ὀμαγλέσυμ τᾷ confidence, n. X. Vinson,"
+   "end": 6.49,
+   "words": [
+    {
+     "text": "ანტარტიკის",
+     "start": 0.53,
+     "end": 1.65,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "უმაღლესიმ",
+     "start": 1.65,
+     "end": 2.53,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "თები",
+     "start": 2.53,
+     "end": 2.87,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ვინსონის",
+     "start": 2.87,
+     "end": 3.67,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "მასივი,",
+     "start": 3.67,
+     "end": 4.17,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "რომლის",
+     "start": 4.25,
+     "end": 4.63,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "უმაღლესიმ",
+     "start": 4.63,
+     "end": 5.29,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "წვერვალი",
+     "start": 5.29,
+     "end": 5.81,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ვინსონის",
+     "start": 5.81,
+     "end": 6.49,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    }
+   ],
+   "plain": null
   },
   {
-   "start": 5.01,
-   "end": 6.73,
-   "words": [],
-   "plain": "Ὀμαγλέσυμ τσόρ by Vinson,"
+   "start": 6.49,
+   "end": 12.87,
+   "words": [
+    {
+     "text": "რომსიმ",
+     "start": 6.49,
+     "end": 6.59,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "თაბდებარეობს",
+     "start": 6.59,
+     "end": 7.53,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ყვეთას",
+     "start": 7.53,
+     "end": 8.19,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "რვასოთხმოზე",
+     "start": 8.19,
+     "end": 8.97,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "თორმეტმადრსე",
+     "start": 8.97,
+     "end": 9.93,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ტანლაგებულია",
+     "start": 9.93,
+     "end": 11.35,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "სენტინელის",
+     "start": 11.35,
+     "end": 12.35,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ქედის",
+     "start": 12.35,
+     "end": 12.87,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    }
+   ],
+   "plain": null
   },
   {
-   "start": 6.73,
-   "end": 9.97,
-   "words": [],
-   "plain": "ῥᾶ ὅ Thermiae Bares ὁ က AJ impact by Cedric billion,"
-  },
-  {
-   "start": 9.97,
-   "end": 13.99,
-   "words": [],
-   "plain": "Ὀμᾶ ὄ ὐᶊ ὀ Ḵ᾽ ᡷᾷ᾿ ὅ᾽ ḁᾷ᾽ ḵᾯ ḥᾶ ᶩᾮᾶᾔ᾽ ာ᾽ᑢᾶ ဗ᾵ᾷᾮ᾽ᓂ�,"
+   "start": 12.87,
+   "end": 14.29,
+   "words": [
+    {
+     "text": "სილოედ",
+     "start": 12.87,
+     "end": 13.47,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ნაწილში",
+     "start": 13.47,
+     "end": 14.29,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    }
+   ],
+   "plain": null
   }
  ],
  "provider": "local",
- "wall_seconds": 40.97,
+ "wall_seconds": 20.62,
  "_recorded": {
-  "seconds": 40.99,
+  "seconds": 20.65,
   "language_sent": "ka",
-  "asr_model": "medium",
+  "asr_model": "large-v3",
   "date": "2026-10-13"
  }
 }

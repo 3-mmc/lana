@@ -1,21 +1,149 @@
 {
- "text": "ანტარტიკის უმაღლესი მთები ვინსონის მასივი, რომლი უმაღეს მწვევალი ბინსონის მთამდებარეობს ოზე გამააგებულია სენტინელის ქედიის რილოეთ ნაწილში.",
- "language": "eng",
+ "text": "ანტარტიკის უმაღლესი მთები ვინსონის მასივი, რომლის უმაღლეს მწვერვალი ბინსონის მთამდებარეს ოთხზე გალაგებულია სენნტინელის ქედიის რილოეთ ნაწილში.",
+ "language": "kat",
  "duration": 15.48,
  "cues": [
   {
    "start": 0.0,
    "end": 15.48,
-   "words": [],
-   "plain": "ანტარტიკის უმაღლესი მთები ვინსონის მასივი, რომლი უმაღეს მწვევალი ბინსონის მთამდებარეობს ოზე გამააგებულია სენტინელის ქედიის რილოეთ ნაწილში."
+   "words": [
+    {
+     "text": "ანტარტიკის",
+     "start": 0.481,
+     "end": 1.524,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "უმაღლესი",
+     "start": 1.524,
+     "end": 2.326,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "მთები",
+     "start": 2.326,
+     "end": 2.727,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ვინსონის",
+     "start": 2.727,
+     "end": 3.449,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "მასივი,",
+     "start": 3.449,
+     "end": 4.011,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "რომლის",
+     "start": 4.011,
+     "end": 4.492,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "უმაღლეს",
+     "start": 4.492,
+     "end": 5.134,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "მწვერვალი",
+     "start": 5.134,
+     "end": 5.856,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ბინსონის",
+     "start": 5.856,
+     "end": 6.497,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "მთამდებარეს",
+     "start": 6.497,
+     "end": 7.54,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ოთხზე",
+     "start": 7.54,
+     "end": 10.508,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "გალაგებულია",
+     "start": 10.508,
+     "end": 11.39,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "სენნტინელის",
+     "start": 11.39,
+     "end": 12.433,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ქედიის",
+     "start": 12.433,
+     "end": 12.914,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "რილოეთ",
+     "start": 12.914,
+     "end": 13.717,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ნაწილში.",
+     "start": 13.717,
+     "end": 14.439,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    }
+   ]
   }
  ],
  "provider": "local",
  "model": "owsm",
- "wall_seconds": 32.3,
+ "wall_seconds": 21.76,
  "_recorded": {
-  "seconds": 32.34,
-  "language_sent": "",
+  "seconds": 21.79,
+  "language_sent": "kat",
   "asr_model": null,
   "date": "2026-10-13"
  }
