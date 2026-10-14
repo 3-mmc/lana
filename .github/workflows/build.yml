@@ -33,8 +33,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # whisper-rs-sys's build script does not rerun when a GGML_* variable
+      # changes, so a cached whisper.cpp survives a change of build flags.
+      # Change prefix-key whenever those flags change.
       - uses: swatinem/rust-cache@v2
         with:
+          prefix-key: v1-ggml-portable
           workspaces: |
             src-tauri
             bench
