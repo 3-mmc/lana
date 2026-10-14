@@ -8,7 +8,7 @@ use std::{
 };
 
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use tokio::io::AsyncWriteExt;
 
 const WHISPER: &str = "ggerganov/whisper.cpp";
@@ -108,8 +108,8 @@ pub struct Download {
 #[derive(Clone)]
 pub struct Models {
     pub dir: PathBuf,
-    downloads: Arc<Mutex<HashMap<String, Download>>>,
-    http: reqwest::Client,
+    pub(crate) downloads: Arc<Mutex<HashMap<String, Download>>>,
+    pub(crate) http: reqwest::Client,
 }
 
 impl Models {
@@ -214,7 +214,7 @@ impl Models {
         Ok(())
     }
 
-    fn report(&self, id: &str, done: u64, total: u64) {
+    pub(crate) fn report(&self, id: &str, done: u64, total: u64) {
         if let Some(d) = self.downloads.lock().unwrap().get_mut(id) {
             d.done = done;
             d.total = total;
@@ -240,7 +240,8 @@ impl Models {
         for (f, (sha, size)) in want {
             let dest = self.file(e, f);
             if !dest.is_file() {
-                self.fetch_file(e.id, f, &dest, &sha, size, before, total).await?;
+                let url = format!("https://huggingface.co/{}/resolve/main/{}", f.repo, f.path);
+                self.fetch_file(e.id, &url, &dest, &sha, size, before, total).await?;
             }
             before += size;
         }
@@ -248,18 +249,20 @@ impl Models {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn fetch_file(&self, id: &str, f: &File, dest: &Path, sha: &str, size: u64, before: u64, total: u64) -> Result<(), String> {
+    /// One file into place, resumable and verified. `sha` is a SHA-256, or
+    /// `git:<sha1>` for a small file kept outside LFS, or empty to skip the
+    /// check (only for a local test mirror; see mms.rs).
+    pub(crate) async fn fetch_file(&self, id: &str, url: &str, dest: &Path, sha: &str, size: u64, before: u64, total: u64) -> Result<(), String> {
         let parent = dest.parent().unwrap_or(&self.dir);
         tokio::fs::create_dir_all(parent)
             .await
             .map_err(|err| format!("Cannot create {}: {err}", parent.display()))?;
         let part = part_of(dest);
         let mut have = tokio::fs::metadata(&part).await.map(|m| m.len()).unwrap_or(0);
-        if have > size {
+        if size > 0 && have > size {
             have = 0;
         }
-        let url = format!("https://huggingface.co/{}/resolve/main/{}", f.repo, f.path);
-        let mut req = self.http.get(&url);
+        let mut req = self.http.get(url);
         if have > 0 {
             req = req.header("Range", format!("bytes={have}-"));
         }
@@ -290,7 +293,7 @@ impl Models {
         let actual = tokio::task::spawn_blocking(move || sha256_file(&part2))
             .await
             .map_err(|err| err.to_string())??;
-        if !actual.split('|').any(|a| a == sha) {
+        if !sha.is_empty() && !actual.split('|').any(|a| a == sha) {
             let _ = tokio::fs::remove_file(&part).await;
             return Err("The download was damaged (its checksum did not match). Please try again.".into());
         }
@@ -336,45 +339,31 @@ fn expected(list: &Value, f: &File) -> Result<(String, u64), String> {
     Ok((format!("git:{oid}"), size))
 }
 
-/// SHA-256 of the file, or for a `git:` expectation the git blob id
-/// (SHA-1 over "blob <size>\0" and the contents), which is what HuggingFace
-/// lists for small files kept outside LFS.
+/// The file's SHA-256 and its git blob id (SHA-1 over "blob <size>\0" and
+/// the contents), as "<sha256>|git:<sha1>", in one pass. HuggingFace lists
+/// an LFS file by the first and a small file kept in git by the second, and
+/// "small" can still be over a megabyte (MMS's vocab.json is 1.3 MB).
 fn sha256_file(path: &Path) -> Result<String, String> {
-    let bytes_len = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
-    if bytes_len < 1 << 20 {
-        // Small enough to hash both ways; the caller compares with whichever
-        // it expects, so return the matching form below.
-        let data = std::fs::read(path).map_err(|e| e.to_string())?;
-        let sha = Sha256::digest(&data).iter().map(|b| format!("{b:02x}")).collect::<String>();
-        return Ok(format!("{sha}|git:{}", git_blob_id(&data)));
-    }
-    sha256_large(path)
-}
-
-fn git_blob_id(data: &[u8]) -> String {
     use sha1::{Digest as _, Sha1};
-    let mut h = Sha1::new();
-    h.update(format!("blob {}\0", data.len()).as_bytes());
-    h.update(data);
-    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
-}
-
-fn sha256_large(path: &Path) -> Result<String, String> {
     use std::io::Read;
+    let len = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
     let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let mut h = Sha256::new();
+    let (mut h256, mut h1) = (Sha256::new(), Sha1::new());
+    h1.update(format!("blob {len}\0").as_bytes());
     let mut buf = vec![0u8; 1 << 20];
     loop {
         let n = f.read(&mut buf).map_err(|e| e.to_string())?;
         if n == 0 {
             break;
         }
-        h.update(&buf[..n]);
+        h256.update(&buf[..n]);
+        h1.update(&buf[..n]);
     }
-    Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    Ok(format!("{}|git:{}", hex(&h256.finalize()), hex(&h1.finalize())))
 }
 
-fn offline(e: &reqwest::Error) -> String {
+pub(crate) fn offline(e: &reqwest::Error) -> String {
     if e.is_connect() || e.is_timeout() {
         "Lana could not reach the download server. Check the internet connection and try again.".into()
     } else {
@@ -382,7 +371,7 @@ fn offline(e: &reqwest::Error) -> String {
     }
 }
 
-fn disk(e: &std::io::Error) -> String {
+pub(crate) fn disk(e: &std::io::Error) -> String {
     if e.raw_os_error() == Some(28) || e.raw_os_error() == Some(112) {
         "The disk is full.".into()
     } else {

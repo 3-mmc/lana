@@ -10,6 +10,7 @@
 pub mod audio;
 pub mod models;
 pub mod ctc;
+pub mod mms;
 pub mod speakers;
 
 use std::{
@@ -79,7 +80,7 @@ impl Local {
 
     /// The built-in provider, or None until a model has been downloaded.
     pub fn provider(&self) -> Option<Value> {
-        let models: Vec<Value> = self
+        let mut models: Vec<Value> = self
             .models
             .installed()
             .iter()
@@ -88,6 +89,12 @@ impl Local {
                 json!({ "id": e.id, "role": role, "label": format!("{} (on this computer)", e.label) })
             })
             .collect();
+        // One word model per MMS language on this computer.
+        for code in self.models.mms_installed() {
+            let name = mms::name_of(&code).unwrap_or(&code);
+            models.push(json!({ "id": format!("mms-{code}"), "role": "words",
+                                "label": format!("MMS · {name} (on this computer, non-commercial)") }));
+        }
         (!models.is_empty()).then(|| {
             json!({
                 "id": PROVIDER_ID,
@@ -135,6 +142,13 @@ impl Local {
     /// Transcribe one upload. Blocking; call from spawn_blocking.
     pub fn transcribe(&self, req: Request) -> (u16, Value) {
         let model_id = req.model.as_str();
+        if let Some(code) = model_id.strip_prefix("mms-") {
+            if !self.models.mms_lang_installed(code) {
+                return (400, json!({ "error": format!("MMS for '{code}' is not downloaded. Add the language in Connection → Recognisers.") }));
+            }
+            let dir = self.models.mms_lang_dir(code);
+            return self.with_job(model_id, |me| me.run_ctc_at(ctc::Engine::Omnilingual, &dir.join("model.onnx"), &dir.join("tokens.txt"), model_id, req.bytes, &req.filename));
+        }
         let Some(entry) = models::find(model_id) else {
             return (404, json!({ "error": format!("Lana has no model called '{model_id}'.") }));
         };
@@ -145,6 +159,15 @@ impl Local {
             return self.diarize(&entry, req);
         }
         let path = self.models.path(&entry);
+        self.with_job(model_id, |me| match entry.kind {
+            Kind::Phones | Kind::Letters => me.run_ctc(&entry, req.bytes, &req.filename),
+            _ => me.run(&entry, &path, req.bytes, &req.filename, req.language.as_deref()),
+        })
+    }
+
+    /// Run one recogniser job in the single job slot that progress, partial
+    /// and cancel report on.
+    fn with_job(&self, model_id: &str, f: impl FnOnce(&Self) -> Result<Value, String>) -> (u16, Value) {
         {
             let mut job = self.job.lock().unwrap();
             if let Some(j) = job.as_ref() {
@@ -156,11 +179,7 @@ impl Local {
         self.serial.fetch_add(1, Ordering::Relaxed);
         self.percent.store(0, Ordering::Relaxed);
         self.cancel.store(false, Ordering::Relaxed);
-
-        let result = match entry.kind {
-            Kind::Phones | Kind::Letters => self.run_ctc(&entry, req.bytes, &req.filename),
-            _ => self.run(&entry, &path, req.bytes, &req.filename, req.language.as_deref()),
-        };
+        let result = f(self);
         *self.job.lock().unwrap() = None;
         match result {
             Ok(v) => (200, v),
@@ -171,13 +190,20 @@ impl Local {
 
     fn run_ctc(&self, entry: &models::Entry, bytes: Vec<u8>, filename: &str) -> Result<Value, String> {
         let engine = if entry.kind == Kind::Letters { ctc::Engine::Omnilingual } else { ctc::Engine::Zipa };
+        let (model, tokens) = (self.models.named(entry, "model.int8.onnx"), self.models.named(entry, "tokens.txt"));
+        self.run_ctc_at(engine, &model, &tokens, entry.id, bytes, filename)
+    }
+
+    /// A CTC model given by its files. MMS runs here too: it has the same
+    /// shape as Omnilingual (raw audio in, characters with a word separator out).
+    fn run_ctc_at(&self, engine: ctc::Engine, model: &std::path::Path, tokens: &std::path::Path, id: &str, bytes: Vec<u8>, filename: &str) -> Result<Value, String> {
         let samples = audio::decode_16k_mono(bytes, filename)?;
         let duration = samples.len() as f64 / audio::WHISPER_RATE as f64;
         if let Some(j) = self.job.lock().unwrap().as_mut() {
             j.total = duration;
         }
         self.stage("loading model");
-        let rec = ctc::Ctc::load(engine, &self.models.named(entry, "model.int8.onnx"), &self.models.named(entry, "tokens.txt"), threads())?;
+        let rec = ctc::Ctc::load(engine, model, tokens, threads())?;
         self.stage(if engine == ctc::Engine::Zipa { "reading phones" } else { "recognising words" });
         let t = Instant::now();
         let (pct, cancel) = (self.percent.clone(), self.cancel.clone());
@@ -185,7 +211,7 @@ impl Local {
             pct.store((done / duration.max(1e-3) * 100.0).clamp(0.0, 100.0) as u64, Ordering::Relaxed);
             !cancel.load(Ordering::Relaxed)
         })?;
-        eprintln!("lana: {} read {} symbols in {duration:.1} s of audio in {:.1} s", entry.id, found.len(), t.elapsed().as_secs_f64());
+        eprintln!("lana: {id} read {} symbols in {duration:.1} s of audio in {:.1} s", found.len(), t.elapsed().as_secs_f64());
         if engine == ctc::Engine::Omnilingual {
             let cues = ctc::word_cues(&found, duration);
             let text = found.iter().map(|(c, _)| c.as_str()).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ");
@@ -404,6 +430,10 @@ pub fn router(local: Local) -> Router {
     Router::new()
         .route("/api/local/models", get(list_models))
         .route("/api/local/models/{id}", post(download_model).delete(delete_model))
+        .route("/api/local/mms", get(mms_status).delete(mms_delete_all))
+        .route("/api/local/mms/accept", post(mms_accept))
+        .route("/api/local/mms/languages", get(mms_languages))
+        .route("/api/local/mms/languages/{code}", post(mms_download).delete(mms_delete))
         .with_state(local)
 }
 
@@ -423,6 +453,51 @@ async fn delete_model(State(l): State<Local>, UrlPath(id): UrlPath<String>) -> R
         return (StatusCode::CONFLICT, Json(json!({ "error": "That model is transcribing right now." }))).into_response();
     }
     match l.models.delete(&id) {
+        Ok(()) => Json(json!({ "ok": true })).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+// ------------------------------------------------------------------ MMS
+
+async fn mms_status(State(l): State<Local>) -> Json<Value> {
+    Json(l.models.mms_status())
+}
+
+/// The full list, for the language search: [[code, name], ...].
+async fn mms_languages() -> Json<Value> {
+    Json(json!(mms::languages()))
+}
+
+async fn mms_accept(State(l): State<Local>) -> Response {
+    match l.models.mms_accept() {
+        Ok(()) => Json(l.models.mms_status()).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn mms_download(State(l): State<Local>, UrlPath(code): UrlPath<String>) -> Response {
+    match l.models.mms_start(&code) {
+        Ok(()) => Json(json!({ "ok": true })).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn mms_delete(State(l): State<Local>, UrlPath(code): UrlPath<String>) -> Response {
+    if l.job.lock().unwrap().as_ref().is_some_and(|j| j.model == format!("mms-{code}")) {
+        return (StatusCode::CONFLICT, Json(json!({ "error": "That language is transcribing right now." }))).into_response();
+    }
+    match l.models.mms_delete(&code) {
+        Ok(()) => Json(json!({ "ok": true })).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn mms_delete_all(State(l): State<Local>) -> Response {
+    if l.job.lock().unwrap().as_ref().is_some_and(|j| j.model.starts_with("mms-")) {
+        return (StatusCode::CONFLICT, Json(json!({ "error": "MMS is transcribing right now." }))).into_response();
+    }
+    match l.models.mms_delete_all() {
         Ok(()) => Json(json!({ "ok": true })).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
     }
