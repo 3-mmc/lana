@@ -87,7 +87,7 @@ jobs:
             echo "CMAKE_GENERATOR=Ninja"
             echo "CMAKE_C_COMPILER=clang-cl"
             echo "CMAKE_CXX_COMPILER=clang-cl"
-            echo "CXXFLAGS=/EHsc"
+            echo "CXXFLAGS=-EHsc"   # not /EHsc: Git bash rewrites it into a path
             echo "CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
             echo "CMAKE_POLICY_DEFAULT_CMP0091=NEW"
             # The developer prompt sets VCINSTALLDIR, which makes rustc take
