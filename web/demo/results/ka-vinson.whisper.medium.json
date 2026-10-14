@@ -1,0 +1,200 @@
+{
+ "text": "Friday, preventive action shades,\nხ ხ ხ ხ ხ ხ, თ თ ჩ ო ქ ხ ხ ს უ ი ი.",
+ "language": "ka",
+ "model": "whisper",
+ "transcript": "Friday, preventive action shades, ხ ხ ხ ხ ხ ხ, თ თ ჩ ო ქ ხ ხ ს უ ი ი.",
+ "duration": 14.29,
+ "asr_model": "medium",
+ "cues": [
+  {
+   "start": 0.53,
+   "end": 9.89,
+   "words": [
+    {
+     "text": "Friday,",
+     "start": 0.53,
+     "end": 1.75,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "preventive",
+     "start": 1.75,
+     "end": 9.55,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "action",
+     "start": 9.55,
+     "end": 9.85,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "shades,",
+     "start": 9.85,
+     "end": 9.89,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    }
+   ],
+   "plain": null
+  },
+  {
+   "start": 9.89,
+   "end": 14.29,
+   "words": [
+    {
+     "text": "ხ",
+     "start": 9.89,
+     "end": 10.83,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ხ",
+     "start": 10.83,
+     "end": 11.03,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ხ",
+     "start": 11.03,
+     "end": 11.03,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ხ",
+     "start": 11.03,
+     "end": 11.03,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ხ",
+     "start": 11.03,
+     "end": 11.03,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ხ,",
+     "start": 11.03,
+     "end": 11.03,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "თ",
+     "start": 11.03,
+     "end": 11.03,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "თ",
+     "start": 11.03,
+     "end": 11.05,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ჩ",
+     "start": 11.05,
+     "end": 11.33,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ო",
+     "start": 11.33,
+     "end": 11.33,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ქ",
+     "start": 11.33,
+     "end": 11.55,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ხ",
+     "start": 11.55,
+     "end": 11.55,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ხ",
+     "start": 11.55,
+     "end": 12.43,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ს",
+     "start": 12.43,
+     "end": 12.57,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "უ",
+     "start": 12.57,
+     "end": 12.57,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ი",
+     "start": 12.57,
+     "end": 12.57,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ი.",
+     "start": 12.57,
+     "end": 14.29,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    }
+   ],
+   "plain": null
+  }
+ ],
+ "provider": "local",
+ "wall_seconds": 44.45,
+ "_recorded": {
+  "seconds": 44.51,
+  "language_sent": "ka",
+  "asr_model": "medium",
+  "date": "2026-10-13"
+ }
+}

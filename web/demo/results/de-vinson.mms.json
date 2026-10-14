@@ -1,0 +1,247 @@
+{
+ "text": "der nördliche teil oder die sentinel range hat die höchsten berge der\nantarktis das winzenmassiv dessen höchster gipfel mit 2.2 metern höhe\nder mound winzen ist",
+ "language": "deu",
+ "model": "mms",
+ "transcript": "der nördliche teil oder die sentinel range hat die höchsten berge der antarktis das winzenmassiv dessen höchster gipfel mit 2.2 metern höhe der mound winzen ist",
+ "duration": 10.639066427289048,
+ "asr_model": "mms-1b-all",
+ "cues": [
+  {
+   "start": 0.6611849192100538,
+   "end": 3.5663913824057447,
+   "words": [
+    {
+     "text": "der",
+     "start": 0.6611849192100538,
+     "end": 0.7413285457809694,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "nördliche",
+     "start": 0.8214721723518851,
+     "end": 1.1420466786355474,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "teil",
+     "start": 1.262262118491921,
+     "end": 1.4225493716337523,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "oder",
+     "start": 1.5227289048473966,
+     "end": 1.6229084380610412,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "die",
+     "start": 1.7230879712746858,
+     "end": 1.7631597845601434,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "sentinel",
+     "start": 1.843303411131059,
+     "end": 2.2239856373429086,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "range",
+     "start": 2.3442010771992816,
+     "end": 2.524524236983842,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "hat",
+     "start": 2.6046678635547575,
+     "end": 2.6647755834829443,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "die",
+     "start": 2.74491921005386,
+     "end": 2.8050269299820467,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "höchsten",
+     "start": 2.8851705565529624,
+     "end": 3.145637342908438,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "berge",
+     "start": 3.2458168761220825,
+     "end": 3.4261400359066427,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "der",
+     "start": 3.526319569120287,
+     "end": 3.5663913824057447,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    }
+   ],
+   "plain": null
+  },
+  {
+   "start": 3.6465350089766604,
+   "end": 9.557127468581687,
+   "words": [
+    {
+     "text": "antarktis",
+     "start": 3.6465350089766604,
+     "end": 4.187504488330341,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "das",
+     "start": 4.728473967684021,
+     "end": 4.828653500897666,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "winzenmassiv",
+     "start": 4.92883303411131,
+     "end": 5.6100538599640934,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "dessen",
+     "start": 5.730269299820467,
+     "end": 5.910592459605026,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "höchster",
+     "start": 6.010771992818671,
+     "end": 6.251202872531418,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "gipfel",
+     "start": 6.331346499102334,
+     "end": 6.551741472172352,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "mit",
+     "start": 6.691992818671454,
+     "end": 6.732064631956912,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "2.2",
+     "start": 6.872315978456014,
+     "end": 7.8540754039497305,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "metern",
+     "start": 8.61543985637343,
+     "end": 8.895942549371634,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "höhe",
+     "start": 9.396840215439855,
+     "end": 9.557127468581687,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    }
+   ],
+   "plain": null
+  },
+  {
+   "start": 9.67734290843806,
+   "end": 10.639066427289048,
+   "words": [
+    {
+     "text": "der",
+     "start": 9.67734290843806,
+     "end": 9.757486535008976,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "mound",
+     "start": 9.837630161579892,
+     "end": 9.997917414721723,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "winzen",
+     "start": 10.078061041292639,
+     "end": 10.358563734290843,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ist",
+     "start": 10.498815080789946,
+     "end": 10.639066427289048,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    }
+   ],
+   "plain": null
+  }
+ ],
+ "provider": "local",
+ "wall_seconds": 5.01,
+ "_recorded": {
+  "seconds": 5.02,
+  "language_sent": "deu",
+  "asr_model": null,
+  "date": "2026-10-13"
+ }
+}

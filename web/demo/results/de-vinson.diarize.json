@@ -1,0 +1,23 @@
+{
+ "model": "diarize",
+ "embedding": "campplus",
+ "duration": 11.16,
+ "speakers": 1,
+ "turns": 1,
+ "cues": [
+  {
+   "start": 0.655,
+   "end": 10.527,
+   "speaker": 0
+  }
+ ],
+ "hash": "579ecf746a1f34c8bfc887516a44fa57",
+ "wall_seconds": 0.6,
+ "provider": "local",
+ "_recorded": {
+  "seconds": 0.62,
+  "language_sent": "",
+  "asr_model": null,
+  "date": "2026-10-13"
+ }
+}

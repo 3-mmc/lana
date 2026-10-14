@@ -1,0 +1,27 @@
+{
+ "model": "diarize",
+ "embedding": "campplus",
+ "speakers": 2,
+ "turns": 3,
+ "cues": [
+  {
+   "start": 0.74,
+   "end": 5.74,
+   "speaker": 0
+  },
+  {
+   "start": 5.74,
+   "end": 9.74,
+   "speaker": 1
+  },
+  {
+   "start": 9.74,
+   "end": 14.375,
+   "speaker": 0
+  }
+ ],
+ "hash": "7e6dcbd57a73b96d63a65a871ba98177",
+ "reclustered": true,
+ "window_resolution": true,
+ "wall_seconds": 0.0
+}

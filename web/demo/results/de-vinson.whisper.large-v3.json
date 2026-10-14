@@ -1,0 +1,233 @@
+{
+ "text": "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis, das Vinsonmassiv, dessen höchster Gipfel mit 4892 Metern Höhe der Mount Vinson ist.",
+ "language": "de",
+ "model": "whisper",
+ "transcript": "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis, das Vinsonmassiv, dessen höchster Gipfel mit 4892 Metern Höhe der Mount Vinson ist.",
+ "duration": 10.43,
+ "asr_model": "large-v3",
+ "cues": [
+  {
+   "start": 0.27,
+   "end": 10.43,
+   "words": [
+    {
+     "text": "Der",
+     "start": 0.27,
+     "end": 0.67,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "nördliche",
+     "start": 0.67,
+     "end": 1.05,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Teil",
+     "start": 1.05,
+     "end": 1.33,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "oder",
+     "start": 1.33,
+     "end": 1.55,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "die",
+     "start": 1.55,
+     "end": 1.65,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Sentinel",
+     "start": 1.65,
+     "end": 2.01,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Range",
+     "start": 2.01,
+     "end": 2.39,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "hat",
+     "start": 2.39,
+     "end": 2.59,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "die",
+     "start": 2.59,
+     "end": 2.73,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "höchsten",
+     "start": 2.73,
+     "end": 3.09,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Berge",
+     "start": 3.09,
+     "end": 3.43,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "der",
+     "start": 3.43,
+     "end": 3.53,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Antarktis,",
+     "start": 3.53,
+     "end": 4.19,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "das",
+     "start": 4.21,
+     "end": 4.73,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Vinsonmassiv,",
+     "start": 4.73,
+     "end": 5.59,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "dessen",
+     "start": 5.59,
+     "end": 5.91,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "höchster",
+     "start": 5.91,
+     "end": 6.15,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Gipfel",
+     "start": 6.15,
+     "end": 6.51,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "mit",
+     "start": 6.51,
+     "end": 6.67,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "4892",
+     "start": 6.67,
+     "end": 7.83,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Metern",
+     "start": 7.83,
+     "end": 8.83,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Höhe",
+     "start": 8.83,
+     "end": 9.55,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "der",
+     "start": 9.55,
+     "end": 9.65,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Mount",
+     "start": 9.65,
+     "end": 9.87,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "Vinson",
+     "start": 9.87,
+     "end": 10.25,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    },
+    {
+     "text": "ist.",
+     "start": 10.25,
+     "end": 10.43,
+     "phones": [],
+     "phone_times": [],
+     "aligned": true
+    }
+   ],
+   "plain": null
+  }
+ ],
+ "provider": "local",
+ "wall_seconds": 6.54,
+ "_recorded": {
+  "seconds": 6.56,
+  "language_sent": "de",
+  "asr_model": "large-v3",
+  "date": "2026-10-13"
+ }
+}

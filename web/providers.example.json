@@ -1,0 +1,66 @@
+{
+  "_comment": [
+    "Copy to providers.json (gitignored) and edit. serve.py reads it at every",
+    "request, so edits take effect without a restart.",
+    "",
+    "Keys stay on this machine. The browser is told only that a provider HAS a",
+    "key, never what it is, and every request is proxied by serve.py — which",
+    "also means no CORS configuration and no key in devtools.",
+    "",
+    "kind: 'openai' means the provider implements POST {base}/v1/audio/transcriptions",
+    "in the OpenAI shape. That covers OpenAI itself, Groq, Fireworks, Together,",
+    "llama-swap, faster-whisper-server, whisper.cpp's server, and most others.",
+    "",
+    "role tells the interface which tier a model can fill before it has run:",
+    "  words  - orthographic transcription only",
+    "  phones - IPA phone labels only",
+    "  both   - fills the word tier and the phone tier from one pass",
+    "  speakers - who is talking; fills the speaker tier and nothing else",
+    "The response is believed over this hint; it exists so the queue can show",
+    "you what is coming."
+  ],
+
+  "providers": [
+    {
+      "id": "local",
+      "label": "llama-swap (this machine's GPU)",
+      "kind": "openai",
+      "base": "http://127.0.0.1:9292",
+      "control": "/upstream/asr",
+      "models": [
+        { "id": "ipa",         "role": "both",   "label": "PhoneticXeus + whisper (70+ languages)" },
+        { "id": "ipa-buckeye", "role": "both",   "label": "ginic/Buckeye + whisper (English)" },
+        { "id": "whisper",     "role": "words",  "label": "faster-whisper" },
+        { "id": "mms",         "role": "words",  "label": "MMS-1b-all (needs a 639-3 language code)" },
+        { "id": "owsm",        "role": "words",  "label": "OWSM-CTC v4 1B" },
+        { "id": "diarize",     "role": "speakers", "control": "/upstream/diarize",
+          "label": "Speaker diarization (CPU, runs alongside)" }
+      ]
+    },
+
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "kind": "openai",
+      "base": "https://api.openai.com",
+      "api_key_env": "OPENAI_API_KEY",
+      "fields": { "timestamp_granularities[]": "word" },
+      "models": [
+        { "id": "whisper-1",        "role": "words", "label": "whisper-1 (word timings)" },
+        { "id": "gpt-4o-transcribe", "role": "words", "label": "gpt-4o-transcribe (no word timings)" }
+      ]
+    },
+
+    {
+      "id": "groq",
+      "label": "Groq",
+      "kind": "openai",
+      "base": "https://api.groq.com/openai",
+      "api_key_env": "GROQ_API_KEY",
+      "fields": { "timestamp_granularities[]": "word" },
+      "models": [
+        { "id": "whisper-large-v3", "role": "words", "label": "whisper-large-v3" }
+      ]
+    }
+  ]
+}
