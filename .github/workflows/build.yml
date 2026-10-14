@@ -38,7 +38,7 @@ jobs:
       # Change prefix-key whenever those flags change.
       - uses: swatinem/rust-cache@v2
         with:
-          prefix-key: v1-ggml-portable
+          prefix-key: v2-ggml-portable-clangcl
           workspaces: |
             src-tauri
             bench
@@ -67,6 +67,30 @@ jobs:
         if: runner.os != 'macOS'
         shell: bash
         run: echo "GGML_NATIVE=OFF" >> "$GITHUB_ENV"
+
+      # whisper.cpp built by MSVC ran Whisper base 7x slower than the same code
+      # built by clang-cl (13.9 s against 2.0 s for 11 s of audio, i7-9700K,
+      # measured with lana-bench). So on Windows it is compiled by clang-cl,
+      # through Ninja inside a developer prompt. /EHsc because cmake-rs passes
+      # clang-cl no exception flag; the CMP0091 policy because whisper.cpp's old
+      # cmake_minimum_required otherwise ignores the runtime choice and builds
+      # /MD, which cannot link with sherpa-onnx's /MT.
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+
+      - name: clang-cl for whisper.cpp
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "C:\Program Files\LLVM\bin" >> "$GITHUB_PATH"
+          {
+            echo "CMAKE_GENERATOR=Ninja"
+            echo "CMAKE_C_COMPILER=clang-cl"
+            echo "CMAKE_CXX_COMPILER=clang-cl"
+            echo "CXXFLAGS=/EHsc"
+            echo "CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
+            echo "CMAKE_POLICY_DEFAULT_CMP0091=NEW"
+          } >> "$GITHUB_ENV"
 
       - name: praat-wasm
         shell: bash
