@@ -90,7 +90,12 @@ jobs:
             echo "CXXFLAGS=/EHsc"
             echo "CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
             echo "CMAKE_POLICY_DEFAULT_CMP0091=NEW"
+            # The developer prompt sets VCINSTALLDIR, which makes rustc take
+            # link.exe from PATH, and in a bash step that is Git's coreutils
+            # `link`. Name MSVC's linker outright.
+            echo "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=${VCToolsInstallDir}bin\\Hostx64\\x64\\link.exe"
           } >> "$GITHUB_ENV"
+          cat "$GITHUB_ENV" | grep LINKER
 
       - name: praat-wasm
         shell: bash
