@@ -31,7 +31,8 @@ impl Engine {
         }
     }
 }
-/// Audio is recognised in pieces of at most this long. The encoder attends
+/// Audio is recognised in pieces of at most this long (Whisper too: see
+/// Local::run). The encoder attends
 /// over the whole input, so a long recording in one pass costs memory that
 /// grows with its square; pieces also let Stop and the progress bar work.
 const PIECE_S: f64 = 30.0;
@@ -61,12 +62,14 @@ impl Ctc {
     }
 
     /// Symbols with their times for 16 kHz mono audio: phones for ZIPA,
-    /// characters for Omnilingual, where " " separates words. `progress` gets
-    /// the seconds done after each piece and returns false to stop.
-    pub fn recognise(&self, samples: &[f32], rate: u32, mut progress: impl FnMut(f64) -> bool) -> Result<Vec<(String, f64)>, String> {
+    /// characters for Omnilingual, where " " separates words. `on_piece` gets
+    /// the seconds done and the symbols of the piece just finished, so a caller
+    /// can show them before the whole recording is read; it returns false to stop.
+    pub fn recognise(&self, samples: &[f32], rate: u32, mut on_piece: impl FnMut(f64, &[(String, f64)]) -> bool) -> Result<Vec<(String, f64)>, String> {
         let mut out = Vec::new();
         let mut at = 0usize;
         while at < samples.len() {
+            let piece_from = out.len();
             let end = cut_point(samples, at, rate);
             let stream = self.rec.create_stream();
             stream.accept_waveform(rate as i32, &samples[at..end]);
@@ -103,7 +106,7 @@ impl Ctc {
                 }
             }
             at = end;
-            if !progress(at as f64 / rate as f64) {
+            if !on_piece(at as f64 / rate as f64, &out[piece_from..]) {
                 return Err("stopped".into());
             }
         }
@@ -114,7 +117,7 @@ impl Ctc {
 /// Where the piece starting at `at` should end: at most PIECE_S later, at the
 /// quietest 20 ms in its last five seconds, so a cut lands in a pause rather
 /// than through a phone.
-fn cut_point(x: &[f32], at: usize, rate: u32) -> usize {
+pub(crate) fn cut_point(x: &[f32], at: usize, rate: u32) -> usize {
     let piece = (PIECE_S * rate as f64) as usize;
     if x.len() - at <= piece {
         return x.len();

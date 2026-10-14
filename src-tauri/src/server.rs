@@ -71,6 +71,8 @@ pub async fn start_on(roots: Roots, port: u16) -> std::io::Result<u16> {
         .merge(crate::settings::router(roots.providers.clone(), roots.launch.clone()))
         .route_service("/", ServeFile::new(&index))
         .route_service("/index.html", ServeFile::new(&index))
+        // The language picker's list (scripts/languages/build.py).
+        .route_service("/languages.json", ServeFile::new(roots.web.join("languages.json")))
         .nest_service("/vendor", ServeDir::new(&roots.vendor))
         .layer(middleware::from_fn(move |req, next| only_loopback_host(req, next, port)));
 

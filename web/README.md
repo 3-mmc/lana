@@ -85,6 +85,8 @@ So the page draws each tier the moment its model reports, and says what is happe
 
 The same 113 second recording, part way through. `whisper` has returned and its intervals are drawn, so the transcript is readable and exportable already. `ipa` is still reading the signal, and its lane says which model is working instead of sitting empty. The bar under the toolbar is the recogniser's own reported progress, not an animation standing in for one.
 
+The desktop app's built-in models do the same. Each reads the recording in pieces of up to thirty seconds, cut at the quietest point near the limit, and its cues reach the page as each piece finishes. For Whisper this is a deliberate departure from a single pass: whisper.cpp reports a window's segments early only when its DTW word timing is off, and DTW timing is what makes Whisper's word boundaries usable for phonetics, so the app calls it once per piece instead and keeps both.
+
 This needs a recogniser that serves `progress` and `partial`, described below. One that serves neither still works, and its tiers fill when the response arrives, which is what would happen anyway.
 
 The same machinery survives a reload. The page asks the recogniser what it is doing, adopts a job it did not start, and works out from the content of the cues which tier that job can fill. A reload during a long run therefore shows the progress and the annotation so far, rather than an inviting Run button whose only possible outcome is a refusal.

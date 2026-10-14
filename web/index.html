@@ -237,6 +237,33 @@
   .recstack{display:flex;flex-direction:column;gap:5px}
   #recPanel .grid{display:grid;gap:6px 9px;align-items:center}
   /* desktop settings */
+  /* .row and friends set display, which would otherwise beat the hidden attribute. */
+  #sizeRow[hidden],.langrow [hidden]{display:none}
+  .langrow{display:flex;gap:7px;align-items:center;padding:7px 9px 5px}
+  .langrow label{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+  .langpick{position:relative;flex:1;min-width:0}
+  .langpick input{width:100%;box-sizing:border-box}
+  .langlist{position:absolute;z-index:30;left:0;right:0;top:calc(100% + 3px);max-height:280px;overflow:auto;
+            background:var(--raise);border:1px solid var(--line);border-radius:5px;box-shadow:0 6px 18px #0006}
+  .langlist div{padding:5px 9px;cursor:pointer;font-size:12px;display:flex;gap:8px;align-items:baseline}
+  .langlist div:hover,.langlist div.on{background:var(--rowhover)}
+  .langlist div span{color:var(--dim2);font-family:var(--mono);font-size:10px}
+  .langlist div i{margin-left:auto;font-style:normal;color:var(--dim2);font-size:10px}
+  .langlist .head{cursor:default;color:var(--dim2);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+  .langlist .head:hover{background:none}
+  #langNote{padding:0 9px 7px}
+  #langNote button{margin-left:4px}
+  .meta .warn{color:var(--warn)}
+  .qrow{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line2);font-size:12px}
+  .qrow .qwho{flex:1;min-width:0}
+  .qrow .qwho b{font-weight:600}
+  .qrow .qwho span{display:block;color:var(--dim2);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .qrow .qst{font-family:var(--mono);font-size:11px;color:var(--dim);white-space:nowrap}
+  .qrow[data-s=running] .qst{color:var(--accent)}
+  .qrow[data-s=done] .qst{color:var(--ok)}
+  .qrow[data-s=failed] .qst{color:var(--err)}
+  .qrow .qbar{height:2px;background:var(--line2);margin-top:4px;border-radius:1px;overflow:hidden}
+  .qrow .qbar i{display:block;height:100%;background:var(--accent);width:0}
   .mgrow{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line2)}
   .mgrow .who{flex:1;min-width:0}
   .mgrow .who b{color:var(--ink);font-weight:600;font-size:12px}
@@ -531,6 +558,16 @@
 
   <div class="pane">
     <h2>Recognition <span class="sub">one tier per model</span></h2>
+    <div class="langrow">
+      <label for="langFind">Language</label>
+      <div class="langpick">
+        <input id="langFind" placeholder="detect automatically" autocomplete="off" spellcheck="false"
+               title="The language of the recording, by name or code. Each model is sent the code it understands; leave it empty to let the models detect it.">
+        <div id="langList" class="langlist" hidden></div>
+      </div>
+      <button class="tiny" id="langClear" title="Let the models detect the language" hidden>×</button>
+    </div>
+    <div class="meta" id="langNote" hidden></div>
     <div class="track" data-track="word">
       <div class="top">
         <span class="name">Word tier</span>
@@ -540,8 +577,6 @@
       </div>
       <div class="row tight" style="padding:5px 0 0;border:0">
         <select id="mdWord"><option value="">(none)</option></select>
-        <input id="lngWord" size="4" class="num" placeholder="lang"
-               title="Language code for this model. ISO 639-1 for whisper, 639-3 for mms and owsm. Blank lets the model decide.">
       </div>
       <div class="meta" id="mtWord">orthographic transcription</div>
     </div>
@@ -554,8 +589,6 @@
       </div>
       <div class="row tight" style="padding:5px 0 0;border:0">
         <select id="mdPhone"><option value="">(none)</option></select>
-        <input id="lngPhone" size="4" class="num" placeholder="lang"
-               title="Language code for this model. ISO 639-1 for whisper, 639-3 for mms and owsm. Blank lets the model decide.">
       </div>
       <div class="meta" id="mtPhone">IPA read off the acoustics, with CTC spike times</div>
     </div>
@@ -592,6 +625,14 @@
     <div class="hint pad" id="planNote" style="border-top:1px solid var(--line2)">
       Choosing the same model for both tiers runs it once.
     </div>
+  </div>
+
+  <div class="pane" id="queuePane" hidden>
+    <h2>Queue <span class="sub" id="queueNote"></span>
+      <span class="sp"></span>
+      <button class="tiny" id="queueClear">clear finished</button>
+    </h2>
+    <div id="queueList"></div>
   </div>
 
   <div class="pane">
@@ -719,6 +760,8 @@ const CFG = {
   ctrlBase: '/upstream/asr',
   wordModel: '', phoneModel: '', speakerModel: '',
   spkCount: '', spkThreshold: '0.7',
+  language: null,            // ISO 639-3, or '' to detect; null until migrated
+  langRecent: [],
   langWord: '', langPhone: '', size: 'medium', nameTiers: false,
   theme: 'graphite',
 };
@@ -734,7 +777,7 @@ try { Object.assign(CFG, JSON.parse(localStorage.getItem(CFG_KEY) || '{}')); } c
   if (q.has('words')) CFG.wordModel = q.get('words');
   if (q.has('phones')) CFG.phoneModel = q.get('phones');
   if (q.has('speakers')) CFG.speakerModel = q.get('speakers');
-  if (q.has('lang')) CFG.langWord = CFG.langPhone = q.get('lang');
+  if (q.has('lang')) { CFG.langWord = CFG.langPhone = q.get('lang'); CFG.language = null; }
   if (q.has('theme')) CFG.theme = q.get('theme');
 }
 /* Set before anything is painted. readPalette() resolved var() against the
@@ -878,8 +921,7 @@ const DEMO = {
     // A fixed lastModified keeps fileKey() stable, which re-clustering checks.
     DEMO.file = new File([await r.blob()], clip.file, { type: 'audio/wav', lastModified: 0 });
     for (const t of TIERS) S.tracks[t.key].model = clip.tiers[t.key] || '';
-    $('lngWord').value = clip.lang.word || '';
-    $('lngPhone').value = clip.lang.phone || '';
+    LANG.load().then(() => setLanguage((LANG.find(clip.lang.word) || LANG.find(clip.lang.phone) || [''])[0]));
     if (clip.size) $('asrsize').value = clip.size;
     fillModelSelects();
     openFile(DEMO.file);
@@ -924,11 +966,11 @@ function newTrack(role, label) {
 const TIERS = [
   { key: 'word',    role: 'words',    label: 'words',
     sel: 'mdWord',    st: 'stWord',    mt: 'mtWord',    rerun: 'reWord',
-    lang: 'lngWord',  cfg: 'wordModel',
+    cfg: 'wordModel',
     gist: 'orthographic transcription' },
   { key: 'phone',   role: 'phones',   label: 'phones',
     sel: 'mdPhone',   st: 'stPhone',   mt: 'mtPhone',   rerun: 'rePhone',
-    lang: 'lngPhone', cfg: 'phoneModel',
+    cfg: 'phoneModel',
     gist: 'IPA read off the acoustics' },
   { key: 'speaker', role: 'speakers', label: 'speakers',
     sel: 'mdSpeaker', st: 'stSpeaker', mt: 'mtSpeaker', rerun: 'reSpeaker',
@@ -950,6 +992,46 @@ function shownTiers() {
    service renumbers them by order of first appearance; S1, S2, S3 is what
    Praat, ELAN and CLAN all mean by a speaker label. */
 const spkName = n => 'S' + (Number(n) + 1);
+const LANG = {
+  rows: [], byCode: new Map(), ready: null,
+  load() {
+    return LANG.ready ||= (async () => {
+      try {
+        const f = (typeof DEMO !== 'undefined' && DEMO.realFetch) || fetch;
+        const r = await f(new URL('languages.json', location.href), { cache: 'force-cache' });
+        LANG.rows = r.ok ? await r.json() : [];
+      } catch { LANG.rows = []; }
+      for (const r of LANG.rows) LANG.byCode.set(r[0], r);
+    })();
+  },
+  get: c => LANG.byCode.get(c) || null,
+  /* Any of the codes a user or an old setting might hold. */
+  find(code) {
+    code = (code || '').trim().toLowerCase();
+    if (!code) return null;
+    return LANG.byCode.get(code) || LANG.rows.find(r => r[1] === code || r[3] === code) || null;
+  },
+  name: c => LANG.get(c)?.[2] || c,
+  search(q) {
+    q = q.trim().toLowerCase();
+    if (!q) return [];
+    const exact = [], start = [], word = [], any = [];
+    for (const r of LANG.rows) {
+      const n = r[2].toLowerCase();
+      if (r[0] === q || r[1] === q) exact.push(r);
+      else if (n.startsWith(q)) start.push(r);
+      else if (n.split(/[\s(),-]+/).some(w => w.startsWith(q))) word.push(r);
+      else if (n.includes(q)) any.push(r);
+    }
+    return [...exact, ...start, ...word, ...any].slice(0, 60);
+  },
+};
+
+/* The run queue for the open recording. A recogniser is single-tenant, so its
+   jobs run one after another; speaker jobs hold no GPU and run beside them in
+   a second lane. Each job keeps the settings it was queued with. */
+const Q = { items: [], seq: 0, main: null, side: null };
+
 const S = {
   praat: null, sound: null, audio: null, ctx: null, src: null,
   name: 'audio', dur: 0,
@@ -1078,6 +1160,8 @@ $('file').addEventListener('change', async ev => {
     Object.assign(t, { cues: [], items: [], state: t.model ? 'ready' : 'empty', note: '', source: '' });
   }
   S.tracks.speaker.cached = null;
+  for (const job of Q.items) if (job.state === 'queued') cancelQueued(job, 'another recording was opened');
+  renderQueue();
   for (const k of TKEYS) S.tracks[k].edited = false;
   S.extra = []; S.undo = []; S.redo = []; S.selectedItem = null;
   if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
@@ -2026,6 +2110,137 @@ function fillModelSelects() {
   renderPlan();
 }
 
+/* ------------------------------------------------------------- language */
+/* One language for the recording, chosen by name. Recognisers disagree about
+   how to be told it: Whisper wants its own two-letter token, OpenAI-shaped
+   services ISO 639-1, MMS and OWSM ISO 639-3, and ZIPA, Omnilingual and a
+   per-language MMS model take none. Asking a linguist to know which code goes
+   where was the old interface; now the page sends each model the code it
+   understands, and says when a model does not know the language at all.
+   languages.json is built by scripts/languages/build.py: rows of
+   [639-3, 639-1, name, Whisper's code, has an MMS adapter]. */
+
+/* How a model wants the language: 'whisper' (Whisper's own token), 'iso1',
+   'iso3', 'fixed' (an MMS model for one language), or 'none'. Read off the
+   model id, since that is all a provider tells us. */
+function langStyle(model) {
+  if (!model) return 'none';
+  if (/^mms-/.test(model)) return 'fixed';
+  if (/^(zipa|omnilingual)|^(speakers|diarize)$/.test(model)) return 'none';
+  if (model === 'mms' || model === 'owsm') return 'iso3';
+  if (/whisper/i.test(model) || model === 'ipa' || model === 'ipa-buckeye') return 'whisper';
+  return 'iso1';
+}
+
+/* The code to send this model for a language, or '' to let it detect. */
+function langCodeFor(model, code3) {
+  const r = LANG.get(code3);
+  if (!r) return '';
+  return { whisper: r[3], iso1: r[1], iso3: r[0] }[langStyle(model)] || '';
+}
+
+/* A warning about this model and this language, or null when they agree. */
+function langWarning(model, code3) {
+  if (!model || !code3) return null;
+  const r = LANG.get(code3), name = LANG.name(code3), st = langStyle(model);
+  if (st === 'fixed') {
+    const own = model.slice(4).split('-')[0];
+    return own === code3 ? null : `this model reads ${LANG.name(own)}, not ${name}`;
+  }
+  if (st === 'whisper' && r && !r[3]) return `Whisper does not know ${name}, so it will guess another language`;
+  if (st === 'iso1' && r && !r[1]) return `${name} has no two-letter code for this service, so it will guess`;
+  return null;
+}
+
+/* An MMS model for the chosen language, if one can be chosen. */
+function mmsModelFor(code3) {
+  if (!code3) return null;
+  return NET.models.find(m => m.id === 'mms-' + code3 || m.id.startsWith('mms-' + code3 + '-')) || null;
+}
+
+function setLanguage(code3) {
+  CFG.language = code3 || '';
+  if (code3) CFG.langRecent = [code3, ...(CFG.langRecent || []).filter(c => c !== code3)].slice(0, 6);
+  saveCfg();
+  renderLanguage();
+  renderPlan();
+}
+
+function renderLanguage() {
+  const c = CFG.language;
+  $('langFind').value = c ? LANG.name(c) : '';
+  $('langClear').hidden = !c;
+  const note = $('langNote'), wm = S.tracks.word.model, mms = mmsModelFor(c);
+  const r = LANG.get(c);
+  let html = '';
+  if (c && mms && mms.id !== wm) {
+    html = `${esc(mms.label)} reads ${esc(LANG.name(c))} <button class="tiny" id="langUseMms">use it for words</button>`;
+  } else if (c && r && r[4] && !mms && (!wm || langWarning(wm, c)) && typeof DESK !== 'undefined' && DESK.caps) {
+    html = `MMS can read ${esc(LANG.name(c))}: add it under ⚙ Connection → MMS (about 9 MB).`;
+  }
+  note.innerHTML = html;
+  note.hidden = !html;
+  $('langUseMms')?.addEventListener('click', () => {
+    $('mdWord').value = mms.id;
+    $('mdWord').dispatchEvent(new Event('change'));
+  });
+}
+
+function showLangList(q) {
+  const list = $('langList');
+  let rows, head = '';
+  if (q.trim()) rows = LANG.search(q);
+  else {
+    rows = (CFG.langRecent || []).map(LANG.get).filter(Boolean);
+    head = rows.length ? '<div class="head">recent</div>' : '';
+  }
+  const item = r => `<div data-c="${esc(r[0])}">${esc(r[2])} <span>${esc(r[1] ? r[1] + ' · ' + r[0] : r[0])}</span>` +
+    `<i>${[r[3] ? 'Whisper' : '', r[4] ? 'MMS' : ''].filter(Boolean).join(' · ')}</i></div>`;
+  list.innerHTML = `<div data-c="">detect automatically</div>` + head + rows.map(item).join('') +
+    (q.trim() && !rows.length ? '<div class="head">no language by that name or code</div>' : '');
+  list.hidden = false;
+  langActive = -1;
+}
+let langActive = -1;
+function langPick(el) {
+  if (!el || el.classList.contains('head')) return;
+  setLanguage(el.dataset.c);
+  $('langList').hidden = true;
+  $('langFind').blur();
+}
+$('langFind').addEventListener('focus', async () => { await LANG.load(); $('langFind').select(); showLangList(''); });
+$('langFind').addEventListener('input', () => showLangList($('langFind').value));
+$('langFind').addEventListener('keydown', e => {
+  const items = [...$('langList').querySelectorAll('div[data-c]')];
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    langActive = Math.max(0, Math.min(items.length - 1, langActive + (e.key === 'ArrowDown' ? 1 : -1)));
+    items.forEach((x, i) => x.classList.toggle('on', i === langActive));
+    items[langActive]?.scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    langPick(items[langActive >= 0 ? langActive : (items.length > 1 && $('langFind').value.trim() ? 1 : 0)]);
+  } else if (e.key === 'Escape') {
+    $('langList').hidden = true; renderLanguage(); $('langFind').blur();
+  }
+});
+$('langFind').addEventListener('blur', () => setTimeout(() => {
+  if (!$('langList').hidden) { $('langList').hidden = true; renderLanguage(); }
+}, 150));
+$('langList').addEventListener('mousedown', e => { e.preventDefault(); langPick(e.target.closest('div[data-c]')); });
+$('langClear').addEventListener('click', () => setLanguage(''));
+
+/* Settings from before the picker held a code per tier. Take the word tier's,
+   since that is the one a language was usually typed for. */
+LANG.load().then(() => {
+  if (CFG.language == null) {
+    const r = LANG.find(CFG.langWord) || LANG.find(CFG.langPhone);
+    CFG.language = r ? r[0] : '';
+    saveCfg();
+  }
+  renderLanguage(); renderPlan();
+});
+
 /* ------------------------------------------------------------- the plan */
 function renderPlan() {
   const shown = shownTiers();
@@ -2042,10 +2257,12 @@ function renderPlan() {
       empty: 'no model', ready: 'ready', queued: 'queued', running: 'reading<span class="dots"></span>',
       partial: `${n} so far`, done: `${n} interval${n === 1 ? '' : 's'}`, failed: 'failed', cancelled: 'cancelled',
     }[t.state] || t.state);
-    const bits = [T.gist];
-    if (t.source) bits.push('from ' + t.source);
-    if (t.note) bits.push(t.note);
-    $(T.mt).textContent = bits.join(' · ');
+    const bits = [esc(T.gist)];
+    if (t.source) bits.push('from ' + esc(t.source));
+    if (t.note) bits.push(esc(t.note));
+    const warn = T.key !== 'speaker' && langWarning(t.model, CFG.language);
+    if (warn) bits.push(`<span class="warn">${esc(warn)}</span>`);
+    $(T.mt).innerHTML = bits.join(' · ');
   }
   const wm = S.tracks.word.model, pm = S.tracks.phone.model, sm = S.tracks.speaker.model;
   $('planNote').textContent = !wm && !pm && !sm
@@ -2069,7 +2286,11 @@ function renderPlan() {
       pt.cues.some(c => (c.words || []).length > 1))
     $('planNote').textContent +=
       ` ${pt.source} returned per-word boundaries — choose it for the word tier too.`;
-  $('run').disabled = !S.audio || !!S.running || !!S.side || (!wm && !pm && !sm);
+  /* Run stays live while a job runs: a click then adds to the queue. */
+  $('run').disabled = !S.audio || (!wm && !pm && !sm);
+  $('run').textContent = Q.items.some(x => x.state === 'queued' || x.state === 'running')
+    ? 'Add to queue' : 'Run recognition';
+  if (LANG.rows.length) renderLanguage();
   $('spkRe').disabled = !canRecluster();
   updateTierInfo();
 }
@@ -2108,10 +2329,7 @@ $('spkN').value = CFG.spkCount; $('spkTh').value = CFG.spkThreshold;
 $('spkN').addEventListener('input', () => { $('spkRe').disabled = !canRecluster(); });
 $('spkN').addEventListener('change', () => { CFG.spkCount = $('spkN').value.trim(); saveCfg(); });
 $('spkTh').addEventListener('change', () => { CFG.spkThreshold = $('spkTh').value.trim(); saveCfg(); });
-$('lngWord').value = CFG.langWord; $('lngPhone').value = CFG.langPhone;
 $('asrsize').value = CFG.size;
-$('lngWord').addEventListener('change', () => { CFG.langWord = $('lngWord').value.trim(); saveCfg(); });
-$('lngPhone').addEventListener('change', () => { CFG.langPhone = $('lngPhone').value.trim(); saveCfg(); });
 $('asrsize').addEventListener('change', () => { CFG.size = $('asrsize').value; saveCfg(); });
 $('theme').value = CFG.theme || 'graphite';
 $('theme').addEventListener('change', () => {
@@ -2351,7 +2569,10 @@ function showBusy(j) {
   $('barfill').style.width = j.total > 0 ? pct.toFixed(1) + '%' : '';
   const where = j.total > 0 ? ` ${j.done.toFixed(1)}/${j.total.toFixed(1)} s (${pct.toFixed(0)}%)` : '';
   status(`${j.model}: ${j.stage || 'working'}${where} — ${j.elapsed ?? 0} s`);
-  $('run').disabled = true;
+  if (Q.main && Q.main.model === j.model) {
+    Q.main.pct = j.total > 0 ? pct : null;
+    renderQueue();
+  }
   $('stop').hidden = !NET.hasControl();
 }
 
@@ -2368,6 +2589,7 @@ function showIdle(note) {
    response exists. Waiting for the response to draw any of it was throwing
    that away. */
 async function pullPartial(j) {
+  if (S.running && S.running.file !== fileKey()) return;
   if (j.job != null && j.job !== partialJob) {
     partialJob = j.job; partialSince = 0; partialCues = [];
   }
@@ -2437,9 +2659,12 @@ function startPolling() {
   }, 700);
 }
 
+/* Stop means everything: the waiting jobs leave the queue and the running ones
+   are stopped. One job at a time is stopped from its row in the queue. */
 $('stop').addEventListener('click', async () => {
   $('stop').disabled = true;
-  S.aborted = true;
+  for (const job of Q.items) if (job.state === 'queued') cancelQueued(job, 'stopped');
+  renderQueue();
   /* The diarizer honours /cancel only at the end of its current pass, so drop
      the connection as well. The service releases its lock either way. */
   if (S.sideAbort) try { S.sideAbort.abort(); } catch {}
@@ -2542,13 +2767,12 @@ async function runJob(job) {
   if (NET.mode === 'broker' && NET.provider) fd.append('provider', NET.provider.id);
   if (job.concurrent) {
     // Diarization takes no language: a speaker embedding keys on the voice.
-    const n = $('spkN').value.trim(), th = $('spkTh').value.trim();
-    if (n) fd.append('speakers', n);
-    if (th) fd.append('threshold', th);
+    if (job.spkN) fd.append('speakers', job.spkN);
+    if (job.spkTh) fd.append('threshold', job.spkTh);
   } else {
-    const lang = (job.claims.includes('word') ? $('lngWord').value : $('lngPhone').value).trim();
+    const lang = langCodeFor(job.model, job.language);
     if (lang) fd.append('language', lang);
-    if ($('asrsize').value && sizeApplies(job.model)) fd.append('asr_model', $('asrsize').value);
+    if (job.size && sizeApplies(job.model)) fd.append('asr_model', job.size);
   }
 
   const t0 = performance.now();
@@ -2569,6 +2793,8 @@ async function runJob(job) {
       ' — set one up under ⚙ Connection. The analysis and the TextGrid export do not need one.');
     const body = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+    // The recording was replaced while this ran: its result belongs to no tier here.
+    if (job.file !== fileKey()) throw new Error('cancelled: another recording was opened');
 
     const cues = body.cues || [];
     /* The service keeps this recording against its hash, which is what makes a
@@ -2582,16 +2808,19 @@ async function runJob(job) {
       for (const k of job.claims)
         setTrackState(k, 'done', 'the model returned text with no timings, so no tier could be drawn');
     }
+    job.state = 'done';
+    job.note = `${f2((performance.now() - t0) / 1000)} s`;
     status(`${job.model} finished in ${f2((performance.now() - t0) / 1000)} s` +
            (body.language ? ` · language ${body.language}` : '') +
            (body.speakers != null ? ` · ${body.speakers} speaker${body.speakers === 1 ? '' : 's'}` : ''));
   } catch (e) {
-    const cancelled = /cancel|abort/i.test(e.message) || e.name === 'AbortError';
-    for (const k of job.claims)
-      setTrackState(k, cancelled ? 'cancelled' : 'failed', cancelled ? '' : e.message);
+    const cancelled = /cancel|abort|stopped/i.test(e.message) || e.name === 'AbortError';
+    job.state = cancelled ? 'cancelled' : 'failed';
+    job.note = cancelled ? '' : e.message;
+    if (job.file === fileKey())
+      for (const k of job.claims)
+        setTrackState(k, cancelled ? 'cancelled' : 'failed', cancelled ? '' : e.message);
     status((cancelled ? 'cancelled: ' : `${job.model} failed: `) + e.message, !cancelled);
-    // A concurrent job failing must not cancel the recogniser chain beside it.
-    if (cancelled && !job.concurrent) S.aborted = true;
   } finally {
     if (job.concurrent) { S.side = null; S.sideAbort = null; }
     else S.running = null;
@@ -2599,37 +2828,115 @@ async function runJob(job) {
   }
 }
 
-async function runPlan(only) {
-  if (S.running || S.side) { status('a job is already running', true); return; }
+/* Add a run to the queue: one job per model, as buildJobs splits it. */
+function enqueue(only) {
+  if (!S.audio) return;
   const jobs = buildJobs(only);
   if (!jobs.length) { status('choose a model for at least one tier', true); return; }
-  S.aborted = false;
+  const file = fileKey(), size = $('asrsize').value;
+  const spkN = $('spkN').value.trim(), spkTh = $('spkTh').value.trim();
+  for (const job of jobs) {
+    Object.assign(job, { id: ++Q.seq, state: 'queued', file, language: CFG.language || '',
+                         size, spkN, spkTh, pct: null, note: '' });
+    Q.items.push(job);
+    for (const k of job.claims)
+      if (!['running', 'partial'].includes(S.tracks[k].state)) setTrackState(k, 'queued', '');
+  }
+  if (Q.main || Q.side) status(`queued ${jobs.map(j => j.model).join(' and ')}`);
+  renderQueue(); renderPlan();
+  pump();
+}
+
+/* Start the next job in each free lane. */
+function pump() {
+  for (const lane of ['main', 'side']) {
+    if (Q[lane]) continue;
+    const job = Q.items.find(x => x.state === 'queued' && !!x.concurrent === (lane === 'side'));
+    if (!job) continue;
+    Q[lane] = job;
+    runQueued(job).finally(() => {
+      Q[lane] = null;
+      renderQueue(); renderPlan();
+      pump();
+      if (!Q.main && !Q.side) settle();
+    });
+  }
+}
+
+async function runQueued(job) {
+  if (job.file !== fileKey()) { job.state = 'cancelled'; job.note = 'another recording was opened'; return; }
+  job.state = 'running';
+  renderQueue();
   /* A run replaces whatever is on the tiers it fills, hand edits included.
      Keep the state from before it, so Undo brings them back. */
-  const replacing = jobs.flatMap(j => j.claims).filter(k => S.tracks[k].edited);
+  const replacing = job.claims.filter(k => S.tracks[k].edited);
   pushUndo(snap());
   if (replacing.length)
     status(`running replaces your edits on the ${replacing.map(k => tierOf(k).label).join(' and ')} tier — Undo brings them back`);
-  for (const job of jobs) for (const k of job.claims) setTrackState(k, 'queued', '');
+  await runJob(job);
+}
 
-  /* The CPU job is started, not awaited: that is the entire point of keeping
-     the diarizer out of the GPU group. The recogniser chain runs in order
-     beside it, and both are awaited before the panel is called idle. */
-  const beside = jobs.filter(j => j.concurrent).map(j => runJob(j));
-  for (const job of jobs.filter(j => !j.concurrent)) {
-    if (S.aborted) { for (const k of job.claims) setTrackState(k, 'cancelled'); continue; }
-    await runJob(job);
-  }
-  await Promise.all(beside);
+async function settle() {
   const j = await NET.progress();
   if (!j || !j.active) { stopPolling(); showIdle(); }
   renderPlan();
 }
 
-$('run').addEventListener('click', () => runPlan());
-$('reWord').addEventListener('click', () => runPlan('word'));
-$('rePhone').addEventListener('click', () => runPlan('phone'));
-$('reSpeaker').addEventListener('click', () => runPlan('speaker'));
+function cancelQueued(job, why) {
+  job.state = 'cancelled'; job.note = why || '';
+  if (job.file === fileKey())
+    for (const k of job.claims)
+      if (S.tracks[k].state === 'queued' && !Q.items.some(x => x !== job && x.state === 'queued' && x.claims.includes(k)))
+        setTrackState(k, S.tracks[k].items.length ? 'done' : (S.tracks[k].model ? 'ready' : 'empty'), '');
+}
+
+/* Stop a running job. The recogniser is told to stop; the speaker job's
+   connection is dropped as well, since the diarizer only honours a cancel at
+   the end of its pass. */
+async function stopJob(job) {
+  if (job.concurrent) { try { S.sideAbort?.abort(); } catch {} return; }
+  try { await NET.cancel(); status('cancelling…'); }
+  catch (e) { status('cancel failed: ' + e.message, true); }
+}
+
+function renderQueue() {
+  const shown = Q.items.slice(-12);
+  $('queuePane').hidden = !shown.length;
+  const waiting = Q.items.filter(x => x.state === 'queued').length;
+  $('queueNote').textContent = waiting ? `${waiting} waiting` : '';
+  const lab = { queued: 'waiting', running: 'running', done: 'done', failed: 'failed', cancelled: 'cancelled' };
+  $('queueList').innerHTML = shown.map(j => {
+    const tiers = j.claims.map(k => tierOf(k).label).join(' + ');
+    const lang = j.concurrent ? '' : (j.language ? LANG.name(j.language) : 'language detected');
+    const st = j.state === 'running' && j.pct != null ? `${j.pct.toFixed(0)}%` : lab[j.state];
+    const act = j.state === 'queued' ? 'remove' : j.state === 'running' ? 'stop' : '';
+    return `<div class="qrow" data-id="${j.id}" data-s="${j.state}">
+      <div class="qwho"><b>${esc(j.model)}</b> → ${esc(tiers)}
+        <span title="${esc(j.note || '')}">${esc([lang, j.note].filter(Boolean).join(' · '))}</span>
+        ${j.state === 'running' ? `<div class="qbar"><i style="width:${(j.pct ?? 0).toFixed(1)}%"></i></div>` : ''}</div>
+      <span class="qst">${st}</span>
+      ${act ? `<button class="tiny" data-q="${act}" title="${act === 'stop' ? 'Stop this job' : 'Take it out of the queue'}">×</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+$('queueList').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-q]');
+  if (!btn) return;
+  const job = Q.items.find(x => x.id === +btn.closest('.qrow').dataset.id);
+  if (!job) return;
+  if (btn.dataset.q === 'remove' && job.state === 'queued') { cancelQueued(job, 'removed'); renderQueue(); renderPlan(); }
+  else if (btn.dataset.q === 'stop' && job.state === 'running') stopJob(job);
+});
+$('queueClear').addEventListener('click', () => {
+  Q.items = Q.items.filter(x => x.state === 'queued' || x.state === 'running');
+  renderQueue();
+});
+
+$('run').addEventListener('click', () => enqueue());
+$('reWord').addEventListener('click', () => enqueue('word'));
+$('rePhone').addEventListener('click', () => enqueue('phone'));
+$('reSpeaker').addEventListener('click', () => enqueue('speaker'));
 $('spkRe').addEventListener('click', reclusterSpeakers);
 
 /* --------------------------------------------------------------- settings */
@@ -3557,7 +3864,8 @@ const DESK = {
     document.documentElement.dataset.theme = CFG.theme || 'graphite';
     $('theme').value = CFG.theme || 'graphite';
     readPalette();
-    $('lngWord').value = CFG.langWord || ''; $('lngPhone').value = CFG.langPhone || '';
+    if (CFG.language == null) CFG.language = (LANG.find(CFG.langWord) || LANG.find(CFG.langPhone) || [''])[0];
+    LANG.load().then(renderLanguage);
     $('asrsize').value = CFG.size || 'medium';
     $('nameTiers').checked = !!CFG.nameTiers;
     $('spkN').value = CFG.spkCount || ''; $('spkTh').value = CFG.spkThreshold || '0.7';

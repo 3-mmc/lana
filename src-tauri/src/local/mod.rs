@@ -57,6 +57,9 @@ pub struct Local {
     cancel: Arc<AtomicBool>,
     /// Rises once per job, as the llama-swap services' `job` does.
     serial: Arc<AtomicU64>,
+    /// Cues the running job has finished so far, for /partial: each 30 s
+    /// piece of the recording adds its own as soon as it is read.
+    done_cues: Arc<Mutex<Vec<Value>>>,
     /// A speaker pass runs beside the recogniser, not after it, as the
     /// diarizer service does; it has its own slot and no progress feed.
     side: Arc<AtomicBool>,
@@ -73,6 +76,7 @@ impl Local {
             percent: Default::default(),
             cancel: Default::default(),
             serial: Default::default(),
+            done_cues: Default::default(),
             side: Default::default(),
             held: Default::default(),
         }
@@ -117,18 +121,26 @@ impl Local {
                     "active": true, "model": j.model, "stage": j.stage,
                     "done": (j.total * pct * 10.0).round() / 10.0, "total": (j.total * 10.0).round() / 10.0,
                     "elapsed": j.started.map_or(0, |s| s.elapsed().as_secs()),
-                    "job": serial, "cues_ready": 0,
+                    "job": serial, "cues_ready": self.done_cues.lock().unwrap().len(),
                 })
             }
-            None => json!({ "active": false, "job": serial, "cues_ready": 0 }),
+            None => json!({ "active": false, "job": serial, "cues_ready": self.done_cues.lock().unwrap().len() }),
         }
     }
 
-    /// Words arrive all at once when the job ends: whisper.cpp's DTW word
-    /// timing, which is what makes the boundaries usable for phonetics, cannot
-    /// be combined with its per-segment callback.
+    /// The cues finished since `since`, in the shape the llama-swap services
+    /// answer: every model here reads the recording in pieces of up to 30 s and
+    /// adds each piece's cues as it finishes, so a long recording shows its
+    /// first minute while the rest is still being read.
     pub fn partial(&self, since: u64) -> Value {
-        json!({ "cues": [], "since": since, "job": self.serial.load(Ordering::Relaxed) })
+        let cues = self.done_cues.lock().unwrap();
+        let from = (since as usize).min(cues.len());
+        let model = self.job.lock().unwrap().as_ref().map(|j| j.model.clone());
+        json!({
+            "cues": &cues[from..], "since": from, "total": cues.len(),
+            "job": self.serial.load(Ordering::Relaxed), "model": model,
+            "complete": model.is_none(),
+        })
     }
 
     pub fn cancel(&self) -> Value {
@@ -181,6 +193,7 @@ impl Local {
             }
             *job = Some(Job { model: model_id.into(), stage: "reading audio", total: 0.0, started: Some(Instant::now()) });
         }
+        self.done_cues.lock().unwrap().clear();
         self.serial.fetch_add(1, Ordering::Relaxed);
         self.percent.store(0, Ordering::Relaxed);
         self.cancel.store(false, Ordering::Relaxed);
@@ -211,9 +224,11 @@ impl Local {
         let rec = ctc::Ctc::load(engine, model, tokens, threads())?;
         self.stage(if engine == ctc::Engine::Zipa { "reading phones" } else { "recognising words" });
         let t = Instant::now();
-        let (pct, cancel) = (self.percent.clone(), self.cancel.clone());
-        let found = rec.recognise(&samples, audio::WHISPER_RATE, |done| {
+        let (pct, cancel, done_cues) = (self.percent.clone(), self.cancel.clone(), self.done_cues.clone());
+        let found = rec.recognise(&samples, audio::WHISPER_RATE, |done, piece| {
             pct.store((done / duration.max(1e-3) * 100.0).clamp(0.0, 100.0) as u64, Ordering::Relaxed);
+            let cues = if engine == ctc::Engine::Omnilingual { ctc::word_cues(piece, duration) } else { ctc::cues(piece, duration) };
+            done_cues.lock().unwrap().extend(cues);
             !cancel.load(Ordering::Relaxed)
         })?;
         eprintln!("lana: {id} read {} symbols in {duration:.1} s of audio in {:.1} s", found.len(), t.elapsed().as_secs_f64());
@@ -310,97 +325,135 @@ impl Local {
             .map_err(|e| format!("Could not load {}: {e}", entry.label))
     }
 
+    /// Whisper over the recording in pieces of up to 30 s, cut at a pause.
+    ///
+    /// Whisper reads 30 s windows anyway, but whisper.cpp only reports a
+    /// window's segments early when DTW word timing is off (its DTW branch
+    /// calls new_segment_callback for the first window alone), and DTW timing
+    /// is what makes the word boundaries usable for phonetics. Calling it once
+    /// per piece keeps DTW and lets each piece's words reach the page as it
+    /// finishes, with real progress and a Stop that takes effect between pieces.
+    /// Pieces are not prompted with the text before them: in whisper-rs 0.16
+    /// both set_initial_prompt (std::bad_alloc on the second piece) and
+    /// tokenize (free(): invalid pointer) crash the process. Once the first
+    /// piece has detected a language, the rest are held to it.
     fn run(&self, entry: &models::Entry, path: &std::path::Path, bytes: Vec<u8>, filename: &str, language: Option<&str>) -> Result<Value, String> {
         let samples = audio::decode_16k_mono(bytes, filename)?;
-        let duration = samples.len() as f64 / audio::WHISPER_RATE as f64;
+        let rate = audio::WHISPER_RATE;
+        let duration = samples.len() as f64 / rate as f64;
         if let Some(j) = self.job.lock().unwrap().as_mut() {
             j.total = duration;
         }
         self.stage("loading model");
         let ctx = self.context(entry, path)?;
-        let mut state = ctx.create_state().map_err(|e| e.to_string())?;
-
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         // whisper wants a two-letter code or nothing. A three-letter code
         // (meant for MMS) would be refused, so fall back to detection.
-        let lang = language.map(str::trim).filter(|l| l.len() == 2);
-        params.set_language(Some(lang.unwrap_or("auto")));
-        params.set_n_threads(threads());
-        params.set_token_timestamps(true);
-        params.set_print_special(false);
-        params.set_print_progress(false);
-        params.set_print_realtime(false);
-        params.set_print_timestamps(false);
-        let pct = self.percent.clone();
-        params.set_progress_callback_safe(move |p: i32| pct.store(p.clamp(0, 100) as u64, Ordering::Relaxed));
-        // Not set_abort_callback_safe: in whisper-rs 0.16 its trampoline reads
-        // the boxed closure as the bare closure type, so every call returns
-        // garbage. Linux happened to read "continue" on a first run and
-        // "abort" later; Windows aborted the encoder at once (error -6). The
-        // flag is all the callback needs, so hand whisper.cpp the flag itself.
-        // It lives in self.cancel (an Arc), which outlives this full() call.
-        unsafe {
-            params.set_abort_callback(Some(should_abort));
-            params.set_abort_callback_user_data(Arc::as_ptr(&self.cancel) as *mut std::ffi::c_void);
-        }
+        let mut lang: Option<String> = language.map(str::trim).filter(|l| l.len() == 2).map(String::from);
+        let eot = ctx.token_eot();
 
         self.stage("recognising words");
         let t = Instant::now();
-        state.full(params, &samples).map_err(|e| format!("whisper failed: {e}"))?;
+        let (mut cues, mut text, mut detected) = (Vec::new(), String::new(), String::new());
+        let mut at = 0usize;
+        while at < samples.len() {
+            let end = ctc::cut_point(&samples, at, rate);
+            let (offset, piece_len) = (at as f64 / rate as f64, (end - at) as f64 / rate as f64);
+            let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+            params.set_language(Some(lang.as_deref().unwrap_or("auto")));
+            params.set_n_threads(threads());
+            params.set_token_timestamps(true);
+            params.set_print_special(false);
+            params.set_print_progress(false);
+            params.set_print_realtime(false);
+            params.set_print_timestamps(false);
+            let pct = self.percent.clone();
+            params.set_progress_callback_safe(move |p: i32| {
+                let done = offset + piece_len * p.clamp(0, 100) as f64 / 100.0;
+                pct.store((done / duration.max(1e-3) * 100.0) as u64, Ordering::Relaxed);
+            });
+            // Not set_abort_callback_safe: in whisper-rs 0.16 its trampoline reads
+            // the boxed closure as the bare closure type, so every call returns
+            // garbage. Linux happened to read "continue" on a first run and
+            // "abort" later; Windows aborted the encoder at once (error -6). The
+            // flag is all the callback needs, so hand whisper.cpp the flag itself.
+            // It lives in self.cancel (an Arc), which outlives this full() call.
+            unsafe {
+                params.set_abort_callback(Some(should_abort));
+                params.set_abort_callback_user_data(Arc::as_ptr(&self.cancel) as *mut std::ffi::c_void);
+            }
+            // A fresh state per piece: a second full() on one state died with
+            // std::bad_alloc before it read any audio. The weights live in ctx,
+            // so a state is only its buffers.
+            let mut state = ctx.create_state().map_err(|e| e.to_string())?;
+            state.full(params, &samples[at..end]).map_err(|e| format!("whisper failed: {e}"))?;
+            if self.cancel.load(Ordering::Relaxed) {
+                return Err("stopped".into());
+            }
+            if lang.is_none() {
+                detected = whisper_rs::get_lang_str(state.full_lang_id_from_state()).unwrap_or("").to_string();
+                lang = (!detected.is_empty()).then(|| detected.clone());
+            }
+            let (piece_cues, piece_text) = segments_to_cues(&state, eot, offset, offset + piece_len);
+            text.push_str(&piece_text);
+            self.done_cues.lock().unwrap().extend(piece_cues.iter().cloned());
+            cues.extend(piece_cues);
+            at = end;
+        }
         eprintln!("lana: {} transcribed {duration:.1} s of audio in {:.1} s", entry.id, t.elapsed().as_secs_f64());
-        if self.cancel.load(Ordering::Relaxed) {
-            return Err("stopped".into());
-        }
-
-        let eot = ctx.token_eot();
-        let detected = state.full_lang_id_from_state();
-        let mut cues = Vec::new();
-        let mut text = String::new();
-        for seg in state.as_iter() {
-            let (a, b) = (seg.start_timestamp() as f64 / 100.0, seg.end_timestamp() as f64 / 100.0);
-            let seg_text = seg.to_str_lossy().map(|s| s.into_owned()).unwrap_or_default();
-            text.push_str(&seg_text);
-            // Tokens -> words: a token that starts with a space starts a word;
-            // anything else (word pieces, punctuation) belongs to the last one.
-            let mut words: Vec<(String, f64)> = Vec::new();
-            for i in 0..seg.n_tokens() {
-                let Some(tok) = seg.get_token(i) else { continue };
-                let data = tok.token_data();
-                if data.id >= eot {
-                    continue; // timestamps and control tokens
-                }
-                let piece = tok.to_str_lossy().map(|s| s.into_owned()).unwrap_or_default();
-                let t = if data.t_dtw >= 0 { data.t_dtw as f64 / 100.0 } else { data.t0 as f64 / 100.0 };
-                if piece.starts_with(' ') || words.is_empty() {
-                    words.push((piece.trim_start().to_owned(), t.clamp(a, b)));
-                } else if let Some(last) = words.last_mut() {
-                    last.0.push_str(&piece);
-                }
-            }
-            // A word runs from its first token to the next word's first token.
-            let n = words.len();
-            let mut out = Vec::with_capacity(n);
-            for k in 0..n {
-                let start = words[k].1;
-                let end = if k + 1 < n { words[k + 1].1 } else { b };
-                let end = end.max(start + 0.02).min(b.max(start + 0.02));
-                out.push(json!({ "text": words[k].0, "start": round3(start), "end": round3(end),
-                                 "phones": [], "phone_times": [], "aligned": true }));
-            }
-            let mut cue = json!({ "start": round3(a), "end": round3(b), "words": out });
-            if n == 0 {
-                cue["plain"] = json!(seg_text.trim());
-            }
-            cues.push(cue);
-        }
         Ok(json!({
             "text": text.trim(),
-            "language": whisper_rs::get_lang_str(detected).unwrap_or(""),
+            "language": if detected.is_empty() { lang.unwrap_or_default() } else { detected },
             "duration": round3(duration),
             "cues": cues,
         }))
     }
 }
+
+/// One Whisper call's segments as cues, shifted by `offset` seconds and kept
+/// inside [offset, limit]. A token that starts with a space starts a word;
+/// anything else (word pieces, punctuation) belongs to the last one. A word
+/// runs from its first token to the next word's first token.
+fn segments_to_cues(state: &whisper_rs::WhisperState, eot: i32, offset: f64, limit: f64) -> (Vec<Value>, String) {
+    let mut cues = Vec::new();
+    let mut text = String::new();
+    for seg in state.as_iter() {
+        let a = (offset + seg.start_timestamp() as f64 / 100.0).min(limit);
+        let b = (offset + seg.end_timestamp() as f64 / 100.0).min(limit).max(a);
+        let seg_text = seg.to_str_lossy().map(|s| s.into_owned()).unwrap_or_default();
+        text.push_str(&seg_text);
+        let mut words: Vec<(String, f64)> = Vec::new();
+        for i in 0..seg.n_tokens() {
+            let Some(tok) = seg.get_token(i) else { continue };
+            let data = tok.token_data();
+            if data.id >= eot {
+                continue; // timestamps and control tokens
+            }
+            let piece = tok.to_str_lossy().map(|s| s.into_owned()).unwrap_or_default();
+            let t = offset + if data.t_dtw >= 0 { data.t_dtw as f64 / 100.0 } else { data.t0 as f64 / 100.0 };
+            if piece.starts_with(' ') || words.is_empty() {
+                words.push((piece.trim_start().to_owned(), t.clamp(a, b)));
+            } else if let Some(last) = words.last_mut() {
+                last.0.push_str(&piece);
+            }
+        }
+        let n = words.len();
+        let mut out = Vec::with_capacity(n);
+        for k in 0..n {
+            let start = words[k].1;
+            let end = if k + 1 < n { words[k + 1].1 } else { b };
+            let end = end.max(start + 0.02).min(b.max(start + 0.02));
+            out.push(json!({ "text": words[k].0, "start": round3(start), "end": round3(end),
+                             "phones": [], "phone_times": [], "aligned": true }));
+        }
+        let mut cue = json!({ "start": round3(a), "end": round3(b), "words": out });
+        if n == 0 {
+            cue["plain"] = json!(seg_text.trim());
+        }
+        cues.push(cue);
+    }
+    (cues, text)
+}
+
 
 /// ggml's abort callback: `user_data` is the job's cancel flag.
 unsafe extern "C" fn should_abort(user_data: *mut std::ffi::c_void) -> bool {

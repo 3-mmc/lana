@@ -23,6 +23,7 @@
     ],
     "resources": {
       "../web/index.html": "web/index.html",
+      "../web/languages.json": "web/languages.json",
       "../vendor/": "vendor/"
     },
     "publisher": "3-mmc",
