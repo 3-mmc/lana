@@ -1,0 +1,67 @@
+{
+  "about": "Lana's demo: two readings of the same FLEURS sentence, with the answers real models gave for them. Regenerate the results with demo/record.py against a running serve.py.",
+  "recorded": "2026-10-13",
+  "install": "https://github.com/3-mmc/lana-desktop/releases",
+  "models": [
+    {
+      "id": "mms",
+      "role": "words",
+      "label": "mms — MMS-1b-all (needs a 639-3 code)"
+    },
+    {
+      "id": "ipa",
+      "role": "both",
+      "label": "ipa — PhoneticXeus + whisper"
+    },
+    {
+      "id": "whisper",
+      "role": "words",
+      "label": "whisper — faster-whisper medium"
+    },
+    {
+      "id": "owsm",
+      "role": "words",
+      "label": "owsm — OWSM-CTC v4 1B"
+    },
+    {
+      "id": "diarize",
+      "role": "speakers",
+      "label": "diarize — speaker diarization (CPU)"
+    }
+  ],
+  "clips": [
+    {
+      "id": "ka-vinson",
+      "file": "ka-vinson.wav",
+      "title": "Georgian, female speaker",
+      "tiers": {
+        "word": "mms",
+        "phone": "ipa",
+        "speaker": "diarize"
+      },
+      "lang": {
+        "word": "kat",
+        "phone": "ka"
+      },
+      "reference": "ანტარქტიკის უმაღლესი მთები, ვინსონის მასივი, რომლის უმაღლესი მწვერვალი, ვინსონის მთა მდებარეობს 4892 მეტრზე, განლაგებულია სენტინელის ქედის ჩრდილოეთ ნაწილში.",
+      "source": "FLEURS ka_ge, dev split, sentence 1618 (10313081764366530092.wav)"
+    },
+    {
+      "id": "de-vinson",
+      "file": "de-vinson.wav",
+      "title": "German, male speaker",
+      "tiers": {
+        "word": "mms",
+        "phone": "ipa",
+        "speaker": "diarize"
+      },
+      "lang": {
+        "word": "deu",
+        "phone": "de"
+      },
+      "reference": "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis, das Vinson-Massiv, dessen höchster Gipfel mit 4892 m Höhe der Mount Vinson ist.",
+      "source": "FLEURS de_de, dev split, sentence 1618 (5160708055433119597.wav)"
+    }
+  ],
+  "credit": "Audio from FLEURS (Conneau et al. 2022, Google), CC BY 4.0, converted to 16-bit WAV."
+}

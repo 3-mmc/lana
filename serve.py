@@ -72,6 +72,7 @@ TYPES = {
     '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript',
     '.wasm': 'application/wasm', '.json': 'application/json', '.css': 'text/css',
     '.map': 'application/json', '.ts': 'text/plain', '.svg': 'image/svg+xml',
+    '.wav': 'audio/wav',
 }
 
 

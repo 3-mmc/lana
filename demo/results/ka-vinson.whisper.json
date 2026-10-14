@@ -1,0 +1,42 @@
+{
+ "text": "ἀνταρκτοῖκ εἰς Ὀμαγλέσυμ τᾷ confidence, n. X. Vinson,\nὈμαγλέσυμ τσόρ by Vinson,\nῥᾶ ὅ Thermiae Bares ὁ က AJ impact by Cedric billion,\nὈμᾶ ὄ ὐᶊ ὀ Ḵ᾽ ᡷᾷ᾿ ὅ᾽ ḁᾷ᾽ ḵᾯ ḥᾶ ᶩᾮᾶᾔ᾽ ာ᾽ᑢᾶ ဗ᾵ᾷᾮ᾽ᓂ�,",
+ "language": "ka",
+ "model": "whisper",
+ "transcript": "ἀνταρκτοῖκ εἰς Ὀμαγλέσυμ τᾷ confidence, n. X. Vinson, Ὀμαγλέσυμ τσόρ by Vinson, ῥᾶ ὅ Thermiae Bares ὁ က AJ impact by Cedric billion, Ὀμᾶ ὄ ὐᶊ ὀ Ḵ᾽ ᡷᾷ᾿ ὅ᾽ ḁᾷ᾽ ḵᾯ ḥᾶ ᶩᾮᾶᾔ᾽ ာ᾽ᑢᾶ ဗ᾵ᾷᾮ᾽ᓂ�,",
+ "duration": 13.99,
+ "asr_model": "medium",
+ "cues": [
+  {
+   "start": 0.53,
+   "end": 5.01,
+   "words": [],
+   "plain": "ἀνταρκτοῖκ εἰς Ὀμαγλέσυμ τᾷ confidence, n. X. Vinson,"
+  },
+  {
+   "start": 5.01,
+   "end": 6.73,
+   "words": [],
+   "plain": "Ὀμαγλέσυμ τσόρ by Vinson,"
+  },
+  {
+   "start": 6.73,
+   "end": 9.97,
+   "words": [],
+   "plain": "ῥᾶ ὅ Thermiae Bares ὁ က AJ impact by Cedric billion,"
+  },
+  {
+   "start": 9.97,
+   "end": 13.99,
+   "words": [],
+   "plain": "Ὀμᾶ ὄ ὐᶊ ὀ Ḵ᾽ ᡷᾷ᾿ ὅ᾽ ḁᾷ᾽ ḵᾯ ḥᾶ ᶩᾮᾶᾔ᾽ ာ᾽ᑢᾶ ဗ᾵ᾷᾮ᾽ᓂ�,"
+  }
+ ],
+ "provider": "local",
+ "wall_seconds": 40.97,
+ "_recorded": {
+  "seconds": 40.99,
+  "language_sent": "ka",
+  "asr_model": "medium",
+  "date": "2026-10-13"
+ }
+}

@@ -1,0 +1,22 @@
+{
+ "text": "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis, das Vincent-Massiv, dessen höchster Gipfel mit .48292 Metern Höhe der Mount Vincent ist.",
+ "language": "eng",
+ "duration": 11.16,
+ "cues": [
+  {
+   "start": 0.0,
+   "end": 11.16,
+   "words": [],
+   "plain": "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis, das Vincent-Massiv, dessen höchster Gipfel mit .48292 Metern Höhe der Mount Vincent ist."
+  }
+ ],
+ "provider": "local",
+ "model": "owsm",
+ "wall_seconds": 26.95,
+ "_recorded": {
+  "seconds": 26.97,
+  "language_sent": "",
+  "asr_model": null,
+  "date": "2026-10-13"
+ }
+}

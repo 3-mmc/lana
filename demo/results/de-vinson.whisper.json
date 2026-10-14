@@ -1,0 +1,30 @@
+{
+ "text": "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis,\ndas Vinson-Massiv dessen höchster Gipfel mit 4.892 Metern Höhe der Mount Vinson ist.",
+ "language": "de",
+ "model": "whisper",
+ "transcript": "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis, das Vinson-Massiv dessen höchster Gipfel mit 4.892 Metern Höhe der Mount Vinson ist.",
+ "duration": 11.27,
+ "asr_model": "medium",
+ "cues": [
+  {
+   "start": 0.27,
+   "end": 4.27,
+   "words": [],
+   "plain": "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis,"
+  },
+  {
+   "start": 4.27,
+   "end": 11.27,
+   "words": [],
+   "plain": "das Vinson-Massiv dessen höchster Gipfel mit 4.892 Metern Höhe der Mount Vinson ist."
+  }
+ ],
+ "provider": "local",
+ "wall_seconds": 10.8,
+ "_recorded": {
+  "seconds": 10.81,
+  "language_sent": "de",
+  "asr_model": "medium",
+  "date": "2026-10-13"
+ }
+}

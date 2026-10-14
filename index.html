@@ -203,6 +203,15 @@
   body.dropping main{outline:2px dashed var(--accent);outline-offset:-5px;border-radius:6px}
   /* recording */
   #recPanel{background:var(--panel2);border-bottom:1px solid var(--line)}
+  #demoBar{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;padding:6px 12px;
+           background:var(--panel2);border-bottom:1px solid var(--line);font-size:12px;color:var(--dim)}
+  #demoBar[hidden]{display:none}
+  #demoBar b{color:var(--accent);text-transform:uppercase;letter-spacing:.08em;font-size:11px}
+  #demoBar label{display:flex;gap:6px;align-items:center}
+  #demoBar .ref{color:var(--ink);font-style:italic;max-width:46ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #demoBar .how{max-width:70ch}
+  #demoBar .credit{color:var(--dim2);font-size:11px;flex-basis:100%;text-align:right}
+  #demoBar a{color:var(--accent)}
   #recBtn.on{color:var(--err);border-color:var(--errline)}
   .recmain{display:flex;gap:12px;align-items:center;padding:10px;flex-wrap:wrap}
   .recgo{font-size:13px;padding:6px 14px;min-width:170px}
@@ -261,6 +270,16 @@
 </header>
 
 <div id="bar" hidden><div id="barfill"></div></div>
+
+<div id="demoBar" hidden>
+  <b>Demo</b>
+  <label>sample <select id="demoClip"></select></label>
+  <span class="ref" id="demoRef"></span>
+  <span class="sp"></span>
+  <span class="how">Praat's analysis runs live in this page. Recognition replays what real models returned for these recordings.
+    Open a file of your own to analyse it; to transcribe it, <a id="demoInstall" target="_blank" rel="noopener">install Lana</a>.</span>
+  <span class="credit" id="demoCredit"></span>
+</div>
 
 <div id="recPanel" hidden>
   <div class="modehdr">
@@ -662,7 +681,9 @@ const CFG = {
   langWord: '', langPhone: '', size: 'medium', nameTiers: false,
   theme: 'graphite',
 };
-const CFG_KEY = 'praat-web.config';   // the project's old name; kept so saved settings survive the rename
+// The project's old name, kept so saved settings survive the rename. The demo
+// keeps its own, so trying it out never rewrites a working configuration.
+const CFG_KEY = new URLSearchParams(location.search).has('demo') ? 'lana.demo.config' : 'praat-web.config';
 try { Object.assign(CFG, JSON.parse(localStorage.getItem(CFG_KEY) || '{}')); } catch {}
 {
   const q = new URLSearchParams(location.search);
@@ -692,6 +713,139 @@ let PAGE_BASE = location.pathname;
 if (/\.html?$/i.test(PAGE_BASE)) PAGE_BASE = PAGE_BASE.replace(/[^/]*$/, '');
 else if (!PAGE_BASE.endsWith('/')) PAGE_BASE += '/';
 const apiUrl = path => PAGE_BASE + 'api' + path;
+
+/* ------------------------------------------------------------------ demo
+   ?demo opens a sample recording and answers the page's /api/ calls from
+   results recorded earlier from real models (demo/results/, made by
+   demo/record.py). Nothing above the network layer knows: Run, the progress
+   bar, the tiers filling in, Stop and re-clustering all go through the same
+   code as a live run. Praat is not replayed. Every measurement is computed
+   here, on this audio, as it would be anywhere else, and a file of your own
+   can be opened and analysed in full; only its recognition is unavailable. */
+const DEMO = {
+  on: new URLSearchParams(location.search).has('demo'),
+  base: PAGE_BASE + 'demo/',
+  manifest: null, clip: null, file: null, serial: 0, job: null, cache: {},
+
+  async load(path) {
+    if (!(path in DEMO.cache)) {
+      const r = await DEMO.realFetch(DEMO.base + path);
+      DEMO.cache[path] = r.ok ? await r.json() : null;
+    }
+    return DEMO.cache[path];
+  },
+
+  /* The recorded times include loading each model onto the GPU, which a demo
+     visitor should not have to sit through. Replays take at most 5 s. */
+  replaySeconds: rec => Math.min(5, Math.max(1.2, (rec?._recorded?.seconds ?? 3) * 0.4)),
+
+  answer: (code, body) => new Response(JSON.stringify(body),
+    { status: code, headers: { 'Content-Type': 'application/json' } }),
+
+  async api(route, url, init) {
+    const A = DEMO.answer;
+    if (route === 'providers') return A(200, { providers: [{
+      id: 'demo', label: 'Recorded results (demo)', kind: 'demo', ready: true, control: 'demo',
+      note: `Answers these models gave for the sample recordings on ${DEMO.manifest.recorded}, replayed. ` +
+            'Install Lana to run recognisers on your own recordings.',
+      models: DEMO.manifest.models }] });
+    if (route === 'progress') {
+      const j = DEMO.job;
+      if (!j) return A(200, { active: false, job: DEMO.serial, cues_ready: 0 });
+      const frac = Math.min(1, (performance.now() - j.t0) / 1000 / j.secs);
+      return A(200, { active: true, model: j.model, stage: 'replaying a recorded run',
+                      done: +(j.total * frac).toFixed(1), total: j.total,
+                      elapsed: Math.floor((performance.now() - j.t0) / 1000),
+                      job: DEMO.serial, cues_ready: DEMO.ready(j) });
+    }
+    if (route === 'partial') {
+      const since = Number(url.searchParams.get('since')) || 0;
+      const j = DEMO.job;
+      return A(200, { cues: j ? j.cues.slice(since, DEMO.ready(j)) : [], since, job: DEMO.serial });
+    }
+    if (route === 'cancel') {
+      if (DEMO.job) DEMO.job.cancelled = true;
+      return A(200, { ok: true, cancelling: !!DEMO.job });
+    }
+    if (route === 'recluster') {
+      const n = JSON.parse(init.body || '{}').speakers;
+      const rec = DEMO.clip && await DEMO.load(`results/${DEMO.clip.id}.diarize.n${n}.json`);
+      return rec ? A(200, rec) : A(400, { error: `The demo recorded re-clustering to 1, 2 or 3 speakers only.` });
+    }
+    if (route === 'transcribe') return DEMO.transcribe(init.body, init.signal);
+    // Settings, the desktop's model manager and recording-to-disk are the
+    // desktop app's; a 404 is how the page learns it is not running there.
+    return A(404, { error: 'not in the demo' });
+  },
+
+  /* Cues are released as the replay clock passes their end, which is roughly
+     how the live services report them. */
+  ready: j => j.cues.filter(c => c.end <= j.total * Math.min(1, (performance.now() - j.t0) / 1000 / j.secs)).length,
+
+  async transcribe(fd, signal) {
+    const A = DEMO.answer, model = fd.get('model'), f = fd.get('file');
+    if (!DEMO.clip || f !== DEMO.file && !(f && f.name === DEMO.file.name && f.size === DEMO.file.size))
+      return A(400, { error: 'The demo has recorded results for its sample recordings only. ' +
+        'Your file is analysed here in full; to run a recogniser on it, install Lana.' });
+    const rec = await DEMO.load(`results/${DEMO.clip.id}.${model}.json`);
+    if (!rec) return A(400, { error: `The demo has no recorded run of ${model} on this recording.` });
+    const secs = DEMO.replaySeconds(rec);
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    if (DEMO.manifest.models.find(m => m.id === model)?.role === 'speakers') {
+      // The speaker tier runs beside the recogniser and has no progress of its own.
+      for (let t = 0; t < secs * 1000; t += 100) {
+        if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+        await sleep(100);
+      }
+      return A(200, rec);
+    }
+    if (DEMO.job) return A(429, { error: 'busy' });
+    const j = DEMO.job = { model, secs, t0: performance.now(), total: rec.duration || S.dur,
+                           cues: rec.cues || [], cancelled: false };
+    DEMO.serial++;
+    while (!j.cancelled && performance.now() - j.t0 < secs * 1000) await sleep(100);
+    DEMO.job = null;
+    return j.cancelled ? A(409, { error: 'cancelled' }) : A(200, rec);
+  },
+
+  async open(id) {
+    const clip = DEMO.manifest.clips.find(c => c.id === id) || DEMO.manifest.clips[0];
+    DEMO.clip = clip;
+    $('demoClip').value = clip.id;
+    $('demoRef').textContent = $('demoRef').title = clip.reference;
+    $('demoRef').lang = clip.id.slice(0, 2);
+    status('fetching the sample recording…');
+    const r = await DEMO.realFetch(DEMO.base + clip.file);
+    if (!r.ok) { status('the sample recording could not be fetched', true); return; }
+    // A fixed lastModified keeps fileKey() stable, which re-clustering checks.
+    DEMO.file = new File([await r.blob()], clip.file, { type: 'audio/wav', lastModified: 0 });
+    for (const t of TIERS) S.tracks[t.key].model = clip.tiers[t.key] || '';
+    $('lngWord').value = clip.lang.word || '';
+    $('lngPhone').value = clip.lang.phone || '';
+    fillModelSelects();
+    openFile(DEMO.file);
+  },
+
+  async init() {
+    DEMO.realFetch = window.fetch.bind(window);
+    DEMO.manifest = await DEMO.load('manifest.json');
+    if (!DEMO.manifest) { DEMO.on = false; status('demo files are missing from this deployment', true); return; }
+    window.fetch = (input, init = {}) => {
+      const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+      const api = PAGE_BASE + 'api/';
+      return url.origin === location.origin && url.pathname.startsWith(api)
+        ? DEMO.api(url.pathname.slice(api.length), url, init)
+        : DEMO.realFetch(input, init);
+    };
+    CFG.mode = 'broker'; CFG.provider = 'demo';
+    $('demoBar').hidden = false;
+    $('demoClip').innerHTML = DEMO.manifest.clips.map(c =>
+      `<option value="${esc(c.id)}">${esc(c.title)}</option>`).join('');
+    $('demoClip').addEventListener('change', () => DEMO.open($('demoClip').value));
+    $('demoInstall').href = DEMO.manifest.install;
+    $('demoCredit').textContent = DEMO.manifest.credit;
+  },
+};
 
 /* ---------------------------------------------------------------- state */
 function newTrack(role, label) {
@@ -853,10 +1007,12 @@ $('file').addEventListener('change', async ev => {
   }
   if (!S.sound) { status('Praat could not read the audio', true); return; }
 
-  for (const k of ['word', 'phone']) {
+  // The speaker tier too: turns found in the last file say nothing about this one.
+  for (const k of TKEYS) {
     const t = S.tracks[k];
     Object.assign(t, { cues: [], items: [], state: t.model ? 'ready' : 'empty', note: '', source: '' });
   }
+  S.tracks.speaker.cached = null;
   S.transcript = [];
   S.sel = null;
   S.win = [0, Math.min(10, S.dur)];
@@ -2548,7 +2704,9 @@ drawAll();
 renderPlan();
 
 (async () => {
+  if (DEMO.on) await DEMO.init();
   await NET.discover();
+  if (DEMO.on) { DEMO.open(new URLSearchParams(location.search).get('demo')); return; }
   if (!NET.models.length && NET.mode === 'broker')
     status('no recogniser configured — analysis and TextGrid export still work (⚙ Connection)');
 })();
@@ -2854,7 +3012,7 @@ $('mgList').addEventListener('click', e => {
     DESK.open(Object.keys(PRESETS).find(k => PRESETS[k].base === p.base) || 'server', p);
   if (btn.dataset.act === 'remove') DESK.remove(id, btn);
 });
-DESK.init();
+if (!DEMO.on) DESK.init();
 
 /* ---------------------------------------------------------------- recording
    Record from a microphone for fieldwork. Three rules, all about the data:
