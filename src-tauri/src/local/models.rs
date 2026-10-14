@@ -22,6 +22,8 @@ pub enum Kind {
     Whisper,
     /// A CTC phone recogniser run by sherpa-onnx: IPA phones with frame times.
     Phones,
+    /// Omnilingual ASR through sherpa-onnx: words from character CTC.
+    Letters,
     /// pyannote segmentation + a speaker embedding, run by sherpa-onnx.
     Speakers,
 }
@@ -64,6 +66,16 @@ pub fn catalogue() -> Vec<Entry> {
                 files: &[File { repo: WHISPER, path: "ggml-large-v3-turbo-q5_0.bin", local: "ggml-large-v3-turbo-q5_0.bin" }],
                 label: "Whisper large-v3 turbo",
                 note: "Words. The most accurate here, especially for languages other than English. Slower without a fast processor." },
+        Entry { id: "omnilingual-300m", kind: Kind::Letters, size_mb: 365, dtw: P::Base, licence: "Apache 2.0",
+                files: &[File { repo: "csukuangfj/sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-int8-2025-11-12", path: "model.int8.onnx", local: "model.int8.onnx" },
+                         File { repo: "csukuangfj/sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-int8-2025-11-12", path: "tokens.txt", local: "tokens.txt" }],
+                label: "Omnilingual 300M",
+                note: "Words in some 1600 languages (Meta, 2025), including Avar, Chechen, Dargwa and Georgian. Writes plain lowercase text without punctuation." },
+        Entry { id: "omnilingual-1b", kind: Kind::Letters, size_mb: 1032, dtw: P::Base, licence: "Apache 2.0",
+                files: &[File { repo: "csukuangfj2/sherpa-onnx-omnilingual-asr-1600-languages-1B-ctc-v2-int8-2026-02-05", path: "model.int8.onnx", local: "model.int8.onnx" },
+                         File { repo: "csukuangfj2/sherpa-onnx-omnilingual-asr-1600-languages-1B-ctc-v2-int8-2026-02-05", path: "tokens.txt", local: "tokens.txt" }],
+                label: "Omnilingual 1B",
+                note: "Words like Omnilingual 300M, noticeably more accurate (Georgian 2.2% character errors against 6.0% in testing). Needs 2 GB of memory while it runs." },
         Entry { id: "zipa-small", kind: Kind::Phones, size_mb: 71, dtw: P::Base, licence: "CC BY 4.0",
                 files: &[File { repo: "anyspeech/zipa-small-crctc-500k", path: "model.int8.onnx", local: "model.int8.onnx" },
                          File { repo: "anyspeech/zipa-small-crctc-500k", path: "tokens.txt", local: "tokens.txt" }],
@@ -147,7 +159,7 @@ impl Models {
                 let d = downloads.get(e.id);
                 json!({
                     "id": e.id, "label": e.label, "note": e.note, "size_mb": e.size_mb,
-                    "kind": match e.kind { Kind::Whisper => "words", Kind::Phones => "phones", Kind::Speakers => "speakers" },
+                    "kind": match e.kind { Kind::Whisper | Kind::Letters => "words", Kind::Phones => "phones", Kind::Speakers => "speakers" },
                     "licence": e.licence,
                     "installed": self.is_installed(e),
                     "downloading": d.filter(|d| d.error.is_none()).map(|d| json!({ "done": d.done, "total": d.total })),

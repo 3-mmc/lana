@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Recognition that runs inside Lana, with no server and no key: whisper.cpp
-// for words, ZIPA through sherpa-onnx for IPA phones, and pyannote with CAM++
-// through sherpa-onnx for speakers.
+// and Omnilingual ASR for words, ZIPA for IPA phones, and pyannote with CAM++
+// for speakers; everything but whisper.cpp through sherpa-onnx.
 //
 // It presents itself to the page as one more provider ("lana", kind "builtin"),
 // answering the same progress / partial / cancel / recluster contract as the
@@ -9,7 +9,7 @@
 
 pub mod audio;
 pub mod models;
-pub mod phones;
+pub mod ctc;
 pub mod speakers;
 
 use std::{
@@ -84,7 +84,7 @@ impl Local {
             .installed()
             .iter()
             .map(|e| {
-                let role = match e.kind { Kind::Whisper => "words", Kind::Phones => "phones", Kind::Speakers => "speakers" };
+                let role = match e.kind { Kind::Whisper | Kind::Letters => "words", Kind::Phones => "phones", Kind::Speakers => "speakers" };
                 json!({ "id": e.id, "role": role, "label": format!("{} (on this computer)", e.label) })
             })
             .collect();
@@ -158,7 +158,7 @@ impl Local {
         self.cancel.store(false, Ordering::Relaxed);
 
         let result = match entry.kind {
-            Kind::Phones => self.run_phones(&entry, req.bytes, &req.filename),
+            Kind::Phones | Kind::Letters => self.run_ctc(&entry, req.bytes, &req.filename),
             _ => self.run(&entry, &path, req.bytes, &req.filename, req.language.as_deref()),
         };
         *self.job.lock().unwrap() = None;
@@ -169,23 +169,29 @@ impl Local {
         }
     }
 
-    fn run_phones(&self, entry: &models::Entry, bytes: Vec<u8>, filename: &str) -> Result<Value, String> {
+    fn run_ctc(&self, entry: &models::Entry, bytes: Vec<u8>, filename: &str) -> Result<Value, String> {
+        let engine = if entry.kind == Kind::Letters { ctc::Engine::Omnilingual } else { ctc::Engine::Zipa };
         let samples = audio::decode_16k_mono(bytes, filename)?;
         let duration = samples.len() as f64 / audio::WHISPER_RATE as f64;
         if let Some(j) = self.job.lock().unwrap().as_mut() {
             j.total = duration;
         }
         self.stage("loading model");
-        let rec = phones::Phones::load(&self.models.named(entry, "model.int8.onnx"), &self.models.named(entry, "tokens.txt"), threads())?;
-        self.stage("reading phones");
+        let rec = ctc::Ctc::load(engine, &self.models.named(entry, "model.int8.onnx"), &self.models.named(entry, "tokens.txt"), threads())?;
+        self.stage(if engine == ctc::Engine::Zipa { "reading phones" } else { "recognising words" });
         let t = Instant::now();
         let (pct, cancel) = (self.percent.clone(), self.cancel.clone());
         let found = rec.recognise(&samples, audio::WHISPER_RATE, |done| {
             pct.store((done / duration.max(1e-3) * 100.0).clamp(0.0, 100.0) as u64, Ordering::Relaxed);
             !cancel.load(Ordering::Relaxed)
         })?;
-        eprintln!("lana: {} read {} phones in {duration:.1} s of audio in {:.1} s", entry.id, found.len(), t.elapsed().as_secs_f64());
-        let cues = phones::cues(&found, duration);
+        eprintln!("lana: {} read {} symbols in {duration:.1} s of audio in {:.1} s", entry.id, found.len(), t.elapsed().as_secs_f64());
+        if engine == ctc::Engine::Omnilingual {
+            let cues = ctc::word_cues(&found, duration);
+            let text = found.iter().map(|(c, _)| c.as_str()).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ");
+            return Ok(json!({ "text": text, "duration": round3(duration), "cues": cues }));
+        }
+        let cues = ctc::cues(&found, duration);
         let text = cues
             .iter()
             .map(|c| c["words"][0]["phones"].as_array().map(|p| p.iter().filter_map(Value::as_str).collect::<String>()).unwrap_or_default())
