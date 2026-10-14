@@ -2775,9 +2775,15 @@ function lanes() {
 }
 const hasAnnotation = () => TKEYS.some(k => S.tracks[k].items.length) || S.extra.length > 0;
 const busyTrack = t => ['running', 'queued', 'partial'].includes(t.state);
+/* The transcript comes from the intervals, not a model's cues, when the tiers
+   were edited, when there are no cues (an opened TextGrid), or when words and
+   phones came from two different models: then neither model's cues hold both,
+   and pairing each word with the phones under it is the interlinear line. */
 const derivedText = () => S.tracks.word.edited || S.tracks.phone.edited ||
   (!S.tracks.word.cues.length && !S.tracks.phone.cues.length &&
-   (S.tracks.word.items.length > 0 || S.tracks.phone.items.length > 0));
+   (S.tracks.word.items.length > 0 || S.tracks.phone.items.length > 0)) ||
+  (S.tracks.word.items.length > 0 && S.tracks.phone.items.length > 0 &&
+   S.tracks.word.cues !== S.tracks.phone.cues);
 const transcriptCues = () => derivedText() ? cuesFromItems() : S.transcript;
 
 function newExtra(label, items = []) {
@@ -2802,10 +2808,24 @@ function cuesFromItems() {
       else words.push({ text: '', start: p.start, end: p.end, phones: [], phone_times: [] });
     }
   }
+  /* Word boundaries from a different model than the phones rarely agree to
+     the frame: Whisper's word times are coarse, so a phone whose midpoint sits
+     just outside every word goes to the nearest word within half a second
+     rather than vanishing from the line. Farther than that it is left out. */
   for (const p of P) {
     const mid = (p.start + p.end) / 2;
-    const w = words.find(w => w.start <= mid && mid <= w.end);
+    let w = words.find(w => w.start <= mid && mid <= w.end);
+    if (!w) {
+      const gap = x => Math.min(Math.abs(mid - x.start), Math.abs(mid - x.end));
+      const near = words.reduce((a, x) => (!a || gap(x) < gap(a) ? x : a), null);
+      if (near && gap(near) < 0.5) w = near;
+    }
     if (w) { w.phones.push(p.text); w.phone_times.push(p.start); }
+  }
+  for (const w of words) {
+    // A phone attached from outside the word can arrive out of order.
+    const order = w.phone_times.map((t, i) => i).sort((a, b) => w.phone_times[a] - w.phone_times[b]);
+    w.phones = order.map(i => w.phones[i]); w.phone_times = order.map(i => w.phone_times[i]);
   }
   const cues = [];
   for (const w of words) {
@@ -3548,8 +3568,10 @@ const DESK = {
         ? `<span class="chip live">ready</span><button class="tiny" data-lc="delete">Delete</button>`
         : d ? `<span class="lcbar"><i style="width:${pct}%"></i></span><span class="hint num">${pct}%</span>`
         : `${m.error ? `<span class="lcerr">${esc(m.error)}</span>` : ''}<button class="tiny" data-lc="get">${m.error ? 'Try again' : 'Download'} · ${mb(m.size_mb)}</button>`;
+      const fills = { words: 'words', phones: 'IPA phones', speakers: 'speakers' }[m.kind] || '';
       return `<div class="mgrow" data-id="${esc(m.id)}">
-        <div class="who"><b>${esc(m.label)}</b><em>${esc(m.note)}</em></div>${right}</div>`;
+        <div class="who"><b>${esc(m.label)}</b>${fills ? ` <span class="chip">${fills}</span>` : ''}` +
+        `<em>${esc(m.note)}${m.licence ? ` Licence: ${esc(m.licence)}.` : ''}</em></div>${right}</div>`;
     }).join('');
     const busy = j.models.some(m => m.downloading);
     clearTimeout(DESK.lcTimer);
