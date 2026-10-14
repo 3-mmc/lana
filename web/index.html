@@ -1452,16 +1452,47 @@ function drawOverview() {
     g.moveTo(x0 + x + .5, mid - hi * ih / 2); g.lineTo(x0 + x + .5, mid - lo * ih / 2);
   }
   g.stroke();
-  /* The window marker is a locator, so it stays quiet: a faint wash and two
-     bright edges, rather than a block of colour over the whole overview. */
+  /* Where annotation exists, as ticks along the bottom: zoomed far into one
+     word, the tiers below can look empty while the rest of the file is full,
+     and this is where that shows. */
+  for (const k of TKEYS) {
+    const items = S.tracks[k].items;
+    if (!items.length) continue;
+    g.fillStyle = k === 'speaker' ? alpha(C.dim, 0.6) : alpha(C.accent, 0.55);
+    const yy = y1 - (k === 'word' ? 3 : k === 'phone' ? 6 : 9);
+    let lastX = -1;
+    for (const it of items) {
+      const xa = Math.floor(x0 + it.start / S.dur * iw);
+      if (xa === lastX) continue;
+      lastX = xa;
+      g.fillRect(xa, yy, Math.max(1, (it.end - it.start) / S.dur * iw), 2);
+    }
+  }
+  /* The window: everything outside it is veiled, so the part on screen stands
+     out even when it is a sliver of a long file. A window narrower than a few
+     pixels still gets a marker that wide, with a tick above and below. */
   const wa = x0 + S.win[0] / S.dur * iw, wb = x0 + S.win[1] / S.dur * iw;
-  const ww = Math.max(2, wb - wa);
-  g.fillStyle = alpha(C.accent, 0.10); g.fillRect(wa, y0, ww, ih);
-  g.strokeStyle = alpha(C.accent, 0.75);
+  const ww = Math.max(3, wb - wa), wx = Math.min(wa, x0 + iw - ww);
+  const whole = S.win[0] <= 0 && S.win[1] >= S.dur;
+  if (!whole) {
+    g.fillStyle = alpha(C.sunken, 0.62);
+    g.fillRect(x0, y0, wx - x0, ih);
+    g.fillRect(wx + ww, y0, x0 + iw - wx - ww, ih);
+  }
+  const narrow = !whole && wb - wa < 12;
+  g.fillStyle = alpha(C.accent, narrow ? 0.45 : 0.14); g.fillRect(wx, y0, ww, ih);
+  g.strokeStyle = alpha(C.accent, 0.9);
+  g.lineWidth = narrow ? 2 : 1;
   g.beginPath();
-  g.moveTo(wa + .5, y0); g.lineTo(wa + .5, y1);
-  g.moveTo(wa + ww - .5, y0); g.lineTo(wa + ww - .5, y1);
+  g.moveTo(wx + .5, y0); g.lineTo(wx + .5, y1);
+  g.moveTo(wx + ww - .5, y0); g.lineTo(wx + ww - .5, y1);
   g.stroke();
+  g.lineWidth = 1;
+  if (narrow) {
+    g.fillStyle = C.accent;
+    g.beginPath(); g.moveTo(wx + ww / 2 - 4, y0); g.lineTo(wx + ww / 2 + 4, y0); g.lineTo(wx + ww / 2, y0 + 5); g.fill();
+    g.beginPath(); g.moveTo(wx + ww / 2 - 4, y1); g.lineTo(wx + ww / 2 + 4, y1); g.lineTo(wx + ww / 2, y1 - 5); g.fill();
+  }
   g.fillStyle = C.dim2;
   g.font = '9.5px ' + C.mono;
   g.textAlign = 'right'; g.textBaseline = 'middle';
@@ -1757,6 +1788,17 @@ function drawTiers() {
       g.fillText(laneCaption(t), (x0 + F.x1) / 2, ly + lh / 2);
       return;
     }
+    /* Intervals off either edge of the window, counted at that edge, and said
+       outright when none are on screen at all: a lane that looks empty while
+       it holds a whole transcription is worse than no lane. */
+    let before = 0, after = 0;
+    for (const it of t.items) { if (it.end <= t0) before++; else if (it.start >= t1) after++; }
+    if (before + after === t.items.length) {
+      g.fillStyle = C.dim; g.textAlign = 'center'; g.font = '11px ui-sans-serif, system-ui, sans-serif';
+      g.fillText(`${t.items.length} interval${t.items.length === 1 ? '' : 's'} outside this window` +
+                 (before && after ? '' : before ? ', all before it' : ', all after it') + ' — press “all” to see them',
+                 (x0 + F.x1) / 2, ly + lh / 2);
+    }
 
     g.textAlign = 'center';
     g.font = lane.key === 'phone' ? '13px ' + mono
@@ -1779,12 +1821,26 @@ function drawTiers() {
     }
     // closing boundary of the last visible interval
     const last = t.items[t.items.length - 1];
-    if (last && last.end <= t1) {
+    if (last && last.end <= t1 && last.end >= t0) {
       const x = xOf(last.end);
       g.strokeStyle = C.boundary;
       g.beginPath(); g.moveTo(x - .5, ly + 1); g.lineTo(x - .5, ly + lh - 3); g.stroke();
     }
+    g.font = '10px ' + mono; g.textBaseline = 'middle';
+    for (const [n, left] of [[before, true], [after, false]]) {
+      if (!n) continue;
+      const label = left ? `◀ ${n}` : `${n} ▶`;
+      const w = g.measureText(label).width + 8;
+      const bx = left ? x0 + 2 : F.x1 - 2 - w;
+      g.fillStyle = alpha(C.sunken, 0.85); g.fillRect(bx, ly + 3, w, 13);
+      g.fillStyle = C.dim; g.textAlign = left ? 'left' : 'right';
+      g.fillText(label, left ? bx + 4 : bx + w - 4, ly + 10);
+    }
   });
+  /* The overview's annotation ticks follow the tiers, but redrawing it on
+     every animation frame of the hatching would be waste. */
+  const sig = TKEYS.map(k => S.tracks[k].items.length).join(',');
+  if (sig !== drawTiers.sig) { drawTiers.sig = sig; drawOverview(); }
 
   shadeSelection(F, t0, t1);
   drawCursor(F, t0, t1);
