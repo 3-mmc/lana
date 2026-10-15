@@ -20,8 +20,12 @@ pub struct Roots {
     pub providers: PathBuf,
     /// A recording to open at start, from the command line or the OS.
     pub launch: Option<PathBuf>,
-    /// Where downloaded models live (the app's data directory).
+    /// Where downloaded models live (the app's data directory, or the folder
+    /// the user chose, as recorded in `models_pointer`).
     pub models: PathBuf,
+    /// The file that records a models folder the user chose; None where the
+    /// choice cannot be made (the headless test server).
+    pub models_pointer: Option<PathBuf>,
     /// Where live recordings are written (Documents/Lana Recordings).
     pub recordings: PathBuf,
     /// Saved annotations and the page's settings (the app's data directory).
@@ -32,9 +36,9 @@ impl Roots {
     /// Bundled resources in a release build; the source tree under `cargo run`.
     pub fn locate(resource_dir: Option<PathBuf>, providers: PathBuf) -> Result<Self, String> {
         let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-        let source = Roots { web: src.join("web"), vendor: src.join("vendor"), providers: providers.clone(), launch: None, models: PathBuf::new(), recordings: PathBuf::new(), store: PathBuf::new() };
+        let source = Roots { web: src.join("web"), vendor: src.join("vendor"), providers: providers.clone(), launch: None, models: PathBuf::new(), models_pointer: None, recordings: PathBuf::new(), store: PathBuf::new() };
         let bundled = resource_dir
-            .map(|r| Roots { web: r.join("web"), vendor: r.join("vendor"), providers, launch: None, models: PathBuf::new(), recordings: PathBuf::new(), store: PathBuf::new() });
+            .map(|r| Roots { web: r.join("web"), vendor: r.join("vendor"), providers, launch: None, models: PathBuf::new(), models_pointer: None, recordings: PathBuf::new(), store: PathBuf::new() });
         // A development build reads the source tree, which is what is being
         // edited. Tauri also copies the resources next to the binary at build
         // time, and preferring that copy served a page from the last build.
@@ -65,10 +69,11 @@ pub async fn start_on(roots: Roots, port: u16) -> std::io::Result<u16> {
 
     let app = Router::new()
         .merge(crate::broker::router(roots.providers.clone(), local.clone()))
-        .merge(crate::local::router(local))
+        .merge(crate::local::router(local.clone()))
         .merge(crate::recordings::router(roots.recordings.clone()))
         .merge(crate::store::router(roots.store.clone()))
         .merge(crate::settings::router(roots.providers.clone(), roots.launch.clone()))
+        .merge(crate::models_dir::router(roots.models.clone(), roots.models_pointer.clone(), local.clone()))
         .route_service("/", ServeFile::new(&index))
         .route_service("/index.html", ServeFile::new(&index))
         // The language picker's list (scripts/languages/build.py).

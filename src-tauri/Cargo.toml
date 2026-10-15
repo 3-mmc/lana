@@ -11,6 +11,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+# The native folder picker for the models folder, opened from the Rust side.
+tauri-plugin-dialog = "2"
 axum = { version = "0.8", features = ["multipart"] }
 tokio = { version = "1", features = ["net", "rt-multi-thread", "macros", "fs", "io-util"] }
 tower-http = { version = "0.6", features = ["fs"] }

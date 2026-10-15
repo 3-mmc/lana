@@ -13,6 +13,11 @@ mod recordings;
 mod store;
 mod server;
 mod settings;
+mod models_dir;
+
+/// The running app, for the few server routes that need the native side: the
+/// folder picker and a restart.
+pub static APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -31,6 +36,7 @@ fn main() {
         let providers = std::env::var_os("LANA_PROVIDERS").expect("LANA_PROVIDERS is required here");
         let mut roots = server::Roots::locate(None, providers.into()).expect("source tree");
         roots.models = std::env::var_os("LANA_MODELS").map(Into::into).unwrap_or_else(|| std::env::temp_dir().join("lana-models"));
+        roots.models_pointer = std::env::var_os("LANA_MODELS_POINTER").map(Into::into);
         roots.recordings = std::env::var_os("LANA_RECORDINGS").map(Into::into).unwrap_or_else(|| std::env::temp_dir().join("lana-recordings"));
         roots.store = std::env::var_os("LANA_STORE").map(Into::into).unwrap_or_else(|| std::env::temp_dir().join("lana-store"));
         tauri::async_runtime::block_on(async move {
@@ -42,7 +48,9 @@ fn main() {
     }
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            let _ = APP.set(app.handle().clone());
             // LANA_PROVIDERS overrides, so a development run can share serve.py's file.
             let providers = match std::env::var_os("LANA_PROVIDERS") {
                 Some(p) => p.into(),
@@ -52,10 +60,14 @@ fn main() {
             let mut roots = server::Roots::locate(app.path().resource_dir().ok(), providers)?;
             // `lana-desktop recording.wav`: the first argument that names a file.
             // (macOS "Open with" arrives as an event instead; not handled yet.)
+            // A folder the user chose in the settings screen, recorded in the
+            // config folder; the data folder otherwise.
+            let pointer = app.path().app_config_dir()?.join("models-location.txt");
             roots.models = match std::env::var_os("LANA_MODELS") {
                 Some(p) => p.into(),
-                None => app.path().app_data_dir()?.join("models"),
+                None => models_dir::chosen(&pointer).unwrap_or(app.path().app_data_dir()?.join("models")),
             };
+            roots.models_pointer = Some(pointer);
             // Recordings go where a user will look for them, not into app data.
             // document_dir() fails where no XDG Documents folder is configured
             // (minimal Linux setups, WSL). That must not stop the app starting.

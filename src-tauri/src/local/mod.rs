@@ -143,6 +143,14 @@ impl Local {
         })
     }
 
+    /// Whether a model is downloading or running; the models folder must not
+    /// move under either.
+    pub fn busy(&self) -> bool {
+        self.job.lock().unwrap().is_some()
+            || self.side.load(Ordering::Relaxed)
+            || self.models.downloads.lock().unwrap().values().any(|d| d.error.is_none())
+    }
+
     pub fn cancel(&self) -> Value {
         let active = self.job.lock().unwrap().is_some();
         if active {

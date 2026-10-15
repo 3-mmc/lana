@@ -404,6 +404,7 @@
   <fieldset id="fsManage" hidden>
     <legend>Recognisers in this app</legend>
     <div class="mghead">Built into Lana <span>— runs on this computer, works offline, nothing is uploaded</span></div>
+    <div id="mdirRow" class="mgrow"></div>
     <div id="lcList"></div>
     <div class="mghead">MMS <span>— words in more than 1,150 languages, added one at a time · non-commercial licence</span></div>
     <div id="mmsBox"></div>
@@ -4627,6 +4628,27 @@ const DESK = {
     DESK.lcHave = have;
   },
 
+  /* Where the models are, how much they take, and moving them: models take
+     gigabytes, and the app's data folder sits on the system disk. A move takes
+     effect at the next start, so it ends with an offer to restart. */
+  async loadModelsDir(note) {
+    let j;
+    try {
+      const r = await fetch(apiUrl('/settings/models-dir'), { cache: 'no-store' });
+      if (!r.ok) return;
+      j = await r.json();
+    } catch { return; }
+    const gb = b => b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.round(b / 1e6) + ' MB';
+    $('mdirRow').innerHTML = `<div class="who"><b>Models folder</b>
+        <em title="${esc(j.dir)}">${gb(j.bytes)} in ${esc(j.dir)}</em>
+        ${j.pending ? `<em class="lcerr">Moved to ${esc(j.pending)}; used after a restart.</em>` : ''}
+        ${note ? `<em>${note}</em>` : ''}</div>
+      <button class="tiny" data-md="open">Open folder</button>
+      ${j.can_change ? `<button class="tiny" data-md="change">Change…</button>` : ''}
+      ${j.pending ? `<button class="tiny primary" data-md="restart">Restart now</button>` : ''}`;
+    DESK.mdirBytes = j.bytes;
+  },
+
   /* MMS: a licence step, the shared part, and the languages. Each language is
      its own small download, so the list is searchable rather than a wall of
      1,198 buttons. Languages a researcher returns to can be pinned. */
@@ -4725,6 +4747,7 @@ const DESK = {
   },
 
   async load() {
+    DESK.loadModelsDir();
     DESK.loadLocal();
     DESK.loadMms();
     try {
@@ -4941,6 +4964,23 @@ $('mmsBox').addEventListener('click', async e => {
   if (act === 'add') { DESK.mmsQuery = ''; }
   await DESK.loadMms();
 });
+$('mdirRow').addEventListener('click', async e => {
+  const act = e.target.closest('button[data-md]')?.dataset.md;
+  if (!act) return;
+  const post = (path, body) => fetch(apiUrl(path), { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                      body: body ? JSON.stringify(body) : undefined });
+  if (act === 'open') { await post('/settings/models-dir/open'); return; }
+  if (act === 'restart') { status('restarting Lana…'); await post('/restart'); return; }
+  const picked = await (await post('/settings/models-dir/pick')).json().catch(() => ({}));
+  if (!picked.path) return;
+  const size = DESK.mdirBytes >= 1e9 ? (DESK.mdirBytes / 1e9).toFixed(1) + ' GB' : Math.round(DESK.mdirBytes / 1e6) + ' MB';
+  if (!confirm(`Move ${size} of models to\n${picked.path}?\n\nLana uses the new folder after it restarts.`)) return;
+  DESK.loadModelsDir('Moving the models… this can take a few minutes between disks.');
+  const r = await post('/settings/models-dir', { path: picked.path });
+  const j = await r.json().catch(() => ({}));
+  DESK.loadModelsDir(r.ok ? 'Moved. Restart Lana to use the new folder.' : `<span class="lcerr">${esc(j.error || 'The move failed.')}</span>`);
+});
+
 $('lcList').addEventListener('click', async e => {
   const btn = e.target.closest('button[data-lc]');
   if (!btn) return;
