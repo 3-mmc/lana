@@ -2009,7 +2009,12 @@ function drawTiers() {
     g.font = '9.5px ' + mono;
     // In a figure the caption says which model filled each tier, and the
     // gutter is too narrow for the name; on screen it says it here.
-    if (!RENDER) g.fillText(t.source || t.model || '—', x0 - 6, ly + lh / 2 + 7);
+    // Shortened to fit, like the name: "whisper-base" ran off the left edge.
+    if (!RENDER) {
+      let src = t.source || t.model || '—';
+      while (src.length > 1 && g.measureText(src).width > x0 - 8) src = src.slice(0, -2) + '…';
+      g.fillText(src, x0 - 6, ly + lh / 2 + 7);
+    }
 
     const busy = t.state === 'running' || t.state === 'queued' || t.state === 'partial';
     if (busy && !t.items.length) {
@@ -4401,12 +4406,15 @@ function afterEdit() {
 }
 
 function setActiveLane(key, redraw = true) {
+  const prev = S.activeLane;
   S.activeLane = key;
   const custom = !!S.extra.find(x => x.key === key);
   $('tierRen').hidden = $('tierDel').hidden = !custom;
-  const was = $('segWhich').value;
   fillSegWhich();
-  if (was !== key) { $('segWhich').value = key; renderSegments(); }
+  /* Compared with the lane that was active, not with the picker: when the
+     picker itself was changed it already shows the new tier, and comparing
+     with it left the table on the old one. */
+  if (prev !== key || $('segWhich').value !== key) { $('segWhich').value = key; renderSegments(); }
   if (redraw) drawTiers();
 }
 function fillSegWhich() {

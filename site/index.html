@@ -101,6 +101,51 @@
   .kbd{font-family:var(--mono);font-size:12.5px;color:var(--ink);background:var(--card);
     border:1px solid var(--line);border-radius:6px;padding:1px 6px;white-space:nowrap}
 
+  /* ---- diagrams and live strips beside the screenshots ---- */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 22px 18px}
+  .card .cap{font-size:12.5px;color:var(--faint);margin:12px 2px 0}
+  .flow svg{display:block;width:100%;max-width:620px;margin:0 auto;height:auto;overflow:visible}
+  .flow .cap{max-width:620px;margin-left:auto;margin-right:auto}
+  .flow .box{fill:none;stroke:var(--line);stroke-width:1.5}
+  .flow .boxlabel{font:600 12px var(--sans);fill:var(--dim);letter-spacing:.04em;text-transform:uppercase}
+  .flow .node rect{fill:var(--bg);stroke:var(--line);stroke-width:1.2}
+  .flow .node text{font:500 13px var(--sans);fill:var(--ink)}
+  .flow .node .sub{font:400 11px var(--sans);fill:var(--faint)}
+  .flow .wire{stroke:var(--line);stroke-width:2;fill:none}
+  .flow .wire.in{stroke-dasharray:4 5}
+  .flow .dot{fill:#2fb36b}
+  .flow .dot.dl{fill:var(--accent)}
+  .flow .icon{stroke:var(--dim);stroke-width:1.6;fill:none;stroke-linecap:round}
+  .flow .lock{fill:#2fb36b}
+  .flow .wall{stroke:#2fb36b;stroke-width:1.5;fill:none;stroke-dasharray:2 4;opacity:.7}
+  .flow .note{font:500 11.5px var(--sans);fill:#2fb36b}
+  .flow .dlnote{font:400 11px var(--sans);fill:var(--faint)}
+
+  .strip{background:var(--frame);border:1px solid var(--frame-edge);border-radius:14px;padding:18px 18px 16px;color:#e7e7ea}
+  .strip .lanes{display:grid;grid-template-columns:64px 1fr;gap:6px 10px;align-items:stretch}
+  .strip .name{font:500 11px var(--sans);color:#a2a2a9;text-align:right;align-self:center}
+  .strip .name.arpa{color:#a98ada}
+  .strip .lane{display:grid;grid-template-columns:repeat(8,1fr);background:#131315;border:1px solid #2c2c31;border-radius:5px;height:40px;overflow:hidden}
+  .strip .lane>span{display:flex;align-items:center;justify-content:center;border-left:1px solid #2c2c31;
+    font:13px var(--mono);white-space:nowrap}
+  .strip .lane>span:first-child{border-left:0}
+  .strip .lane.words>span{font:500 13px var(--sans);background:rgba(74,158,255,.10)}
+  .strip .lane.phones>span{font-family:var(--ipa);font-size:15px;background:rgba(74,158,255,.10)}
+  .strip .lane.arpa>span{background:rgba(169,138,218,.06);color:transparent;transition:background .35s,color .35s}
+  .strip .lane.arpa>span.on{background:rgba(169,138,218,.16);color:#e7e7ea}
+  .strip .lane.arpa>span.flag.on{color:#d69a3c;box-shadow:inset 0 0 0 1.5px #d69a3c}
+  .strip .foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;font-size:12px;color:#8d8d96}
+  .strip .foot b{color:#d69a3c;font-weight:500;opacity:0;transition:opacity .4s}
+  .strip .foot b.on{opacity:1}
+  .strip .set{display:inline-flex;border:1px solid #34343a;border-radius:999px;overflow:hidden}
+  .strip .set button{font:500 11.5px var(--sans);color:#a2a2a9;background:none;border:0;padding:3px 10px;cursor:pointer}
+  .strip .set button[aria-pressed=true]{background:#2e2e33;color:#e7e7ea}
+
+  .withinset{position:relative}
+  .withinset .inset{position:absolute;right:-18px;bottom:-34px;width:min(26%,210px);border-radius:10px;
+    border:1px solid var(--frame-edge);box-shadow:0 18px 50px -12px rgba(0,0,0,.55);overflow:hidden}
+  @media (max-width: 900px){ .withinset .inset{display:none} }
+
   /* ---- plain sections ---- */
   .section{max-width:1080px;margin:170px auto 0;padding:0 24px}
   .section>h2{font-size:15px;font-weight:600;margin:0}
@@ -216,7 +261,7 @@
 
     <div class="row flip reveal">
       <div class="text">
-        <h2>Praat underneath, in plain sight</h2>
+        <h2>Praat's own measurements with every setting in view</h2>
         <p>Pitch, formants, intensity and the spectrogram are Praat's own, compiled to WebAssembly. Every argument is a field you can edit, and the page prints the commands it ran.</p>
       </div>
       <div class="media pair">
@@ -240,6 +285,40 @@
 
     <div class="row flip reveal">
       <div class="text">
+        <h2>Flexible for your workflow</h2>
+        <p>Add as many tiers as a project needs: notes, glosses, comments, or a copy of any tier's boundaries to annotate the same stretches again.</p>
+        <p>The phone tier converts to ARPABET in CMU or TIMIT symbols. A sound ARPABET cannot write is kept and flagged for you to decide, never guessed.</p>
+        <p>To redo part of a recording, select it and run a model on that stretch alone. The rest of the tier stays as it was, hand corrections included.</p>
+      </div>
+      <div class="media">
+        <div class="strip" id="strip" aria-label="IPA phones converted to ARPABET, interval by interval">
+          <div class="lanes">
+            <div class="name">words</div>
+            <div class="lane words"><span style="grid-column:span 4">hello</span><span style="grid-column:span 4">butter</span></div>
+            <div class="name">phones</div>
+            <div class="lane phones" id="stripIpa"></div>
+            <div class="name arpa">arpabet</div>
+            <div class="lane arpa" id="stripArpa"></div>
+          </div>
+          <div class="foot">
+            <b id="stripNote">ɾ is T or D in CMU's set, so Lana leaves it to you</b>
+            <span class="set" role="group" aria-label="Phone set">
+              <button type="button" data-set="cmu" aria-pressed="true">CMU</button>
+              <button type="button" data-set="timit" aria-pressed="false">TIMIT</button>
+            </span>
+          </div>
+        </div>
+        <div class="withinset">
+          <div class="frame"><img src="img/tiers-custom.webp" width="2146" height="1004" loading="lazy"
+            alt="Lana with four tiers on an English recording: words, IPA phones, an ARPABET tier converted from them, and a notes tier with comments on two words"></div>
+          <div class="inset"><img src="img/tier-menu.webp" width="776" height="856" loading="lazy"
+            alt="The add-tier menu: an empty tier, an empty ARPABET tier, ARPABET from phones in CMU or TIMIT symbols, and copies of each tier"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row reveal">
+      <div class="text">
         <h2>Who is speaking</h2>
         <p>A speaker tier keys on the voice, not the words, so it needs no language code and runs alongside the recogniser.</p>
         <p>Here the speaker changes from S1 to S2 at 6.04 s, and the silence between them is left unassigned.</p>
@@ -250,26 +329,72 @@
       </div>
     </div>
 
-    <div class="row reveal">
+    <div class="row flip reveal">
       <div class="text">
-        <h2>Offline, on a laptop</h2>
-        <p>The desktop app has recognition built in. Download a model once and the recording never leaves the computer.</p>
-        <p>This Dargwa sentence was transcribed in under six seconds on a laptop CPU: words by MMS, phones by ZIPA.</p>
+        <h2>Offline analysis completely on your computer without compromising performance</h2>
+        <p>You stay in control of your data. The built-in models run on your own processor and work without a connection once downloaded, so audio, transcriptions and annotations never leave your computer.</p>
+        <p>That is what an ethics board or a data-management plan needs to hear about recordings of identifiable speakers.</p>
+        <p>It is quick too. The Dargwa sentence below took under six seconds on a laptop processor, with words from MMS and phones from ZIPA.</p>
       </div>
       <div class="media">
-        <div class="frame"><img src="img/desktop-dargwa.webp" width="1440" height="1035" loading="lazy"
+        <div class="card flow" id="flow">
+          <svg viewBox="0 0 600 292" role="img" aria-labelledby="flowTitle">
+            <title id="flowTitle">The recording, the model and the tiers all stay inside your computer. The only thing that crosses its edge is a model download from Hugging Face, coming in.</title>
+            <g class="node" transform="translate(452 8)">
+              <rect width="136" height="40" rx="9"/>
+              <text x="68" y="25" text-anchor="middle">Hugging Face</text>
+            </g>
+            <text class="dlnote" x="404" y="100" text-anchor="end">model download, once</text>
+            <path class="wire in" id="dlPath" d="M520 48 C 520 98, 300 82, 300 150"/>
+            <rect class="box" x="10" y="72" width="580" height="210" rx="16"/>
+            <text class="boxlabel" x="30" y="100">Your computer</text>
+            <g class="node" transform="translate(28 150)">
+              <rect width="150" height="64" rx="11"/>
+              <path class="icon" d="M18 32h4M26 22v20M32 16v32M38 24v16M44 28v8"/>
+              <text x="62" y="30">Recording</text><text class="sub" x="62" y="46">.wav, .mp3, …</text>
+            </g>
+            <g class="node" transform="translate(225 150)">
+              <rect width="150" height="64" rx="11"/>
+              <rect class="icon" x="16" y="20" width="24" height="24" rx="4"/><path class="icon" d="M22 16v4M34 16v4M22 44v4M34 44v4"/>
+              <text x="54" y="30">Lana + model</text><text class="sub" x="54" y="46">your processor</text>
+            </g>
+            <g class="node" transform="translate(422 150)">
+              <rect width="150" height="64" rx="11"/>
+              <path class="icon" d="M16 22h26M16 32h18M16 42h22"/>
+              <text x="54" y="30">Tiers</text><text class="sub" x="54" y="46">TextGrid, Lana file</text>
+            </g>
+            <path class="wire" id="p1" d="M178 182 H225"/>
+            <path class="wire" id="p2" d="M375 182 H422"/>
+            <circle class="dot" r="4"><animateMotion dur="1.6s" repeatCount="indefinite"><mpath href="#p1"/></animateMotion></circle>
+            <circle class="dot" r="4"><animateMotion dur="1.6s" begin=".8s" repeatCount="indefinite"><mpath href="#p1"/></animateMotion></circle>
+            <circle class="dot" r="4"><animateMotion dur="1.6s" begin=".4s" repeatCount="indefinite"><mpath href="#p2"/></animateMotion></circle>
+            <circle class="dot" r="4"><animateMotion dur="1.6s" begin="1.2s" repeatCount="indefinite"><mpath href="#p2"/></animateMotion></circle>
+            <circle class="dot dl" r="4.5" opacity="0">
+              <animateMotion dur="6s" repeatCount="indefinite" keyPoints="0;1;1" keyTimes="0;.35;1" calcMode="linear"><mpath href="#dlPath"/></animateMotion>
+              <animate attributeName="opacity" dur="6s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;.05;.33;.38;1"/>
+            </circle>
+            <g transform="translate(160 247)">
+              <path class="lock" d="M3 7 V5 a5 5 0 0 1 10 0 V7" fill="none" stroke="#2fb36b" stroke-width="1.8"/>
+              <rect class="lock" x="0" y="7" width="16" height="11" rx="2"/>
+            </g>
+            <text class="note" x="184" y="262">audio, transcriptions and annotations stay here</text>
+          </svg>
+          <p class="cap">Lana itself connects to two places: Hugging Face when you download a model, and GitHub to check for a newer version. Neither request carries anything about your recordings.</p>
+        </div>
+        <div class="frame"><img src="img/desktop-dargwa.webp" width="1440" height="993" loading="lazy"
           alt="Lana desktop with a Dargwa sentence: MMS words in Cyrillic and ZIPA phones in IPA under the spectrogram"></div>
       </div>
     </div>
 
-    <div class="row flip reveal">
+    <div class="row reveal">
       <div class="text">
-        <h2>Models, stated plainly</h2>
-        <p>Each model shows its tier, size and licence before anything downloads, and the files are checked against published checksums.</p>
+        <h2>Latest models made easy for linguists</h2>
+        <p>Whisper, Meta's MMS and Omnilingual, ZIPA for IPA and a speaker model, sorted by the tier they fill. Each says what it is good at, how large it is and its licence before anything downloads.</p>
+        <p>MMS covers more than 1,150 languages, added one small download at a time. Each tier's menu offers only the models made for it.</p>
       </div>
       <div class="media">
-        <div class="frame"><img src="img/desktop-models.webp" width="1440" height="900" loading="lazy"
-          alt="The settings screen listing built-in models with sizes, licences and notes"></div>
+        <div class="frame"><img src="img/desktop-models.webp" width="2120" height="1438" loading="lazy"
+          alt="The recogniser settings: a green note that built-in models keep recordings on the computer, a list of what Lana connects to, and the built-in models grouped by the tier they fill"></div>
       </div>
     </div>
   </div>
@@ -369,6 +494,61 @@
     document.getElementById('liveTag').hidden = false;
     document.querySelector('.stage').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
+
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // The data-flow diagram: SMIL animation, paused for reduced motion and
+  // while off screen.
+  const flow = document.querySelector('#flow svg');
+  if (flow) {
+    if (still) flow.pauseAnimations();
+    else new IntersectionObserver(es => es.forEach(e => e.isIntersecting ? flow.unpauseAnimations() : flow.pauseAnimations()))
+      .observe(flow);
+  }
+
+  // IPA phones turning into ARPABET, one interval at a time, as Lana's
+  // converter does it (stress marks become digits on the next vowel; a
+  // flap has no CMU symbol and is flagged rather than guessed).
+  const STRIP = {
+    ipa: ['h', 'ə', 'ˈl', 'oʊ', 'b', 'ˈʌ', 'ɾ', 'ɚ'],
+    cmu: ['HH', 'AH0', 'L', 'OW1', 'B', 'AH1', 'ɾ', 'ER0'],
+    timit: ['HH', 'AX', 'L', 'OW1', 'B', 'AH1', 'DX', 'AXR'],
+  };
+  const ipaLane = document.getElementById('stripIpa'), arpaLane = document.getElementById('stripArpa');
+  if (ipaLane) {
+    ipaLane.innerHTML = STRIP.ipa.map(p => `<span>${p}</span>`).join('');
+    let set = 'cmu', timer = null, visible = false;
+    const note = document.getElementById('stripNote');
+    const draw = () => {
+      arpaLane.innerHTML = STRIP[set].map((p, i) =>
+        `<span class="${set === 'cmu' && i === 6 ? 'flag' : ''}">${p}</span>`).join('');
+      note.textContent = set === 'cmu' ? 'ɾ is T or D in CMU’s set, so Lana leaves it to you'
+                                       : 'TIMIT writes the flap as DX and reduced vowels as AX, AXR';
+    };
+    const cells = () => [...arpaLane.children];
+    const run = () => {
+      clearTimeout(timer);
+      draw(); note.classList.remove('on');
+      if (still) { cells().forEach(c => c.classList.add('on')); note.classList.add('on'); return; }
+      let i = 0;
+      const step = () => {
+        const c = cells();
+        if (i < c.length) { c[i++].classList.add('on'); timer = setTimeout(step, 260); }
+        else { note.classList.add('on'); timer = setTimeout(() => { if (visible) run(); }, 4200); }
+      };
+      timer = setTimeout(step, 500);
+    };
+    draw();
+    new IntersectionObserver(es => es.forEach(e => {
+      visible = e.isIntersecting;
+      if (visible) run(); else clearTimeout(timer);
+    }), { threshold: .4 }).observe(document.getElementById('strip'));
+    document.querySelectorAll('#strip .set button').forEach(b => b.addEventListener('click', () => {
+      set = b.dataset.set;
+      document.querySelectorAll('#strip .set button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      run();
+    }));
+  }
 
   // Fade sections in as they arrive.
   const io = new IntersectionObserver(es => es.forEach(e => {
