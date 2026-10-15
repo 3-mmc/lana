@@ -52,6 +52,10 @@
     --hilite:rgba(255,255,255,.85);
   }
   *{box-sizing:border-box}
+  /* The hidden attribute always wins. A class that sets display (a .row, a
+     flex bar) otherwise overrides it, which kept the selection info row and
+     the key-consent line on screen when they were meant to be hidden. */
+  [hidden]{display:none !important}
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--ink);
        font:12.5px/1.45 ui-sans-serif,system-ui,"Segoe UI",sans-serif;
@@ -1980,6 +1984,10 @@ function drawTiers() {
   const all = lanes();
   const cv = $('tiers'), want = PAD.t + PAD.b + all.length * LANE_H + 'px';
   if (cv.style.height !== want) cv.style.height = want;
+  /* Tiers redraw without the rest (a model chosen, Tab in the label editor),
+     and a tier added or removed changes the height: keep the selection bar
+     and the playhead in step. */
+  if (!RENDER) { placeSelbar(); drawPlayhead(); }
   const F = fit(cv); if (!F) return;
   const { g, x0, y0, y1, iw } = F;
   const [t0, t1] = S.win, span = t1 - t0 || 1;
@@ -3825,6 +3833,7 @@ function openPaperDialog() {
 $('paperOpen').addEventListener('click', openPaperDialog);
 $('paperClose').addEventListener('click', () => { $('paperDlg').hidden = true; });
 $('paperDlg').addEventListener('click', e => { if (e.target === $('paperDlg')) $('paperDlg').hidden = true; });
+addEventListener('keydown', e => { if (e.key === 'Escape' && !$('paperDlg').hidden) { e.preventDefault(); $('paperDlg').hidden = true; } });
 $('figPng').addEventListener('click', exportPng);
 $('figSvg').addEventListener('click', exportSvg);
 $('mTracks').addEventListener('click', saveTracks);
