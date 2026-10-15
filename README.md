@@ -22,6 +22,8 @@ The language of a recording is chosen by name, from some 1,200 languages, and ea
 
 Both versions support hand annotation and TextGrid import, so a machine tier can be corrected in place and an existing annotation, from Praat or exported from ELAN, can be opened beside the recording. Both record directly from a microphone. Both also save the annotation as it changes, under a key derived from the content of the audio rather than its file name, so a renamed or moved recording still opens with its tiers. The desktop app keeps these saves as files in its data folder, while the browser keeps them in its own storage, which means they do not travel between browsers or machines.
 
+Any number of further tiers can be added beside the machine-filled ones. A new tier starts empty, for notes, glosses or comments, or as a copy of a tier already on screen, either with its labels or with its boundaries alone, so that the same stretches can be glossed or tagged. A tier can also start as ARPABET, the ASCII phone set of CMUdict, the Montreal Forced Aligner's English models and much American-English phonetics. It is converted from the IPA phone tier in either CMU's 39 phones or TIMIT's larger set, which adds the flap, the glottal stop, reduced vowels and syllabic consonants. Stress marks in the IPA become digits on the following vowel, and no digits are written when the phones carry no stress marks, because a recogniser that never marks stress would otherwise make every vowel look unstressed. The conversion is phonemic, and it does not guess where the IPA has no ARPABET counterpart. In CMU's set a flap could be T or D, so it is kept as it is and marked in orange, and a menu item steps through the marked labels. An ARPABET tier accepts either ARPABET or IPA as it is typed and stores ARPABET, so one marked label can be corrected without looking up the code. Any tier can be given its own colour from its right-click menu. Each colour has a shade for the dark theme and one for the light Paper theme, so a figure exported in Paper keeps the tiers apart as the screen did.
+
 ![Three tiers in Lana: words and phones from one recogniser, and a speaker tier showing a change of voice from S1 to S2](web/docs/fig-speakers.png)
 
 A third tier records who is speaking. Speaker diarisation keys on the voice rather than on the words, so it needs no language code and runs beside the recogniser rather than after it. Here two German speakers were spliced into alternating six-second blocks, so the correct answer is known in advance: the tier closes S1 at 6.04 s and opens S2 at 6.44 s, and leaves the silence between them unattributed.
@@ -48,6 +50,8 @@ Between releases, a manual run of the [build workflow](https://github.com/3-mmc/
 
 ## Built-in recognition
 
+The built-in models keep recordings on the computer. They run on its own processor, work offline once downloaded, and send no audio, transcription or annotation anywhere, which is usually what an ethics board or a data-management plan needs to know about recordings of identifiable speakers. The app makes exactly two kinds of connection of its own. It downloads a model from Hugging Face when one is chosen, and it asks GitHub whether a newer release exists, a few seconds after it starts. Neither request carries anything about the recordings. Audio leaves the machine only when a cloud service or a speech server has been added and then run, and every place a recogniser is chosen says where its audio goes.
+
 The desktop app's catalogue covers each tier with at least one model that runs on an ordinary laptop. Each entry states its size and licence before anything is downloaded, and the downloaded files are checked against the checksums HuggingFace publishes for them.
 
 | Model | Tier | Download | Licence |
@@ -60,7 +64,7 @@ The desktop app's catalogue covers each tier with at least one model that runs o
 
 ![The desktop settings screen: the catalogue of built-in models with sizes, licences and notes, and the MMS section with its shared part and two installed languages](web/docs/fig-desktop-models.png)
 
-The catalogue as the settings screen presents it. Each model says which tier it fills and what it is good for, in the terms a user choosing between them needs, rather than in benchmark names.
+The catalogue as the settings screen presents it, grouped by the tier each model fills. Each model says what it is good for, in the terms a user choosing between them needs, rather than in benchmark names.
 
 The choice of word model depends on the language more than on the size of the model. Omnilingual covers some 1,600 languages, but it is not told which language it is hearing, and where the writing system is ambiguous it guesses. On 40 held-out Common Voice recordings each, it wrote Dargwa in Arabic or Latin letters rather than Cyrillic:
 

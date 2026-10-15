@@ -89,7 +89,11 @@
   button.primary{background:var(--accent);color:var(--panel);border-color:var(--accent);font-weight:600}
   button.tiny{padding:1px 6px;font-size:11px}
   .sp{flex:1}
-  #status{color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40vw}
+  /* Placed by a zero basis, so a long message is cut short where the header
+     ends instead of wrapping onto a second row, which moved the whole page
+     down under the pointer (and back up when the message changed). */
+  #status{color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+          flex:1 1 0;min-width:120px;text-align:right}
   #status.err{color:var(--err)}
   .chip{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border:1px solid var(--line);
         border-radius:999px;font-size:11px;color:var(--dim);background:var(--panel2)}
@@ -126,7 +130,14 @@
            border:1px solid var(--accent);border-radius:3px;outline:none}
   .edbar{border-bottom:1px solid var(--line2)}
   .edbar .sep{width:1px;align-self:stretch;background:var(--line2);margin:0 4px}
-  .edbar .hint{font-size:11px;color:var(--dim2)}
+  /* The hint gives way (ellipsis) rather than wrap when the rename and remove
+     buttons appear, so selecting a tier never moves the tiers themselves. */
+  .edbar .hint{font-size:11px;color:var(--dim2);flex:1 1 0;min-width:0;white-space:nowrap;
+               overflow:hidden;text-overflow:ellipsis;text-align:right}
+  /* One line, always: the save state changes on every edit, and a header that
+     wrapped differently moved the tiers under the pointer mid-annotation. */
+  #tierinfo{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  #saveState{flex:none;white-space:nowrap}
   #saveState.err{color:var(--err)}
   #saveState button{margin-left:6px}
   .legend{display:flex;gap:9px;font-size:10.5px;color:var(--dim);margin-left:auto;align-items:center}
@@ -190,6 +201,11 @@
   table.seg tr:hover td{background:var(--rowhover);cursor:pointer}
   table.seg tr.sel td{background:var(--rowsel)}
   .scroll{max-height:260px;overflow:auto}
+  /* A fixed height, not a maximum: switching to a tier with few intervals
+     shrank the column, and when it was the taller one the page got shorter
+     and jumped under the pointer. Same reason the count never wraps. */
+  #segScroll{height:260px}
+  #segCount{white-space:nowrap}
   #transcript{padding:7px 9px;max-height:260px;overflow:auto;font-size:12px;line-height:1.55}
   #transcript .cue{margin-bottom:5px}
   #transcript .t{color:var(--dim2);font-family:var(--mono);font-size:10px;margin-right:5px}
@@ -267,6 +283,10 @@
   .ctxmenu div.off:hover{background:none}
   .ctxmenu i{font-style:normal;color:var(--dim2);font-family:var(--mono);font-size:10px}
   .ctxmenu hr{border:0;border-top:1px solid var(--line2);margin:4px 0}
+  .ctxmenu .swatches{display:flex;align-items:center;gap:5px;margin:0;padding:5px 14px}
+  .ctxmenu .swatches span{color:var(--dim);margin-right:6px}
+  .ctxmenu .swatches button{width:16px;height:16px;padding:0;border-radius:50%;border:2px solid transparent;cursor:pointer}
+  .ctxmenu .swatches button.on{border-color:var(--ink)}
   .dlg{position:fixed;inset:0;z-index:70;background:#0009;display:flex;align-items:flex-start;justify-content:center;padding-top:7vh}
   .dlg[hidden]{display:none}
   .dlgbox{background:var(--panel);border:1px solid var(--line);border-radius:8px;width:680px;max-width:94vw;box-shadow:0 12px 40px #0008}
@@ -289,9 +309,21 @@
   .mgrow{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line2)}
   .mgrow .who{flex:1;min-width:0}
   .mgrow .who b{color:var(--ink);font-weight:600;font-size:12px}
-  .mgrow .who span{display:block;color:var(--dim2);font-size:11px;font-family:var(--mono);
+  .mgrow .who span:not(.chip){display:block;color:var(--dim2);font-size:11px;font-family:var(--mono);
        overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .mgempty{padding:8px 10px;color:var(--dim);font-size:12px}
+  .mgrow .who .chip{margin-left:6px;font-size:10.5px;padding:0 6px}
+  .privacy{margin:8px 10px 4px;padding:9px 11px;border:1px solid var(--okline);border-radius:5px;
+           background:var(--panel2);font-size:12px;color:var(--ink);display:grid;gap:5px}
+  .privacy b{color:var(--ok)}
+  .privacy li b{color:var(--ink)}
+  .privacy details{color:var(--dim);font-size:11.5px}
+  .privacy summary{cursor:pointer;color:var(--dim)}
+  .privacy ul{margin:5px 0 2px;padding-left:18px;display:grid;gap:3px}
+  svg.lock{width:.8em;height:.95em;vertical-align:-.08em;margin-right:4px}
+  .chip.away{border-color:var(--warnline);color:var(--warn)}
+  .mgsub{padding:8px 10px 2px;font-size:11px;color:var(--dim)}
+  .mgsub b{color:var(--ink);font-weight:600}
   .mghead{padding:7px 10px 3px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
   .mghead span{text-transform:none;letter-spacing:0;color:var(--dim2)}
   .mgrow .who em{display:block;font-style:normal;color:var(--dim);font-size:11px;white-space:normal}
@@ -329,7 +361,7 @@
   <button id="recBtn" title="Record from a microphone">● Record</button>
   <button id="run" class="primary" disabled>Run recognition</button>
   <button id="stop" hidden>■ Stop</button>
-  <button id="gear" title="Recogniser connection">⚙ Connection</button>
+  <button id="gear" title="Choose, download and add speech recognisers">⚙ Recognisers</button>
   <select id="theme" title="Colour scheme. Paper is what a figure will look like on the page.">
     <option value="graphite">Graphite</option>
     <option value="paper">Paper</option>
@@ -416,12 +448,31 @@
        browser build never sees it, because serve.py has no such route. -->
   <fieldset id="fsManage" hidden>
     <legend>Recognisers in this app</legend>
-    <div class="mghead">Built into Lana <span>— runs on this computer, works offline, nothing is uploaded</span></div>
+    <div class="privacy" id="privacy">
+      <div><b><svg class="lock" viewBox="0 0 10 12" aria-hidden="true"><rect x="1" y="5" width="8" height="6.5" rx="1.2" fill="currentColor"/><path d="M3 5V3.6a2 2 0 0 1 4 0V5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg> Built-in models keep your recordings on this computer.</b> They run on this machine's
+        own processor, work offline once downloaded, and never send audio, transcriptions or annotations
+        anywhere. That is usually what an ethics board or data-protection plan needs to hear about
+        recordings of identifiable speakers.</div>
+      <details><summary>What Lana does connect to, exactly</summary>
+        <ul>
+          <li><b>Hugging Face</b>, when you click Download: the model file, once. Nothing about your
+            recordings is sent.</li>
+          <li><b>GitHub</b>, a few seconds after start: whether a newer Lana exists. Nothing about your
+            recordings is sent.</li>
+          <li><b>A cloud recogniser or speech server</b>, only if you add one below and then run it: the
+            recording you run it on goes to that service, under that service's terms. Such recognisers are
+            marked <span class="chip away">sends audio to …</span> wherever you choose them.</li>
+          <li>No accounts, analytics or usage statistics. Annotations are saved in Lana's own folder on
+            this computer.</li>
+        </ul>
+      </details>
+    </div>
+    <div class="mghead">Built into Lana <span>— on this computer · pick one model per tier, then choose it in the Recognition panel</span></div>
     <div id="mdirRow" class="mgrow"></div>
     <div id="lcList"></div>
     <div class="mghead">MMS <span>— words in more than 1,150 languages, added one at a time · non-commercial licence</span></div>
     <div id="mmsBox"></div>
-    <div class="mghead">Other recognisers <span>— cloud services, or a speech server you run</span></div>
+    <div class="mghead">Other recognisers <span>— cloud services, or a speech server you run · these send audio away from this computer</span></div>
     <div id="mgList"></div>
     <div class="row tight mgadd">
       <label for="mgPreset">Add</label>
@@ -557,7 +608,7 @@
       <button class="tiny" id="edUndo" title="Undo (Ctrl+Z)">↶ undo</button>
       <button class="tiny" id="edRedo" title="Redo (Ctrl+Shift+Z)">↷ redo</button>
       <span class="sep"></span>
-      <button class="tiny" id="tierAdd" title="Add an empty tier to annotate by hand">+ tier</button>
+      <button class="tiny" id="tierAdd" title="Add a tier: empty for notes, a copy of another tier, or ARPABET from the phones">+ tier ▾</button>
       <button class="tiny" id="tierRen" hidden>rename tier</button>
       <button class="tiny" id="tierDel" hidden>remove tier</button>
       <span class="sp"></span>
@@ -709,7 +760,7 @@
       <span class="sp"></span>
       <button id="segCopy" class="tiny">copy</button>
     </h2>
-    <div class="scroll">
+    <div class="scroll" id="segScroll">
       <table class="seg" id="segTable">
         <thead><tr><th>#</th><th class="l">label</th><th id="segSpkHead" hidden>voice</th><th>start</th><th>end</th><th>dur ms</th></tr></thead>
         <tbody></tbody>
@@ -777,7 +828,7 @@ const $ = id => document.getElementById(id);
 addEventListener('unhandledrejection', e =>
   console.error('unhandled rejection:', e.reason?.message || e.reason));
 const status = (msg, err = false) => {
-  $('status').textContent = msg;
+  $('status').textContent = $('status').title = msg;   // the title holds what an ellipsis cut
   $('status').classList.toggle('err', err);
 };
 const num = (id, dflt) => { const v = Number($(id).value); return isFinite(v) ? v : dflt; };
@@ -803,6 +854,28 @@ function readPalette() {
   C.specQuietRGB = hexToRgb(C.specQuiet);
   C.specLoudRGB = hexToRgb(C.specLoud);
   C.formants = [C.f1, C.f2, C.f3];
+}
+/* Colours a tier can be given, each as [graphite, paper]: a tier coloured on
+   screen stays legible in the Paper theme and in a figure. Stored by name, so
+   a theme change recolours it instead of keeping the other theme's shade.
+   The word, phone and speaker tiers keep theirs as a preference; an added
+   tier keeps its own in the annotation, so it travels with the file. */
+const TIER_COLORS = {
+  blue: ['#4a9eff', '#1668c4'], teal: ['#45b0a4', '#127a6e'], green: ['#6fbf73', '#1f7a35'],
+  amber: ['#e8b339', '#9a6a10'], red: ['#ef6f5e', '#c23a2a'], violet: ['#a98ada', '#6a42b0'],
+  pink: ['#e57fb0', '#b03a78'], grey: ['#a2a2a9', '#55555d'],
+};
+const tierColorName = key => (S.extra.find(x => x.key === key)?.color || CFG.tierColors?.[key] || 'blue');
+const tierColor = key => {
+  const c = TIER_COLORS[tierColorName(key)] || TIER_COLORS.blue;
+  return c[document.documentElement.dataset.theme === 'paper' ? 1 : 0];
+};
+function setTierColor(key, name) {
+  const x = S.extra.find(t => t.key === key);
+  if (x) { edit([], () => { x.color = name === 'blue' ? undefined : name; }); return; }
+  CFG.tierColors = { ...(CFG.tierColors || {}), [key]: name };
+  if (name === 'blue') delete CFG.tierColors[key];
+  saveCfg(); drawAll();
 }
 /* Translucent overlays (selection wash, gridlines, the hatching on a lane that
    is still being computed) have to follow the theme too, so derive them from
@@ -1589,7 +1662,7 @@ function drawOverview() {
   for (const k of TKEYS) {
     const items = S.tracks[k].items;
     if (!items.length) continue;
-    g.fillStyle = k === 'speaker' ? alpha(C.dim, 0.6) : alpha(C.accent, 0.55);
+    g.fillStyle = alpha(tierColor(k), k === 'speaker' && !CFG.tierColors?.speaker ? 0.35 : 0.55);
     const yy = y1 - (k === 'word' ? 3 : k === 'phone' ? 6 : 9);
     let lastX = -1;
     for (const it of items) {
@@ -1861,6 +1934,7 @@ function laneCaption(t) {
   if (t.state === 'queued') return `${t.model}: queued`;
   if (t.state === 'failed') return `${t.model}: failed`;
   if (t.state === 'cancelled') return `${t.model}: cancelled`;
+  if (t.custom && !t.items.length) return 'empty · double-click to add a label';
   if (t.state === 'done' && !t.items.length) return `${t.model} returned no ${t.role}`;
   if (t.model) return `${t.model}: not run · or double-click to annotate by hand`;
   if (t.custom) return 'double-click to add a label';
@@ -1887,9 +1961,14 @@ function drawTiers() {
 
     // gutter: tier name, then which model filled it
     const active = !RENDER && lane.key === S.activeLane;   // a figure singles out no tier
-    g.fillStyle = active ? C.accent : C.dim; g.textAlign = 'right'; g.textBaseline = 'middle';
+    const tc = tierColor(lane.key);
+    g.fillStyle = active ? tc : C.dim; g.textAlign = 'right'; g.textBaseline = 'middle';
     g.font = (active ? '600 ' : '') + '11px ui-sans-serif, system-ui, sans-serif';
-    g.fillText(lane.label.length > 9 ? lane.label.slice(0, 8) + '…' : lane.label, x0 - 6, ly + lh / 2 - 6);
+    // Shortened to what fits the gutter, measured: "arpabet (TIMIT)" is
+    // wider than nine characters of "phones".
+    let name = lane.label;
+    while (name.length > 1 && g.measureText(name).width > x0 - 8) name = name.slice(0, -2) + '…';
+    g.fillText(name, x0 - 6, ly + lh / 2 - 6);
     g.fillStyle = t.state === 'done' ? C.ok
                 : t.state === 'failed' ? C.err
                 : (t.state === 'running' || t.state === 'partial') ? C.accent : C.dim2;
@@ -1934,18 +2013,20 @@ function drawTiers() {
     }
 
     g.textAlign = 'center';
+    const arpa = ARPA.setOf(t);
     g.font = lane.key === 'phone' ? '13px ' + mono
-           : lane.key === 'speaker' ? '11px ' + mono
+           : lane.key === 'speaker' || arpa ? '11px ' + mono
            : '12px ui-sans-serif';
     for (const it of t.items) {
       if (it.end < t0 || it.start > t1) continue;
       const a = Math.max(x0, xOf(it.start)), b = Math.min(F.x1, xOf(it.end));
-      g.fillStyle = it === S.selectedItem ? alpha(C.accent, 0.32) : alpha(C.accent, 0.10);
+      g.fillStyle = it === S.selectedItem ? alpha(tc, 0.32) : alpha(tc, 0.10);
       g.fillRect(a, ly + 1, Math.max(1, b - a), lh - 4);
       g.strokeStyle = C.boundary;
       g.beginPath(); g.moveTo(a + .5, ly + 1); g.lineTo(a + .5, ly + lh - 3); g.stroke();
       if (b - a > 7) {
-        g.fillStyle = C.ink;
+        // On an ARPABET tier, a label that is not ARPABET shows in the warning colour.
+        g.fillStyle = arpa && !ARPA.valid(it.text, arpa) ? C.warn : C.ink;
         g.save();
         g.beginPath(); g.rect(a, ly, Math.max(1, b - a), lh); g.clip();
         g.fillText(it.text || '', (a + b) / 2, ly + lh / 2);
@@ -2253,12 +2334,40 @@ const NET = {
   },
 };
 
+/* Where a recording goes when this recogniser runs, in the words a consent
+   form or an ethics application would use. Built-in models never send it
+   anywhere; a server on this computer keeps it here too; anything else gets
+   the audio, and the host is named so nobody has to guess which service. */
+function audioGoes(p) {
+  if (!p) return null;
+  if (p.kind === 'builtin') return { here: true, text: 'audio stays on this computer' };
+  if (p.kind === 'demo') return { here: true, text: 'nothing is uploaded' };
+  const loop = h => /^(localhost|127\.|\[?::1\]?$)/.test(h);
+  let host = '';
+  try { host = new URL(p.base, location.href).hostname; } catch {}
+  // A broker's addresses are as seen from the machine serving the page, which
+  // is this computer only when the page itself came from loopback.
+  if (!host || host === location.hostname || loop(host))
+    return loop(location.hostname) ? { here: true, text: 'a server on this computer' }
+                                   : { here: false, lan: true, text: 'sends audio to the machine serving this page' };
+  const lan = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)|\.(local|lan|home|internal|ts\.net)$/.test(host);
+  return { here: false, lan, text: lan ? `sends audio to ${host} (your network)` : `sends audio to ${host}` };
+}
+const LOCK = '<svg class="lock" viewBox="0 0 10 12" aria-hidden="true"><rect x="1" y="5" width="8" height="6.5" rx="1.2" fill="currentColor"/><path d="M3 5V3.6a2 2 0 0 1 4 0V5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
+const audioChip = p => {
+  const w = audioGoes(p);
+  return w ? `<span class="chip ${w.here ? 'live' : 'away'}" title="Where a recording goes when this recogniser runs">${w.here ? LOCK : ''}${esc(w.text)}</span>` : '';
+};
+
 function renderConnection() {
   const chip = $('connchip');
   if (NET.mode === 'broker' && NET.provider) {
-    chip.className = 'chip ' + (NET.provider.ready ? 'live' : 'none');
-    chip.innerHTML = `<b>${esc(NET.provider.label)}</b> · ${NET.models.length} model${NET.models.length === 1 ? '' : 's'}`
-      + (NET.provider.ready ? '' : ' · no key');
+    const w = audioGoes(NET.provider);
+    chip.className = 'chip ' + (!NET.provider.ready ? 'none' : w.here ? 'live' : 'away');
+    chip.title = w.here ? 'Recognition runs without the recording leaving this computer'
+                        : `Running recognition uploads the recording to ${NET.provider.base}`;
+    chip.innerHTML = `${w.here ? LOCK : ''}<b>${esc(NET.provider.label)}</b> · ${NET.models.length} model${NET.models.length === 1 ? '' : 's'}`
+      + (NET.provider.ready ? '' : ' · no key') + (w.here ? '' : ` · ${esc(w.text)}`);
   } else if (NET.mode === 'broker') {
     chip.className = 'chip none';
     chip.textContent = 'no providers configured';
@@ -2273,9 +2382,9 @@ function renderConnection() {
   $('fsDirect').disabled = NET.mode !== 'direct';
   $('provider').innerHTML = NET.providers.map(p =>
     `<option value="${esc(p.id)}"${p.id === CFG.provider ? ' selected' : ''}>` +
-    `${esc(p.label)}${p.ready ? '' : ' — no key'}</option>`).join('')
+    `${esc(p.label)}${p.ready ? '' : ' — no key'}${audioGoes(p).here ? '' : ' — sends audio away'}</option>`).join('')
     || '<option value="">(none — copy providers.example.json)</option>';
-  $('providerNote').textContent = NET.provider?.note || (NET.provider ? NET.provider.base : '');
+  $('providerNote').innerHTML = audioChip(NET.provider) + ' ' + esc(NET.provider?.note || (NET.provider?.kind === 'builtin' ? '' : NET.provider?.base || ''));
 }
 
 function fillModelSelects() {
@@ -2500,6 +2609,7 @@ function updateTierInfo() {
   if (spk) parts.push(spk === 1 ? 'one voice' : `${spk} voices`);
   $('tierinfo').textContent = any ? parts.join(' · ')
     : 'no annotation yet — export an empty TextGrid, or run a recogniser';
+  $('tierinfo').title = $('tierinfo').textContent;
   $('dlSrt').disabled = $('dlAss').disabled = $('dlVtt').disabled = !subtitleCues().length;
   $('dlTsv').disabled = !any;
   $('dlLana').disabled = !any;
@@ -3511,27 +3621,36 @@ function openMenu(x, y, items) {
   closeMenu();
   const el = document.createElement('div');
   el.className = 'ctxmenu';
-  el.innerHTML = items.map((it, i) => it === '-' ? '<hr>' :
-    `<div data-i="${i}" class="${it.off ? 'off' : ''}">${esc(it.label)}${it.key ? `<i>${esc(it.key)}</i>` : ''}</div>`).join('');
+  const theme = document.documentElement.dataset.theme === 'paper' ? 1 : 0;
+  el.innerHTML = items.map((it, i) => it === '-' ? '<hr>' : it.swatches
+    ? `<p class="swatches"><span>colour</span>${it.swatches.map(n =>
+        `<button data-i="${i}" data-sw="${n}" title="${n}" class="${n === it.current ? 'on' : ''}" style="background:${TIER_COLORS[n][theme]}"></button>`).join('')}</p>`
+    : `<div data-i="${i}" class="${it.off ? 'off' : ''}">${esc(it.label)}${it.key ? `<i>${esc(it.key)}</i>` : ''}</div>`).join('');
   document.body.appendChild(el);
   const r = el.getBoundingClientRect();
   el.style.left = Math.min(x, innerWidth - r.width - 6) + 'px';
   el.style.top = Math.min(y, innerHeight - r.height - 6) + 'px';
   el.addEventListener('mousedown', e => e.preventDefault());
   el.addEventListener('click', e => {
+    const sw = e.target.closest('button[data-sw]');
+    if (sw) { closeMenu(); items[+sw.dataset.i].pick(sw.dataset.sw); return; }
     const d = e.target.closest('div[data-i]');
     if (!d || d.classList.contains('off')) return;
     closeMenu();
     items[+d.dataset.i].run?.();
   });
   openMenu.el = el;
+  openMenu.at = performance.now();
 }
 function closeMenu() { openMenu.el?.remove(); openMenu.el = null; }
 addEventListener('mousedown', e => { if (openMenu.el && !openMenu.el.contains(e.target)) closeMenu(); }, true);
 addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
 addEventListener('blur', closeMenu);
 addEventListener('resize', closeMenu);
-addEventListener('scroll', closeMenu, true);
+// Opening a menu can change the layout (the tier toolbar's rename and remove
+// buttons appear), and the browser's scroll anchoring then nudges the page:
+// that scroll is not the user's, and closed the menu as it opened.
+addEventListener('scroll', () => { if (performance.now() - (openMenu.at || 0) > 250) closeMenu(); }, true);
 
 async function copyText(text, what) {
   try { await navigator.clipboard.writeText(text); status(`copied ${what}`); }
@@ -3560,6 +3679,9 @@ $('tiers').addEventListener('contextmenu', e => {
   const tierItems = [
     ...(fixed && S.tracks[lane.key].model ? [{ label: `Run ${S.tracks[lane.key].model} on this tier`, run: () => enqueue(lane.key) }] : []),
     ...(extra ? [{ label: 'Rename tier…', run: renameTier }, { label: 'Remove tier', run: removeTier }] : []),
+    ...(ARPA.setOf(extra) ? [{ label: 'Next label that is not ARPABET', off: track.items.every(it => ARPA.valid(it.text, ARPA.setOf(extra))),
+                                         run: () => nextInvalid(track) }] : []),
+    { swatches: Object.keys(TIER_COLORS), current: tierColorName(lane.key), pick: n => setTierColor(lane.key, n) },
     { label: 'Copy the whole tier', off: !track.items.length,
       run: () => copyText('start\tend\tduration_ms\tlabel\n' + track.items.map(it => `${timesRow(it.start, it.end)}\t${it.text || ''}`).join('\n'), `the ${lane.label} tier`) },
     { label: 'Measure every interval (CSV)…', off: !track.items.some(it => (it.text || '').trim()), run: () => saveIntervals(lane.key) },
@@ -3836,12 +3958,120 @@ const derivedText = () => S.tracks.word.edited || S.tracks.phone.edited ||
    S.tracks.word.cues !== S.tracks.phone.cues);
 const transcriptCues = () => derivedText() ? cuesFromItems() : S.transcript;
 
-function newExtra(label, items = []) {
-  let n = S.extra.length + 1, key;
-  do key = 'x' + n++; while (S.extra.some(x => x.key === key));
+/* `format` is what a hand tier's labels are written in: '' for free text
+   (notes, glosses, comments), 'arpabet' for CMU's ARPABET, 'timit' for
+   TIMIT's larger version of it. The format is
+   what lets a tier check its own labels and accept IPA typed into it. */
+function newExtra(label, items = [], format = '', taken = S.extra) {
+  let n = taken.length + 1, key;
+  do key = 'x' + n++; while (taken.some(x => x.key === key));
   return { key, label, role: 'custom', custom: true, model: '', source: 'hand', state: 'done',
-           note: '', cues: [], items, edited: true };
+           note: '', cues: [], items, edited: true, format };
 }
+
+/* ARPABET from IPA. ARPABET is the ASCII phone set of CMUdict, the Montreal
+   Forced Aligner's English models and most American-English phonetics tools;
+   TIMIT adds a flap, a glottal stop, reduced vowels and syllabic consonants.
+   The mapping is phonemic, so it throws away what ARPABET cannot write
+   (length, aspiration, nasalisation, most non-English sounds). A symbol with
+   no ARPABET counterpart is kept as it is and the tier marks the interval,
+   so nothing is silently dropped or guessed: a flap could be T or D, and only
+   the person who knows the word can say which.
+
+   Stress: IPA marks it before the syllable, ARPABET as a digit on the vowel,
+   so a mark carries forward to the next vowel, across intervals. Digits are
+   only written when the source has stress marks at all; a phone recogniser
+   that never marks stress would otherwise make every vowel look unstressed. */
+const ARPA = (() => {
+  const V = ['AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'EH', 'ER', 'EY', 'IH', 'IY', 'OW', 'OY', 'UH', 'UW',
+             'AX', 'AXR', 'IX', 'UX'];
+  const CONS = ['B', 'CH', 'D', 'DH', 'F', 'G', 'HH', 'JH', 'K', 'L', 'M', 'N', 'NG', 'P', 'R', 'S', 'SH',
+             'T', 'TH', 'V', 'W', 'Y', 'Z', 'ZH', 'DX', 'NX', 'Q', 'WH', 'EL', 'EM', 'EN'];
+  const TIMIT_ONLY = new Set(['AX', 'AXR', 'IX', 'UX', 'DX', 'NX', 'Q', 'WH', 'EL', 'EM', 'EN']);
+  // TIMIT's reduced vowels are unstressed by definition and take no digit.
+  const REDUCED = new Set(['AX', 'AXR', 'IX', 'UX']);
+  const VOWEL = new Set(V), ALL = new Set([...V, ...CONS]);
+  // Longest IPA sequence first. Values: CMU, or [CMU, TIMIT] where they differ.
+  const MAP = {
+    'aɪ': 'AY', 'aj': 'AY', 'ɑɪ': 'AY', 'ʌɪ': 'AY', 'aʊ': 'AW', 'aw': 'AW', 'ɑʊ': 'AW',
+    'eɪ': 'EY', 'ej': 'EY', 'oʊ': 'OW', 'əʊ': 'OW', 'ow': 'OW', 'ɔɪ': 'OY', 'oɪ': 'OY', 'ɔj': 'OY',
+    'ɝ': 'ER', 'ɜ˞': 'ER', 'ɜ': 'ER', 'ɚ': ['ER', 'AXR'], 'ə˞': ['ER', 'AXR'],
+    'ɑ': 'AA', 'ɒ': 'AA', 'a': 'AA', 'æ': 'AE', 'ʌ': 'AH', 'ɐ': 'AH', 'ə': ['AH', 'AX'],
+    'ɔ': 'AO', 'ɛ': 'EH', 'e': 'EH', 'ɪ': 'IH', 'ɨ': ['IH', 'IX'], 'i': 'IY',
+    'ʊ': 'UH', 'u': 'UW', 'ʉ': ['UW', 'UX'], 'o': 'OW',
+    'tʃ': 'CH', 'ʧ': 'CH', 'dʒ': 'JH', 'ʤ': 'JH', 'b': 'B', 'd': 'D', 'ð': 'DH', 'f': 'F',
+    'ɡ': 'G', 'g': 'G', 'h': 'HH', 'ɦ': 'HH', 'k': 'K', 'l': 'L', 'ɫ': 'L', 'm': 'M', 'n': 'N',
+    'ŋ': 'NG', 'p': 'P', 'ɹ': 'R', 'r': 'R', 'ɻ': 'R', 's': 'S', 'ʃ': 'SH', 't': 'T', 'θ': 'TH',
+    'v': 'V', 'w': 'W', 'j': 'Y', 'z': 'Z', 'ʒ': 'ZH',
+    'l̩': [['AH', 'L'], 'EL'], 'm̩': [['AH', 'M'], 'EM'], 'n̩': [['AH', 'N'], 'EN'],
+    'ɾ': [null, 'DX'], 'ɾ̃': [null, 'NX'], 'ʔ': [null, 'Q'], 'ʍ': ['W', 'WH'],
+  };
+  const KEYS = Object.keys(MAP).sort((a, b) => b.length - a.length);
+  // What ARPABET has no way to write: length, aspiration, secondary
+  // articulations, nasality and other diacritics. The syllabic mark (U+0329)
+  // and the rhotic hook stay, because they change which phone it is, and so
+  // does the tilde of a nasal flap; the tie bar goes, so t͡ʃ and tʃ are the
+  // same affricate. (No lookbehind: WKWebView on macOS 11 predates it, and
+  // one unsupported regex stops the whole page from loading.)
+  const strip = s => s.normalize('NFD').replace(/ɾ\u0303/g, '\ue000').replace(/[\u0300-\u0328\u032a-\u036f]/g, '')
+    .replace(/[ːˑʰʷʲˠˤⁿˡ̚]/g, '').replace(/\ue000/g, 'ɾ\u0303').normalize('NFC');
+  const isArpa = (s, set) => {
+    const p = s.replace(/[012]$/, '').toUpperCase(), digit = /[012]$/.test(s);
+    return /^[A-Za-z]+[012]?$/.test(s) && ALL.has(p) && (set === 'timit' || !TIMIT_ONLY.has(p)) &&
+           (!digit || (VOWEL.has(p) && !REDUCED.has(p)));
+  };
+
+  /* One IPA label to ARPABET tokens. `st` carries the pending stress mark
+     between calls; `unknown` collects what had no counterpart. */
+  function convert(label, set, st) {
+    const out = [], timit = set === 'timit';
+    let s = strip(label || '').replace(/\s+/g, ' ').trim();
+    while (s) {
+      if (s[0] === ' ' || s[0] === '.') { s = s.slice(1); continue; }
+      if (s[0] === 'ˈ') { st.pending = 1; s = s.slice(1); continue; }
+      if (s[0] === 'ˌ') { st.pending = 2; s = s.slice(1); continue; }
+      // Already ARPABET (a tier being re-checked, or typed in ASCII).
+      const word = s.match(/^[A-Z]{1,3}[012]?(?=\s|$)/);
+      if (word && isArpa(word[0], set)) { out.push(word[0]); s = s.slice(word[0].length); continue; }
+      const k = KEYS.find(k => s.startsWith(k));
+      if (!k) { const ch = [...s][0]; st.unknown.add(ch); out.push(ch); s = s.slice(ch.length); continue; }
+      s = s.slice(k.length);
+      let v = MAP[k];
+      if (Array.isArray(v)) v = timit ? v[1] : v[0];
+      if (v == null) { st.unknown.add(k); out.push(k); continue; }
+      for (const p of [].concat(v)) {
+        if (VOWEL.has(p) && !REDUCED.has(p) && st.marks) {
+          out.push(p + (st.pending || 0)); st.pending = 0;
+        } else out.push(p);
+      }
+    }
+    return out.join(' ');
+  }
+  return {
+    /* A whole tier's items, converted. Intervals that held nothing but a
+       stress mark have done their job once the mark moves onto the vowel. */
+    fromItems(items, set = 'cmu') {
+      const st = { pending: 0, unknown: new Set(),
+                   marks: items.some(it => /[ˈˌ]/.test(it.text || '')) };
+      const out = [];
+      for (const it of items) {
+        const text = convert(it.text, set, st);
+        if (text || !/^[\sˈˌ]+$/.test(it.text || '')) out.push({ start: it.start, end: it.end, text });
+      }
+      return { items: out, unknown: [...st.unknown], stress: st.marks };
+    },
+    /* What someone typed into an ARPABET tier: ARPABET in any case, or IPA. */
+    normalise(value, set = 'cmu') {
+      const v = value.trim();
+      if (!v) return '';
+      if (v.split(/\s+/).every(t => isArpa(t, set))) return v.split(/\s+/).map(t => t.toUpperCase()).join(' ');
+      return convert(v, set, { pending: 0, unknown: new Set(), marks: /[ˈˌ]/.test(v) });
+    },
+    valid: (label, set = 'cmu') => !label || label.trim().split(/\s+/).every(t => /^[A-Z]+[012]?$/.test(t) && isArpa(t, set)),
+    /* A tier's phone set: 'cmu' or 'timit' for an ARPABET tier, null for any other. */
+    setOf: t => t?.format === 'timit' ? 'timit' : t?.format === 'arpabet' ? 'cmu' : null,
+  };
+})();
 
 /* Words with their phones, grouped into lines, from the intervals alone. A
    phone belongs to the word its midpoint falls in. A new line starts at a
@@ -3959,8 +4189,9 @@ function setActiveLane(key, redraw = true) {
   S.activeLane = key;
   const custom = !!S.extra.find(x => x.key === key);
   $('tierRen').hidden = $('tierDel').hidden = !custom;
+  const was = $('segWhich').value;
   fillSegWhich();
-  if ($('segWhich').value !== key) { $('segWhich').value = key; renderSegments(); }
+  if (was !== key) { $('segWhich').value = key; renderSegments(); }
   if (redraw) drawTiers();
 }
 function fillSegWhich() {
@@ -4112,9 +4343,12 @@ function openLabelEditor(key, it, isNew = false) {
 }
 function closeLabelEditor(commit) {
   if (!LABEL) return;
-  const { key, it, isNew } = LABEL, value = $('labEdit').value;
+  const { key, it, isNew } = LABEL;
+  let value = $('labEdit').value;
   LABEL = null;
   $('labEdit').hidden = true;
+  // An ARPABET tier takes ARPABET in any case, or IPA, and stores ARPABET.
+  if (commit && ARPA.setOf(trackOf(key))) value = ARPA.normalise(value, ARPA.setOf(trackOf(key)));
   if (commit && value !== (it.text || '')) {
     if (isNew) { it.text = value; afterEdit(); }        // the creation is already one undo step
     else edit([key], () => { it.text = value; });
@@ -4174,12 +4408,58 @@ function deleteSelected() {
   edit([S.activeLane], () => track.items.splice(track.items.indexOf(it), 1));
   S.selectedItem = null; drawAll();
 }
-function addTier() {
+/* "+ tier" offers what a new tier can start from: nothing, a copy of a tier
+   already there (with its labels, or only its boundaries, to gloss or tag
+   the same stretches), or the phones rewritten in ARPABET. Every one is an
+   ordinary hand tier afterwards: edited, renamed and exported like the rest. */
+function addTier(e) {
   if (!S.audio) return status('open a recording first', true);
-  const x = newExtra('tier ' + (S.extra.length + 1));
+  const r = (e?.currentTarget || $('tierAdd')).getBoundingClientRect();
+  const filled = lanes().filter(l => l.track.items.length);
+  const phoneish = filled.filter(l => l.key === 'phone' || (l.track.custom && !ARPA.setOf(l.track) &&
+                                                            /phon|ipa|segment/i.test(l.label)));
+  const items = [
+    { label: 'Empty tier — notes, glosses, comments', run: () => makeTier('tier ' + (S.extra.length + 1), []) },
+    { label: 'Empty ARPABET tier — type ARPABET or IPA', run: () => makeTier('arpabet', [], 'arpabet') },
+    '-',
+    ...(phoneish.length ? phoneish.flatMap(l => [
+      { label: `ARPABET from ${l.label} (CMU, as in CMUdict and MFA)`, run: () => arpabetTier(l, 'cmu') },
+      { label: `ARPABET from ${l.label} (TIMIT: adds DX, Q, AX, EL…)`, run: () => arpabetTier(l, 'timit') },
+    ]) : [{ label: 'ARPABET from phones — fill the phone tier first', off: true }]),
+    '-',
+    ...(filled.length ? filled.flatMap(l => [
+      { label: `Copy of ${l.label}`, run: () => makeTier(`${l.label} copy`, plain(l.track.items), l.track.format || '') },
+      { label: `Copy of ${l.label}, boundaries only`,
+        run: () => makeTier(`${l.label} notes`, plain(l.track.items).map(it => ({ ...it, text: '' }))) },
+    ]) : [{ label: 'Copy of a tier — nothing to copy yet', off: true }]),
+  ];
+  openMenu(r.left, r.bottom + 2, items);
+}
+/* The first marked label after the selection (or the cursor), wrapping round. */
+function nextInvalid(track) {
+  const bad = track.items.filter(it => !ARPA.valid(it.text, ARPA.setOf(track)));
+  if (!bad.length) return status('every label on this tier is ARPABET');
+  const from = S.selectedItem && track.items.includes(S.selectedItem) ? S.selectedItem.start : -1;
+  const it = bad.find(x => x.start > from) || bad[0];
+  const span = Math.min(S.win[1] - S.win[0], 2);
+  if (it.end < S.win[0] || it.start > S.win[1]) setWindow(it.start - span / 2, it.start + span / 2);
+  selectSpan(it.start, it.end, it);
+  status(`${bad.length} label${bad.length === 1 ? '' : 's'} not ARPABET on this tier · Enter edits this one (IPA is converted as you type it)`, true);
+}
+function makeTier(label, items, format = '', rename = true) {
+  const x = newExtra(label, items, format);
   edit([], () => S.extra.push(x));
   setActiveLane(x.key);
-  renameTier();
+  if (rename) renameTier();
+  return x;
+}
+function arpabetTier(lane, set) {
+  const { items, unknown, stress } = ARPA.fromItems(lane.track.items, set);
+  makeTier(set === 'timit' ? 'arpabet (TIMIT)' : 'arpabet', items, set === 'timit' ? 'timit' : 'arpabet', false);
+  const notes = [`${items.length} intervals from ${lane.label}`];
+  if (!stress) notes.push('no stress digits: the phones carry no stress marks');
+  if (unknown.length) notes.push(`no ARPABET for ${unknown.slice(0, 8).join(' ')}${unknown.length > 8 ? ' …' : ''} — kept and marked in orange`);
+  status(notes.join(' · '), unknown.length > 0);
 }
 /* The gutter is too narrow to type in, so the name editor sits over the
    tier's first visible stretch instead. */
@@ -4304,7 +4584,10 @@ function importTextGrid(tg, filename) {
     const src = (t.name.match(/\(([^)]+)\)\s*$/) || [])[1] || filename;
     const items = tidy(t.items, S.dur);
     if (key) fresh[key] = { items, source: src };
-    else extra.push(newExtra(t.name.trim() || 'tier ' + (extra.length + 1), items));
+    else extra.push(newExtra(t.name.trim() || 'tier ' + (extra.length + 1), items,
+                             /^(arpa\w*|cmu\w*)\b/i.test(t.name) ? (/timit/i.test(t.name) ? 'timit' : 'arpabet')
+                             : /^timit\b/i.test(t.name) ? 'timit' : '',
+                             extra));   // the tiers being replaced do not count; this batch does
   }
   edit([...Object.keys(fresh), ...extra.map(x => x.key)], () => {
     for (const k of TKEYS) {
@@ -4336,7 +4619,8 @@ function annotationData() {
     lana: document.querySelector('meta[name="lana-version"]')?.content || null,
     audio: { name: S.file?.name, size: S.file?.size, duration: S.dur, key: PROJ.key },
     tiers: TKEYS.map(k => tier(k, S.tracks[k])),
-    extra: S.extra.map(x => ({ key: x.key, label: x.label, source: x.source, items: plain(x.items) })),
+    extra: S.extra.map(x => ({ key: x.key, label: x.label, source: x.source, format: x.format || undefined, color: x.color,
+                               items: plain(x.items) })),
     transcript: S.transcript,
   };
 }
@@ -4349,8 +4633,15 @@ function applyAnnotation(d) {
     Object.assign(t, { items, cues: src.cues || [], source: src.source || '', note: src.note || '',
                        edited: !!src.edited, state: items.length ? 'done' : (t.model ? 'ready' : 'empty') });
   }
-  S.extra = (d.extra || []).map(x => Object.assign(newExtra(x.label || 'tier', tidy(x.items || [], S.dur)),
-                                                   { key: x.key, source: x.source || 'hand' }));
+  // Keys are kept, unless missing or repeated: TextGrid import before 0.1.3
+  // gave every tier it opened the same key, and autosaves kept them.
+  const extra = [];
+  for (const x of d.extra || []) {
+    const t = newExtra(x.label || 'tier', tidy(x.items || [], S.dur), x.format || '', extra);
+    if (x.key && !extra.some(e => e.key === x.key)) t.key = x.key;
+    extra.push(Object.assign(t, { source: x.source || 'hand', color: x.color }));
+  }
+  S.extra = extra;
   S.transcript = d.transcript || [];
   S.selectedItem = null;
   if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
@@ -4570,6 +4861,17 @@ const DESK = {
     $('fsBroker').querySelector('legend').textContent = 'Recogniser to use';
     $('fsBroker').querySelector('.hint.pad').hidden = true;
     $('modeBroker').parentElement.lastChild.textContent = ' Recognisers in this app';
+    // Talking to an endpoint straight from the page is a developer's mode in
+    // the app; it stays reachable, folded away, and opens if it is in use.
+    const adv = document.createElement('details');
+    adv.className = 'pad mgadv';
+    adv.innerHTML = '<summary class="hint">Advanced: connect the page to an endpoint directly</summary>';
+    adv.open = NET.mode === 'direct';
+    $('fsDirect').before(adv);
+    const radios = document.createElement('div');
+    radios.className = 'modehdr';
+    radios.append($('modeBroker').parentElement, $('modeDirect').parentElement);
+    adv.append(radios, $('fsDirect'));
     NET.onchange = () => DESK.renderList();
     deskStore = !!DESK.caps.store;
     if (deskStore) await DESK.loadPrefs();
@@ -4649,17 +4951,27 @@ const DESK = {
       j = await r.json();
     } catch { return; }
     const mb = n => n >= 1000 ? (n / 1000).toFixed(1) + ' GB' : n + ' MB';
-    $('lcList').innerHTML = j.models.map(m => {
+    const GROUPS = [['words', 'For the word tier', 'orthographic transcription'],
+                    ['phones', 'For the phone tier', 'IPA, in any language'],
+                    ['speakers', 'For the speaker tier', 'who is talking']];
+    const row = m => {
       const d = m.downloading;
       const pct = d && d.total ? Math.floor(d.done / d.total * 100) : 0;
       const right = m.installed
         ? `<span class="chip live">ready</span><button class="tiny" data-lc="delete">Delete</button>`
         : d ? `<span class="lcbar"><i style="width:${pct}%"></i></span><span class="hint num">${pct}%</span>`
         : `${m.error ? `<span class="lcerr">${esc(m.error)}</span>` : ''}<button class="tiny" data-lc="get">${m.error ? 'Try again' : 'Download'} · ${mb(m.size_mb)}</button>`;
-      const fills = { words: 'words', phones: 'IPA phones', speakers: 'speakers' }[m.kind] || '';
       return `<div class="mgrow" data-id="${esc(m.id)}">
-        <div class="who"><b>${esc(m.label)}</b>${fills ? ` <span class="chip">${fills}</span>` : ''}` +
+        <div class="who"><b>${esc(m.label)}</b>` +
         `<em>${esc(m.note)}${m.licence ? ` Licence: ${esc(m.licence)}.` : ''}</em></div>${right}</div>`;
+    };
+    const known = new Set(GROUPS.map(g => g[0]));
+    $('lcList').innerHTML = [...GROUPS, ['', 'Other', '']].map(([kind, title, gist]) => {
+      const ms = j.models.filter(m => kind ? m.kind === kind : !known.has(m.kind));
+      if (!ms.length) return '';
+      const n = ms.filter(m => m.installed).length;
+      return `<div class="mgsub"><b>${title}</b>${gist ? ` — ${gist}` : ''}` +
+        `${n ? ` · <span style="color:var(--ok)">${n} ready</span>` : ' · none downloaded yet'}</div>` + ms.map(row).join('');
     }).join('');
     const busy = j.models.some(m => m.downloading);
     clearTimeout(DESK.lcTimer);
@@ -4806,7 +5118,7 @@ const DESK = {
       const ready = live ? live.ready : true;
       const n = (p.models || []).length;
       return `<div class="mgrow" data-id="${esc(p.id)}">
-        <div class="who"><b>${esc(p.label || p.id)}</b><span>${esc(p.base)}</span></div>
+        <div class="who"><b>${esc(p.label || p.id)}</b>${audioChip(p)}<span>${esc(p.base)}</span></div>
         <span class="chip ${ready ? 'live' : 'none'}">${ready ? 'ready' : 'needs a key'} · ${n} model${n === 1 ? '' : 's'}</span>
         <button class="tiny" data-act="edit">Edit</button>
         <button class="tiny" data-act="remove">Remove</button>
