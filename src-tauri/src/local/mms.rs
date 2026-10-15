@@ -39,6 +39,11 @@ const META: &str = "https://huggingface.co/facebook/mms-1b-all/resolve/main";
 /// checksummed unless the server sends checksums.
 const SHARED: &str = "https://huggingface.co/3mmc/lana-mms-1b-all-onnx/resolve/main";
 const SHARED_FILES: &[&str] = &["model.onnx", "mms-base.bin", "adapters.json"];
+/// The graph with a 4,608-symbol output layer, and its adapter layout, for the
+/// four alphabets the 512-symbol graph cannot hold: Mandarin (4,495 symbols),
+/// Cantonese, Japanese and Korean. Same weights in mms-base.bin; fetched only
+/// when one of those languages is added (scripts/mms/widen.py makes them).
+const WIDE_FILES: &[&str] = &["model-wide.onnx", "adapters-wide.json"];
 pub const SHARED_MB: u32 = 1018;
 const ADAPTER_MB: u32 = 9;
 
@@ -169,6 +174,29 @@ impl Models {
                 self.mms_fetch_shared().await?;
             }
         }
+        // An alphabet larger than the shared graph's output layer needs the wide graph.
+        let symbols = {
+            let vocab: Value = serde_json::from_slice(&std::fs::read(self.mms_dir().join("vocab.json")).map_err(|e| disk(&e))?)
+                .map_err(|e| format!("vocab.json: {e}"))?;
+            vocab.get(code).and_then(Value::as_object).map_or(0, |v| v.len())
+        };
+        let layout_head = {
+            let layout: Value = serde_json::from_slice(&std::fs::read(self.mms_dir().join("adapters.json")).map_err(|e| disk(&e))?)
+                .map_err(|e| format!("adapters.json: {e}"))?;
+            layout["head"].as_u64().unwrap_or(512) as usize
+        };
+        let wide = symbols > layout_head;
+        if wide {
+            let _one = SHARED_LOCK.lock().await;
+            for f in WIDE_FILES {
+                let dest = self.mms_dir().join(f);
+                if !dest.is_file() {
+                    let url = format!("{}/{f}", shared_base());
+                    let (sha, size) = self.head(&url).await?;
+                    self.fetch_file(&format!("mms:{code}"), &url, &dest, &sha, size, 0, size).await?;
+                }
+            }
+        }
         let dir = self.mms_lang_dir(code);
         tokio::fs::create_dir_all(&dir).await.map_err(|e| disk(&e))?;
         let url = format!("{META}/adapter.{code}.safetensors");
@@ -180,8 +208,9 @@ impl Models {
         let mms = self.mms_dir();
         let code2 = code.to_owned();
         tokio::task::spawn_blocking(move || -> Result<(), String> {
-            let layout: Value = serde_json::from_slice(&std::fs::read(mms.join("adapters.json")).map_err(|e| disk(&e))?)
-                .map_err(|e| format!("adapters.json: {e}"))?;
+            let (graph, layout_file) = if wide { ("model-wide.onnx", "adapters-wide.json") } else { ("model.onnx", "adapters.json") };
+            let layout: Value = serde_json::from_slice(&std::fs::read(mms.join(layout_file)).map_err(|e| disk(&e))?)
+                .map_err(|e| format!("{layout_file}: {e}"))?;
             let adapter = build_adapter(&std::fs::read(&st).map_err(|e| disk(&e))?, &layout)?;
             let vocab: Value = serde_json::from_slice(&std::fs::read(mms.join("vocab.json")).map_err(|e| disk(&e))?)
                 .map_err(|e| format!("vocab.json: {e}"))?;
@@ -189,9 +218,8 @@ impl Models {
             let dir = mms.join(&code2);
             std::fs::write(dir.join("adapter.bin"), adapter).map_err(|e| disk(&e))?;
             std::fs::write(dir.join("tokens.txt"), tokens).map_err(|e| disk(&e))?;
-            for f in ["model.onnx", "mms-base.bin"] {
-                link_or_copy(&mms.join(f), &dir.join(f))?;
-            }
+            link_or_copy(&mms.join(graph), &dir.join("model.onnx"))?;
+            link_or_copy(&mms.join("mms-base.bin"), &dir.join("mms-base.bin"))?;
             let _ = std::fs::remove_file(&st);
             Ok(())
         })

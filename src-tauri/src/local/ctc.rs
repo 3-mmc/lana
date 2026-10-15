@@ -143,6 +143,16 @@ pub fn word_cues(chars: &[(String, f64)], duration: f64) -> Vec<Value> {
     let mut words: Vec<(String, f64, f64)> = Vec::new();
     let mut cur: Option<(String, f64, f64)> = None;
     for (c, t) in chars {
+        // Chinese and Japanese put no spaces between words, so a whole piece
+        // would come out as one "word". Each character is an interval instead,
+        // which for Chinese is a syllable: a unit worth annotating anyway.
+        if is_cjk(c) {
+            if let Some((w, a, last)) = cur.take() {
+                words.push((w, a, t.max(last + 0.02)));
+            }
+            words.push((c.clone(), *t, f64::NAN));
+            continue;
+        }
         if c == " " {
             if let Some((w, a, last)) = cur.take() {
                 words.push((w, a, t.max(last + 0.02)));
@@ -156,6 +166,13 @@ pub fn word_cues(chars: &[(String, f64)], duration: f64) -> Vec<Value> {
     }
     if let Some((w, a, last)) = cur {
         words.push((w, a, (last + TAIL_S).min(duration)));
+    }
+    // A character runs to the next symbol, or briefly when nothing follows.
+    for i in 0..words.len() {
+        if words[i].2.is_nan() {
+            let next = words.get(i + 1).map_or(words[i].1 + 0.3, |w| w.1);
+            words[i].2 = next.min(words[i].1 + 0.6).min(duration).max(words[i].1 + 0.02);
+        }
     }
     // A word may not run past the start of the next one.
     for i in 0..words.len().saturating_sub(1) {
@@ -200,6 +217,12 @@ pub fn cues(phones: &[(String, f64)], duration: f64) -> Vec<Value> {
         .collect()
 }
 
+/// Han characters and kana: scripts written without spaces between words.
+fn is_cjk(s: &str) -> bool {
+    s.chars().next().is_some_and(|c| matches!(c as u32,
+        0x3040..=0x30FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x2FA1F))
+}
+
 fn r3(x: f64) -> f64 {
     (x * 1000.0).round() / 1000.0
 }
@@ -217,6 +240,17 @@ mod tests {
         assert_eq!(c[0]["words"][0]["phones"], json!(["a", "n", "t"]));
         assert_eq!(c[0]["end"], json!(0.38));
         assert_eq!(c[1]["start"], json!(1.0));
+    }
+
+    #[test]
+    fn han_characters_are_one_interval_each() {
+        let c: Vec<(String, f64)> = [("北", 0.50), ("部", 0.70), (" ", 0.90), ("ok", 1.00), (" ", 1.20)]
+            .iter().map(|(s, t)| (s.to_string(), *t)).collect();
+        let w = &word_cues(&c, 2.0)[0]["words"];
+        assert_eq!(w[0]["text"], json!("北"));
+        assert_eq!((w[0]["start"].clone(), w[0]["end"].clone()), (json!(0.5), json!(0.7)));
+        assert_eq!(w[1]["text"], json!("部"));
+        assert_eq!(w[2]["text"], json!("ok"));
     }
 
     #[test]

@@ -1065,18 +1065,28 @@ const LANG = {
     return LANG.byCode.get(code) || LANG.rows.find(r => r[1] === code || r[3] === code) || null;
   },
   name: c => LANG.get(c)?.[2] || c,
+  /* By name, code, or another name ("Taiwanese" finds Min Nan Chinese). Each
+     hit carries the other name it matched by, if that is how it was found. */
   search(q) {
     q = q.trim().toLowerCase();
     if (!q) return [];
     const exact = [], start = [], word = [], any = [];
+    const rank = s => s.startsWith(q) ? 1 : s.split(/[\s(),-]+/).some(w => w.startsWith(q)) ? 2 : s.includes(q) ? 3 : 0;
     for (const r of LANG.rows) {
-      const n = r[2].toLowerCase();
-      if (r[0] === q || r[1] === q) exact.push(r);
-      else if (n.startsWith(q)) start.push(r);
-      else if (n.split(/[\s(),-]+/).some(w => w.startsWith(q))) word.push(r);
-      else if (n.includes(q)) any.push(r);
+      if (r[0] === q || r[1] === q) { exact.push([r, null]); continue; }
+      let best = rank(r[2].toLowerCase()), via = null;
+      for (const a of (r[5] || '').split('; ').filter(Boolean)) {
+        const k = rank(a.toLowerCase());
+        if (k && (!best || k < best)) { best = k; via = a; }
+      }
+      if (best) [null, start, word, any][best].push([r, via]);
     }
     return [...exact, ...start, ...word, ...any].slice(0, 60);
+  },
+  /* Whether a 639-3 code is known by this text under any of its names. */
+  matches(code, q) {
+    const r = LANG.get(code);
+    return !!r && [r[2], ...(r[5] || '').split('; ')].some(n => n.toLowerCase().includes(q));
   },
 };
 
@@ -1269,6 +1279,20 @@ document.addEventListener('drop', e => {
   const f = [...e.dataTransfer.files].find(f => /^(audio|video)\//.test(f.type)) || e.dataTransfer.files[0];
   if (f) openFile(f);
 });
+
+/* The loaded recording resampled to 16 kHz mono and encoded as WAV, made once
+   per recording: 16-bit, so an hour is 115 MB. */
+async function wav16k() {
+  const key = fileKey();
+  if (S.wav16 && S.wav16.key === key) return S.wav16.blob;
+  const rate = 16000, len = Math.max(1, Math.ceil(S.audio.duration * rate));
+  const ctx = new OfflineAudioContext(1, len, rate);
+  const src = ctx.createBufferSource();
+  src.buffer = S.audio; src.connect(ctx.destination); src.start();
+  const blob = new Blob([encodeWav(await ctx.startRendering())], { type: 'audio/wav' });
+  S.wav16 = { key, blob };
+  return blob;
+}
 
 function encodeWav(buf) {
   // Mono mixdown: Praat analyses one channel and it halves the copy.
@@ -2269,7 +2293,7 @@ function fillModelSelects() {
    where was the old interface; now the page sends each model the code it
    understands, and says when a model does not know the language at all.
    languages.json is built by scripts/languages/build.py: rows of
-   [639-3, 639-1, name, Whisper's code, has an MMS adapter]. */
+   [639-3, 639-1, name, Whisper's code, has an MMS adapter, other names]. */
 
 /* How a model wants the language: 'whisper' (Whisper's own token), 'iso1',
    'iso3', 'fixed' (an MMS model for one language), or 'none'. Read off the
@@ -2342,10 +2366,10 @@ function showLangList(q) {
   let rows, head = '';
   if (q.trim()) rows = LANG.search(q);
   else {
-    rows = (CFG.langRecent || []).map(LANG.get).filter(Boolean);
+    rows = (CFG.langRecent || []).map(LANG.get).filter(Boolean).map(r => [r, null]);
     head = rows.length ? '<div class="head">recent</div>' : '';
   }
-  const item = r => `<div data-c="${esc(r[0])}">${esc(r[2])} <span>${esc(r[1] ? r[1] + ' · ' + r[0] : r[0])}</span>` +
+  const item = ([r, via]) => `<div data-c="${esc(r[0])}">${esc(r[2])}${via ? ' — ' + esc(via) : ''} <span>${esc(r[1] ? r[1] + ' · ' + r[0] : r[0])}</span>` +
     `<i>${[r[3] ? 'Whisper' : '', r[4] ? 'MMS' : ''].filter(Boolean).join(' · ')}</i></div>`;
   list.innerHTML = `<div data-c="">detect automatically</div>` + head + rows.map(item).join('') +
     (q.trim() && !rows.length ? '<div class="head">no language by that name or code</div>' : '');
@@ -2912,7 +2936,14 @@ async function runJob(job) {
   if (!job.concurrent) startPolling();
 
   const fd = new FormData();
-  fd.append('file', f, f.name);
+  /* The built-in recognisers get the audio the page has already decoded, as
+     16 kHz mono WAV, rather than the file. The app's own decoder knows fewer
+     formats than the system's: an M1 MacBook played a file it then could not
+     transcribe ("unsupported codec"). Anything that plays here now transcribes,
+     and nothing is lost, since every built-in model reads 16 kHz mono anyway.
+     Cloud services keep the original, which is usually far smaller. */
+  if (NET.mode === 'broker' && NET.provider?.kind === 'builtin' && S.audio) fd.append('file', await wav16k(), S.name + '.wav');
+  else fd.append('file', f, f.name);
   fd.append('model', job.model);
   fd.append('response_format', 'verbose_json');
   if (NET.mode === 'broker' && NET.provider) fd.append('provider', NET.provider.id);
@@ -4675,7 +4706,8 @@ const DESK = {
       <span class="hint">${gb(m.adapter_mb)} each${sh.installed ? '' : `, plus the ${gb(sh.size_mb)} shared part once`}</span></div>`);
     const q = DESK.mmsQuery.trim().toLowerCase();
     if (q) {
-      const hits = (DESK.mmsLangs || []).filter(([c, n]) => c.includes(q) || n.toLowerCase().includes(q))
+      // Other names count too: "Taiwanese" finds Min Nan (nan).
+      const hits = (DESK.mmsLangs || []).filter(([c, n]) => c.includes(q) || n.toLowerCase().includes(q) || LANG.matches(c.split('-')[0], q))
         .sort((a, b) => (b[1].toLowerCase().startsWith(q) || b[0] === q) - (a[1].toLowerCase().startsWith(q) || a[0] === q));
       for (const [c, n] of hits.slice(0, 12)) {
         const had = uniq.includes(c);

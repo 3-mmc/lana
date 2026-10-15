@@ -20,7 +20,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "mul
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 mime_guess = "2"
 whisper-rs = "0.16"
-symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4", "alac"] }
+symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4", "alac", "aiff"] }
 sha2 = "0.10"
 sha1 = "0.10"
 # ZIPA (IPA phones) and speaker diarization. Static: links its own ONNX Runtime.
