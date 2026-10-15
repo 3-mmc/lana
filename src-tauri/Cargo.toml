@@ -1,6 +1,6 @@
 [package]
 name = "lana-desktop"
-version = "0.1.1"
+version = "0.1.2"
 description = "Praat phonetic analysis with speech-recognised tiers, as a desktop app"
 license = "GPL-3.0-or-later"
 edition = "2021"
@@ -13,6 +13,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 # The native folder picker for the models folder, opened from the Rust side.
 tauri-plugin-dialog = "2"
+# Updates from GitHub Releases, verified against the public key in tauri.conf.json.
+tauri-plugin-updater = "2"
 axum = { version = "0.8", features = ["multipart"] }
 tokio = { version = "1", features = ["net", "rt-multi-thread", "macros", "fs", "io-util"] }
 tower-http = { version = "0.6", features = ["fs"] }

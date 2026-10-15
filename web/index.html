@@ -215,6 +215,11 @@
   #demoBar{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;padding:6px 12px;
            background:var(--panel2);border-bottom:1px solid var(--line);font-size:12px;color:var(--dim)}
   #demoBar[hidden]{display:none}
+  #updBar{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;padding:6px 12px;
+          background:var(--panel2);border-bottom:1px solid var(--line);font-size:12px;color:var(--ink)}
+  #updBar[hidden]{display:none}
+  #updBar b{color:var(--accent);text-transform:uppercase;letter-spacing:.08em;font-size:11px}
+  #updBar a{color:var(--accent)}
   #demoBar b{color:var(--accent);text-transform:uppercase;letter-spacing:.08em;font-size:11px}
   #demoBar label{display:flex;gap:6px;align-items:center}
   #demoBar .ref{color:var(--ink);font-style:italic;max-width:46ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -336,6 +341,14 @@
 
 <div id="bar" hidden><div id="barfill"></div></div>
 
+<div id="updBar" hidden>
+  <b>Update</b>
+  <span id="updText"></span>
+  <button class="tiny primary" id="updNow">Update now</button>
+  <a id="updNotes" href="https://github.com/3-mmc/lana/releases/latest" target="_blank" rel="noopener">what's new</a>
+  <span class="sp"></span>
+  <button class="tiny" id="updLater">Later</button>
+</div>
 <div id="demoBar" hidden>
   <b>Demo</b>
   <label>sample <select id="demoClip"></select></label>
@@ -4564,6 +4577,35 @@ const DESK = {
     // command line). The server hands out that one file and nothing else.
     if (DESK.caps.launch_file) DESK.openLaunchFile(DESK.caps.launch_file);
     await DESK.load();
+    // A few seconds after start, so checking never slows the first view.
+    setTimeout(() => DESK.checkUpdate(), 4000);
+  },
+
+  /* A newer release on GitHub, offered once per version: "Later" hides it
+     until the next version appears. Installing restarts the app. */
+  async checkUpdate() {
+    let j;
+    try {
+      const r = await fetch(apiUrl('/update'), { cache: 'no-store' });
+      if (!r.ok) return;
+      j = await r.json();
+    } catch { return; }
+    if (!j.available || CFG.updateSkipped === j.version) return;
+    $('updText').textContent = `Lana ${j.version} is available (you have ${j.current}).`;
+    $('updBar').hidden = false;
+    $('updLater').onclick = () => { CFG.updateSkipped = j.version; saveCfg(); $('updBar').hidden = true; };
+    $('updNow').onclick = async () => {
+      $('updNow').disabled = true;
+      $('updText').textContent = `Downloading Lana ${j.version}… Lana restarts when it is installed.`;
+      try {
+        const r = await fetch(apiUrl('/update/install'), { method: 'POST' });
+        const b = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(b.error || `HTTP ${r.status}`);
+      } catch (e) {
+        $('updNow').disabled = false;
+        $('updText').innerHTML = `${esc(e.message)} <a href="https://github.com/3-mmc/lana/releases/latest" target="_blank" rel="noopener">Download it from the releases page</a> instead.`;
+      }
+    };
   },
 
   /* Settings from the last session. Applied after the fact, since the page has

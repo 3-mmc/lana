@@ -14,6 +14,7 @@ mod store;
 mod server;
 mod settings;
 mod models_dir;
+mod update;
 
 /// The running app, for the few server routes that need the native side: the
 /// folder picker and a restart.
@@ -49,6 +50,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let _ = APP.set(app.handle().clone());
             // LANA_PROVIDERS overrides, so a development run can share serve.py's file.

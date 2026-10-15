@@ -109,6 +109,10 @@ jobs:
         working-directory: src-tauri
         env:
           APPIMAGE_EXTRACT_AND_RUN: 1
+          # Signs the update packages (createUpdaterArtifacts); the app checks
+          # them against the public key in tauri.conf.json.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: cargo tauri build --bundles ${{ matrix.bundles }}
 
       - name: Collect installers
@@ -116,7 +120,7 @@ jobs:
         run: |
           mkdir -p dist
           find src-tauri/target/release/bundle \( -name '*.dmg' -o -name '*-setup.exe' \
-               -o -name '*.deb' -o -name '*.AppImage' \) -exec cp {} dist/ \;
+               -o -name '*.deb' -o -name '*.AppImage' -o -name '*.app.tar.gz' -o -name '*.sig' \) -exec cp {} dist/ \;
           ls -la dist
 
       - uses: actions/upload-artifact@v4
@@ -150,3 +154,40 @@ jobs:
         with:
           draft: true
           files: dist/*
+
+  # latest.json, which the app's updater reads from the latest release: one
+  # entry per platform with its package and signature. Written once all three
+  # builds have attached theirs to the draft release.
+  updater-manifest:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write and attach latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir sigs && cd sigs
+          gh release download "$TAG" -R "$REPO" -p '*.sig'
+          ls -la
+          python3 - <<'PY'
+          import json, os, glob, datetime
+          tag, repo = os.environ['TAG'], os.environ['REPO']
+          base = f'https://github.com/{repo}/releases/download/{tag}/'
+          want = {'darwin-aarch64': '.app.tar.gz.sig', 'windows-x86_64': '-setup.exe.sig', 'linux-x86_64': '.AppImage.sig'}
+          platforms = {}
+          for plat, suffix in want.items():
+              hits = [f for f in glob.glob('*.sig') if f.endswith(suffix)]
+              if hits:
+                  platforms[plat] = {'signature': open(hits[0]).read().strip(), 'url': base + hits[0][:-4]}
+          manifest = {'version': tag.lstrip('v'), 'notes': f'https://github.com/{repo}/releases/tag/{tag}',
+                      'pub_date': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                      'platforms': platforms}
+          json.dump(manifest, open('latest.json', 'w'), indent=2)
+          print(json.dumps(manifest, indent=2)[:800])
+          assert len(platforms) == 3, 'a platform is missing its signature'
+          PY
+          gh release upload "$TAG" latest.json -R "$REPO" --clobber
+

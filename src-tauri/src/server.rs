@@ -73,6 +73,7 @@ pub async fn start_on(roots: Roots, port: u16) -> std::io::Result<u16> {
         .merge(crate::recordings::router(roots.recordings.clone()))
         .merge(crate::store::router(roots.store.clone()))
         .merge(crate::settings::router(roots.providers.clone(), roots.launch.clone()))
+        .merge(crate::update::router())
         .merge(crate::models_dir::router(roots.models.clone(), roots.models_pointer.clone(), local.clone()))
         .route_service("/", ServeFile::new(&index))
         .route_service("/index.html", ServeFile::new(&index))
