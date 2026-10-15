@@ -254,6 +254,23 @@
   #langNote{padding:0 9px 7px}
   #langNote button{margin-left:4px}
   .meta .warn{color:var(--warn)}
+  .ctxmenu{position:fixed;z-index:80;min-width:210px;padding:4px 0;font-size:12px;background:var(--raise);
+           border:1px solid var(--line);border-radius:6px;box-shadow:0 8px 24px #0007}
+  .ctxmenu div{padding:5px 14px;cursor:pointer;display:flex;justify-content:space-between;gap:18px;white-space:nowrap}
+  .ctxmenu div:hover{background:var(--rowhover)}
+  .ctxmenu div.off{opacity:.42;cursor:default}
+  .ctxmenu div.off:hover{background:none}
+  .ctxmenu i{font-style:normal;color:var(--dim2);font-family:var(--mono);font-size:10px}
+  .ctxmenu hr{border:0;border-top:1px solid var(--line2);margin:4px 0}
+  .dlg{position:fixed;inset:0;z-index:70;background:#0009;display:flex;align-items:flex-start;justify-content:center;padding-top:7vh}
+  .dlg[hidden]{display:none}
+  .dlgbox{background:var(--panel);border:1px solid var(--line);border-radius:8px;width:680px;max-width:94vw;box-shadow:0 12px 40px #0008}
+  .dlgbox h2{display:flex;align-items:center}
+  .dlgbox fieldset{border:0;border-top:1px solid var(--line2);margin:0;padding:8px 12px 10px}
+  .dlgbox legend{padding:0 4px;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+  .dlgrow{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;padding:4px 0;font-size:12px}
+  .dlglab{width:44px;color:var(--dim2);font-size:11px}
+  .dlgrow .hint{flex:1 1 260px}
   .qrow{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line2);font-size:12px}
   .qrow .qwho{flex:1;min-width:0}
   .qrow .qwho b{font-weight:600}
@@ -542,6 +559,7 @@
       <button id="dlAss" disabled>⬇ ASS</button>
       <button id="dlVtt" disabled>⬇ VTT</button>
       <button id="dlTsv" disabled>⬇ TSV</button>
+      <button id="paperOpen" title="A figure of the panes at print resolution (PNG or SVG), and measurement tables for R or a spreadsheet">⬇ Figure / measurements…</button>
       <span class="sp"></span>
       <label title="Write the model that produced each tier into the tier name, so the provenance survives the export.">
         <input type="checkbox" id="nameTiers"> name tiers by model</label>
@@ -686,6 +704,41 @@
   </div>
 </div>
 </main>
+
+<div id="paperDlg" class="dlg" hidden>
+  <div class="dlgbox">
+    <h2>For a paper <span class="sp"></span><button class="tiny" id="paperClose">Close</button></h2>
+    <fieldset>
+      <legend>Figure</legend>
+      <div class="dlgrow"><span class="dlglab">panes</span>
+        <label><input type="checkbox" id="figWave" checked> waveform</label>
+        <label><input type="checkbox" id="figInt"> intensity</label>
+        <label><input type="checkbox" id="figSpec" checked> spectrogram, with f0 and formants as shown</label>
+        <label><input type="checkbox" id="figTiers" checked> tiers</label></div>
+      <div class="dlgrow"><span class="dlglab">time</span>
+        <label><input type="radio" name="figSpan" id="figSpanWin" checked> <span id="figSpanWinLabel">the window on screen</span></label>
+        <label><input type="radio" name="figSpan" id="figSpanSel"> <span id="figSpanSelLabel">the selection</span></label></div>
+      <div class="dlgrow"><span class="dlglab">size</span>
+        <label><input id="figWidth" class="num" size="4" value="16"> cm wide</label>
+        <label>at <select id="figDpi"><option>300</option><option>600</option><option>150</option></select> dpi</label>
+        <label>colours <select id="figTheme"><option value="paper">Paper (white)</option><option value="graphite">Graphite (dark)</option></select></label></div>
+      <div class="dlgrow"><span class="dlglab"></span>
+        <label title="The file, the time span, every Praat command with its arguments, and which model filled each tier, printed under the figure"><input type="checkbox" id="figCaption" checked> the Praat settings under the figure</label></div>
+      <div class="dlgrow"><span class="dlglab"></span>
+        <button id="figPng" class="primary">Save PNG</button>
+        <button id="figSvg">Save SVG</button>
+        <span class="hint">PNG for Word and slides; SVG to edit in Inkscape or Illustrator, or for LaTeX. The spectrogram stays an image inside the SVG.</span></div>
+    </fieldset>
+    <fieldset>
+      <legend>Measurements</legend>
+      <div class="dlgrow"><button id="mTracks">Save tracks (CSV)</button>
+        <span class="hint">f0, F1–F3 and intensity frame by frame over the window on screen, with the Praat arguments in the Analysis pane.</span></div>
+      <div class="dlgrow"><button id="mIntervals">Save intervals (CSV)</button>
+        <select id="mTier"></select>
+        <span class="hint">One row per labelled interval of the tier, over the whole file: duration, mean f0, F1–F3 (mean and at the midpoint), mean intensity, and the speaker when there is a speaker tier.</span></div>
+    </fieldset>
+  </div>
+</div>
 
 <footer>
   <strong>Lana</strong> (Linguistic ANAlysis) — phonetic analysis with recognised tiers. Not affiliated with the Praat project.
@@ -1086,8 +1139,9 @@ function parseMatrix(text) {
   return { xmin, xmax, nx, dx, x1, ymin, ymax, ny, dy, y1, rows };
 }
 
-async function dumpMatrix(obj, cmd, ...args) {
+async function dumpMatrix(obj, cmd, made, ...args) {
   const m = await S.praat.call(obj, cmd, ...args);
+  made?.push(m);
   await S.praat.call(m, 'Save as matrix text file...', '/tmp.mtx');
   const bytes = await S.praat.getFile('/tmp.mtx');
   return parseMatrix(new TextDecoder().decode(bytes));
@@ -1278,30 +1332,39 @@ echoCommands();
 
 let intensityWorks = true;   // set false the first time Praat refuses the command
 
-async function analyse() {
-  if (!S.sound) return;
-  const [t0, t1] = S.win;
-  const p = params();
-  echoCommands();
-  status(`analysing ${f2(t1 - t0)} s …`);
-  const started = performance.now();
+/* Praat's analysis of one stretch of the sound, as matrices: spectrogram,
+   pitch, F1-F3 and intensity. Used for the window on screen and, a stretch at
+   a time, for measurement tables over the whole file. The Praat objects it
+   makes are removed again, or a long session of zooming would fill the wasm
+   heap with spectrograms nobody can see. */
+/* Analyses take turns: every matrix leaves Praat through the same file, so a
+   table export and a zoom running at once would read each other's numbers. */
+let praatTurn = Promise.resolve();
+function analyseSpan(t0, t1, p) {
+  const run = praatTurn.then(() => analyseSpanNow(t0, t1, p));
+  praatTurn = run.catch(() => {});
+  return run;
+}
+async function analyseSpanNow(t0, t1, p) {
+  const made = [];
+  const keep = o => (made.push(o), o);
   try {
     /* Window the sound first. Cost is linear in duration (~270 ms per second
        of audio measured on this box), so analysing a whole film would hang;
        Praat itself only ever analyses the visible window for the same reason. */
-    const part = await S.praat.call(S.sound, 'Extract part...', t0, t1, 'rectangular', 1, 'no');
+    const part = keep(await S.praat.call(S.sound, 'Extract part...', t0, t1, 'rectangular', 1, 'no'));
 
-    const specObj = await S.praat.call(part, 'To Spectrogram...',
-      p.specWin, p.maxHz, p.specStep, p.specFStep, p.shape);
-    const spec = await dumpMatrix(specObj, 'To Matrix');
+    const specObj = keep(await S.praat.call(part, 'To Spectrogram...',
+      p.specWin, p.maxHz, p.specStep, p.specFStep, p.shape));
+    const spec = await dumpMatrix(specObj, 'To Matrix', made);
 
-    const pitchObj = await S.praat.call(part, 'To Pitch...', p.pitchStep, p.pitchFloor, p.pitchCeil);
-    const pitch = await dumpMatrix(pitchObj, 'To Matrix');
+    const pitchObj = keep(await S.praat.call(part, 'To Pitch...', p.pitchStep, p.pitchFloor, p.pitchCeil));
+    const pitch = await dumpMatrix(pitchObj, 'To Matrix', made);
 
-    const formObj = await S.praat.call(part, 'To Formant (burg)...',
-      p.fmtStep, p.fmtN, p.fmtCeil, p.fmtWin, p.fmtPre);
+    const formObj = keep(await S.praat.call(part, 'To Formant (burg)...',
+      p.fmtStep, p.fmtN, p.fmtCeil, p.fmtWin, p.fmtPre));
     const formants = [];
-    for (const n of [1, 2, 3]) formants.push(await dumpMatrix(formObj, 'To Matrix...', n));
+    for (const n of [1, 2, 3]) formants.push(await dumpMatrix(formObj, 'To Matrix...', made, n));
 
     /* Intensity has no documented matrix export in this build; Vector's
        "Down to Matrix" works, but rather than assume it, try it once and drop
@@ -1310,21 +1373,34 @@ async function analyse() {
     let intensity = null;
     if (intensityWorks) {
       try {
-        const intObj = await S.praat.call(part, 'To Intensity...', p.pitchFloor, p.pitchStep, 'yes');
-        intensity = await dumpMatrix(intObj, 'Down to Matrix');
+        const intObj = keep(await S.praat.call(part, 'To Intensity...', p.pitchFloor, p.pitchStep, 'yes'));
+        intensity = await dumpMatrix(intObj, 'Down to Matrix', made);
       } catch (e) {
         try {
-          const intObj = await S.praat.call(part, 'To Intensity...', p.pitchFloor, p.pitchStep, 'yes');
-          intensity = await dumpMatrix(intObj, 'To Matrix');
+          const intObj = keep(await S.praat.call(part, 'To Intensity...', p.pitchFloor, p.pitchStep, 'yes'));
+          intensity = await dumpMatrix(intObj, 'To Matrix', made);
         } catch (e2) {
           intensityWorks = false;
           console.warn('intensity unavailable in this praat-wasm build:', e2.message || e2);
         }
       }
     }
-    $('intensPane').hidden = !intensity;
+    return { spec, pitch, formants, intensity, t0, t1, p };
+  } finally {
+    for (const o of made) { try { await S.praat.call(o, 'Remove'); } catch {} }
+  }
+}
 
-    S.analysis = { spec, pitch, formants, intensity, t0, t1, p };
+async function analyse() {
+  if (!S.sound) return;
+  const [t0, t1] = S.win;
+  const p = params();
+  echoCommands();
+  status(`analysing ${f2(t1 - t0)} s …`);
+  const started = performance.now();
+  try {
+    S.analysis = await analyseSpan(t0, t1, p);
+    $('intensPane').hidden = !S.analysis.intensity;
     drawAll();
     /* Re-read the cursor against the analysis that has just arrived. Clicking a
        segment moves the window and probes in the same gesture, and the probe
@@ -1337,6 +1413,14 @@ async function analyse() {
   }
 }
 $('reanalyse').addEventListener('click', analyse);
+/* A changed argument re-runs the analysis, as moving the window does. 'change'
+   rather than 'input', so typing 5500 does not analyse at 5, 55 and 550 on the
+   way. Dynamic range only changes how the spectrogram is drawn, so it redraws. */
+for (const el of document.querySelectorAll('.params input, .params select'))
+  el.addEventListener('change', () => {
+    if (el.id === 'pDyn') { drawAll(); return; }
+    clearTimeout(analyseTimer); analyseTimer = setTimeout(analyse, 150);
+  });
 
 /* --------------------------------------------------------------- drawing */
 /* One margin box for every pane, so the time axis of the waveform, the
@@ -1344,8 +1428,17 @@ $('reanalyse').addEventListener('click', analyse);
    spectrogram against a tier drawn on a different scale is exactly the kind of
    small dishonesty this tool should not introduce. */
 const PAD = { l: 56, r: 46, t: 6, b: 17 };
+let RENDER = null;   // set while a figure is exported; see "for a paper"
 
 function fit(cv) {
+  // While a figure is exported, each pane draws into its export target instead.
+  if (RENDER) {
+    const t = RENDER.get(cv.id);
+    if (!t) return null;
+    t.g.setTransform(t.scale, 0, 0, t.scale, 0, t.oy * t.scale);
+    return { g: t.g, w: t.w, h: t.h, x0: PAD.l, x1: t.w - PAD.r, y0: PAD.t, y1: t.h - PAD.b,
+             iw: t.w - PAD.l - PAD.r, ih: t.h - PAD.t - PAD.b };
+  }
   const dpr = devicePixelRatio || 1;
   const w = cv.clientWidth, h = cv.clientHeight;
   if (!w || !h) return null;
@@ -1755,7 +1848,7 @@ function drawTiers() {
     g.strokeStyle = C.line; g.strokeRect(x0 + .5, ly + .5, iw - 1, lh - 3);
 
     // gutter: tier name, then which model filled it
-    const active = lane.key === S.activeLane;
+    const active = !RENDER && lane.key === S.activeLane;   // a figure singles out no tier
     g.fillStyle = active ? C.accent : C.dim; g.textAlign = 'right'; g.textBaseline = 'middle';
     g.font = (active ? '600 ' : '') + '11px ui-sans-serif, system-ui, sans-serif';
     g.fillText(lane.label.length > 9 ? lane.label.slice(0, 8) + '…' : lane.label, x0 - 6, ly + lh / 2 - 6);
@@ -1763,7 +1856,9 @@ function drawTiers() {
                 : t.state === 'failed' ? C.err
                 : (t.state === 'running' || t.state === 'partial') ? C.accent : C.dim2;
     g.font = '9.5px ' + mono;
-    g.fillText(t.source || t.model || '—', x0 - 6, ly + lh / 2 + 7);
+    // In a figure the caption says which model filled each tier, and the
+    // gutter is too narrow for the name; on screen it says it here.
+    if (!RENDER) g.fillText(t.source || t.model || '—', x0 - 6, ly + lh / 2 + 7);
 
     const busy = t.state === 'running' || t.state === 'queued' || t.state === 'partial';
     if (busy && !t.items.length) {
@@ -1828,7 +1923,7 @@ function drawTiers() {
     }
     g.font = '10px ' + mono; g.textBaseline = 'middle';
     for (const [n, left] of [[before, true], [after, false]]) {
-      if (!n) continue;
+      if (!n || RENDER) continue;
       const label = left ? `◀ ${n}` : `${n} ▶`;
       const w = g.measureText(label).width + 8;
       const bx = left ? x0 + 2 : F.x1 - 2 - w;
@@ -2560,7 +2655,7 @@ function renderTranscript() {
     if (spk !== cur) { cur = spk; if (spk) out.push(`<div class="turn">${esc(spk)}</div>`); }
     const text = (c.plain ?? (c.words || []).map(w => w.text).join(' ') ?? '').trim();
     const ipa = (c.words || []).map(w => (w.phones || []).join('')).join(' ').trim();
-    out.push(`<div class="cue"><span class="t">${f2(c.start)}</span>${esc(text)}` +
+    out.push(`<div class="cue" data-a="${c.start}" data-b="${c.end}"><span class="t">${f2(c.start)}</span><span class="tx">${esc(text)}</span>` +
              (ipa ? `<span class="ipa">${esc(ipa)}</span>` : '') + `</div>`);
   }
   el.innerHTML = out.join('');
@@ -2994,6 +3089,535 @@ $('reWord').addEventListener('click', () => enqueue('word'));
 $('rePhone').addEventListener('click', () => enqueue('phone'));
 $('reSpeaker').addEventListener('click', () => enqueue('speaker'));
 $('spkRe').addEventListener('click', reclusterSpeakers);
+
+/* ------------------------------------------------------- for a paper */
+/* Figures and numbers for publication. A figure is the panes on screen drawn
+   again by the same functions, into a canvas at print resolution or into an
+   SVG, so what is exported is what was looked at: the same axes, the same
+   tracks, the same Praat arguments. fit() hands each pane its export target
+   while RENDER is set; every pane draws through fit(), so nothing else needs
+   to know. RENDER itself is declared beside fit(), which reads it. */
+
+const CM_PER_IN = 2.54;
+/* The layout width figures are drawn at, in CSS pixels. Fonts are sized for the
+   screen (10-12 px), so a 900 px layout scaled to a page width keeps them in
+   proportion to the plot, about 7-8 pt in a 16 cm figure. */
+const FIG_W = 900;
+
+/* A CanvasRenderingContext2D that writes SVG. Only what the panes use: paths
+   of moveTo/lineTo/rect, fill and stroke, rectangles, text, one image (the
+   spectrogram, which is raster data anyway), clipping, transforms and alpha. */
+class SvgCtx {
+  constructor() {
+    this.out = []; this.defs = []; this.stack = []; this.path = []; this.nclip = 0;
+    this.st = { fillStyle: '#000', strokeStyle: '#000', lineWidth: 1, font: '10px sans-serif',
+                textAlign: 'start', textBaseline: 'alphabetic', globalAlpha: 1, dash: [],
+                m: [1, 0, 0, 1, 0, 0], clip: null };
+    this.meas = document.createElement('canvas').getContext('2d');
+  }
+  get fillStyle() { return this.st.fillStyle; } set fillStyle(v) { this.st.fillStyle = v; }
+  get strokeStyle() { return this.st.strokeStyle; } set strokeStyle(v) { this.st.strokeStyle = v; }
+  get lineWidth() { return this.st.lineWidth; } set lineWidth(v) { this.st.lineWidth = v; }
+  get font() { return this.st.font; } set font(v) { this.st.font = v; }
+  get textAlign() { return this.st.textAlign; } set textAlign(v) { this.st.textAlign = v; }
+  get textBaseline() { return this.st.textBaseline; } set textBaseline(v) { this.st.textBaseline = v; }
+  get globalAlpha() { return this.st.globalAlpha; } set globalAlpha(v) { this.st.globalAlpha = v; }
+  set imageSmoothingEnabled(v) {}
+  save() { this.stack.push({ ...this.st, m: [...this.st.m], dash: [...this.st.dash] }); }
+  restore() { if (this.stack.length) this.st = this.stack.pop(); }
+  setTransform(a, b, c, d, e, f) { this.st.m = [a, b, c, d, e, f]; }
+  transform(a, b, c, d, e, f) {
+    const [A, B, C2, D, E, F] = this.st.m;
+    this.st.m = [A * a + C2 * b, B * a + D * b, A * c + C2 * d, B * c + D * d, A * e + C2 * f + E, B * e + D * f + F];
+  }
+  translate(x, y) { this.transform(1, 0, 0, 1, x, y); }
+  rotate(r) { const c = Math.cos(r), s = Math.sin(r); this.transform(c, s, -s, c, 0, 0); }
+  scale(x, y) { this.transform(x, 0, 0, y, 0, 0); }
+  setLineDash(a) { this.st.dash = [...a]; }
+  clearRect() {}
+  pt(x, y) { const [a, b, c, d, e, f] = this.st.m; return [a * x + c * y + e, b * x + d * y + f]; }
+  k() { const [a, b] = this.st.m; return Math.hypot(a, b); }
+  beginPath() { this.path = []; }
+  moveTo(x, y) { const [X, Y] = this.pt(x, y); this.path.push(`M${r2(X)} ${r2(Y)}`); }
+  lineTo(x, y) { const [X, Y] = this.pt(x, y); this.path.push(`L${r2(X)} ${r2(Y)}`); }
+  closePath() { this.path.push('Z'); }
+  rect(x, y, w, h) { this.moveTo(x, y); this.lineTo(x + w, y); this.lineTo(x + w, y + h); this.lineTo(x, y + h); this.closePath(); }
+  paint(col) {
+    const m = /rgba?\(([^)]+)\)/.exec(col || '');
+    if (!m) return { c: col, a: this.st.globalAlpha };
+    const p = m[1].split(',').map(s => s.trim());
+    return { c: `rgb(${p[0]},${p[1]},${p[2]})`, a: (p[3] != null ? +p[3] : 1) * this.st.globalAlpha };
+  }
+  attrs() { return this.st.clip ? ` clip-path="url(#${this.st.clip})"` : ''; }
+  /* A clip on an element with its own transform is read in that element's
+     coordinates, so the clip (already in figure coordinates) would move with
+     it. Such elements sit in a group that carries the clip instead. */
+  wrapped(el) { return this.st.clip ? `<g clip-path="url(#${this.st.clip})">${el}</g>` : el; }
+  stroke() {
+    if (!this.path.length) return;
+    const { c, a } = this.paint(this.st.strokeStyle);
+    const dash = this.st.dash.length ? ` stroke-dasharray="${this.st.dash.map(v => r2(v * this.k())).join(' ')}"` : '';
+    this.out.push(`<path d="${this.path.join('')}" fill="none" stroke="${c}"${a < 1 ? ` stroke-opacity="${r3(a)}"` : ''} stroke-width="${r3(this.st.lineWidth * this.k())}"${dash}${this.attrs()}/>`);
+  }
+  fill() {
+    if (!this.path.length) return;
+    const { c, a } = this.paint(this.st.fillStyle);
+    this.out.push(`<path d="${this.path.join('')}" fill="${c}"${a < 1 ? ` fill-opacity="${r3(a)}"` : ''}${this.attrs()}/>`);
+  }
+  fillRect(x, y, w, h) { const keep = this.path; this.beginPath(); this.rect(x, y, w, h); this.fill(); this.path = keep; }
+  strokeRect(x, y, w, h) { const keep = this.path; this.beginPath(); this.rect(x, y, w, h); this.stroke(); this.path = keep; }
+  clip() {
+    const id = 'c' + (++this.nclip);
+    const outer = this.st.clip ? ` clip-path="url(#${this.st.clip})"` : '';
+    this.defs.push(`<clipPath id="${id}"${outer}><path d="${this.path.join('')}"/></clipPath>`);
+    this.st.clip = id;
+  }
+  measureText(t) { this.meas.font = this.st.font; return this.meas.measureText(t); }
+  fillText(text, x, y) {
+    if (text == null || text === '') return;
+    const [X, Y] = this.pt(x, y);
+    const fm = /^(?:(\d{3}|bold|normal)\s+)?([\d.]+)px\s+(.+)$/.exec(this.st.font.trim()) || [];
+    const size = (+(fm[2] || 10)) * this.k(), family = (fm[3] || 'sans-serif').replace(/"/g, "'");
+    const anchor = { left: 'start', start: 'start', center: 'middle', right: 'end', end: 'end' }[this.st.textAlign] || 'start';
+    // dy rather than dominant-baseline, which Inkscape and some converters ignore.
+    const dy = { top: 0.8, hanging: 0.8, middle: 0.35, alphabetic: 0, bottom: -0.25, ideographic: -0.25 }[this.st.textBaseline] ?? 0;
+    const [a, b] = this.st.m, ang = Math.atan2(b, a) * 180 / Math.PI;
+    const { c, a: al } = this.paint(this.st.fillStyle);
+    this.out.push(`<text x="${r2(X)}" y="${r2(Y)}" dy="${dy}em" font-family="${esc(family)}" font-size="${r2(size)}"` +
+      (fm[1] && fm[1] !== 'normal' ? ` font-weight="${fm[1]}"` : '') +
+      ` text-anchor="${anchor}" fill="${c}"${al < 1 ? ` fill-opacity="${r3(al)}"` : ''}` +
+      (Math.abs(ang) > 0.01 ? ` transform="rotate(${r2(ang)} ${r2(X)} ${r2(Y)})"` : '') +
+      `>${esc(String(text))}</text>`);
+    this.out[this.out.length - 1] = this.wrapped(this.out[this.out.length - 1]);
+  }
+  drawImage(img, x, y, w, h) {
+    const [a, b, c, d, e, f] = this.st.m;
+    const href = img.toDataURL ? img.toDataURL('image/png') : img.src;
+    this.out.push(this.wrapped(`<image href="${href}" x="${r3(x)}" y="${r3(y)}" width="${r3(w)}" height="${r3(h)}" preserveAspectRatio="none"` +
+      ` transform="matrix(${[a, b, c, d, e, f].map(r3).join(' ')})"${this.st.globalAlpha < 1 ? ` opacity="${r3(this.st.globalAlpha)}"` : ''}/>`));
+  }
+  svg(w, h, wcm) {
+    return `<?xml version="1.0" encoding="UTF-8"?>\n` +
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${r3(wcm)}cm" height="${r3(wcm * h / w)}cm" viewBox="0 0 ${w} ${h}">\n` +
+      `<defs>${this.defs.join('')}</defs>\n${this.out.join('\n')}\n</svg>\n`;
+  }
+}
+const r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000;
+
+/* PNG files carry their resolution in a pHYs chunk; without one, Word and
+   LaTeX assume 72 or 96 dpi and print a 300 dpi figure four times too large. */
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(bytes) { let c = 0xffffffff; for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+async function pngWithDpi(blob, dpi) {
+  const src = new Uint8Array(await blob.arrayBuffer());
+  const ppm = Math.round(dpi / 0.0254);
+  const chunk = new Uint8Array(21), dv = new DataView(chunk.buffer);
+  dv.setUint32(0, 9);
+  chunk.set([0x70, 0x48, 0x59, 0x73], 4);          // "pHYs"
+  dv.setUint32(8, ppm); dv.setUint32(12, ppm); chunk[16] = 1;
+  dv.setUint32(17, crc32(chunk.subarray(4, 17)));
+  const at = 8 + 25;                                // after the signature and IHDR
+  const out = new Uint8Array(src.length + chunk.length);
+  out.set(src.subarray(0, at)); out.set(chunk, at); out.set(src.subarray(at), at + chunk.length);
+  return new Blob([out], { type: 'image/png' });
+}
+function downloadBlob(name, blob) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+const fileStem = () => (S.name || 'recording').replace(/[^\p{L}\p{N}._-]+/gu, '_');
+const spanTag = (a, b) => `${a.toFixed(2)}-${b.toFixed(2)}s`;
+
+function figOpts() {
+  return {
+    wave: $('figWave').checked, intens: $('figInt').checked, spec: $('figSpec').checked, tiers: $('figTiers').checked,
+    span: $('figSpanSel').checked && S.sel ? 'sel' : 'win',
+    widthCm: Math.max(4, Math.min(60, parseFloat($('figWidth').value) || 16)),
+    dpi: +$('figDpi').value || 300, theme: $('figTheme').value, caption: $('figCaption').checked,
+  };
+}
+
+/* Draw the chosen panes, stacked on one time axis, into g (a 2-D canvas
+   context or an SvgCtx). The window, cursor and selection are put back
+   afterwards, and a selection that is exported is analysed for the export. */
+async function drawFigure(o, make) {
+  const saved = { win: S.win.slice(), sel: S.sel, cursor: S.cursor, item: S.selectedItem,
+                  analysis: S.analysis, theme: document.documentElement.dataset.theme };
+  try {
+    if (o.span === 'sel') {
+      S.win = S.sel.slice();
+      status('analysing the selection for the figure…');
+      S.analysis = await analyseSpan(S.win[0], S.win[1], params());
+    }
+    S.sel = null; S.cursor = null; S.selectedItem = null;
+    if (o.theme !== saved.theme) { document.documentElement.dataset.theme = o.theme; readPalette(); }
+    const panes = [];
+    if (o.wave) panes.push({ id: 'wave', draw: drawWave, h: 120 });
+    if (o.intens && S.analysis?.intensity) panes.push({ id: 'intens', draw: drawIntensity, h: 76 });
+    if (o.spec) panes.push({ id: 'spec', draw: drawSpec, h: 280 });
+    if (o.tiers) panes.push({ id: 'tiers', draw: drawTiers, h: PAD.t + PAD.b + lanes().length * LANE_H });
+    if (!panes.length) throw new Error('choose at least one pane');
+    const cap = o.caption ? figureCaption() : [];
+    const GAP = 6, capH = cap.length ? cap.length * 13 + 12 : 0;
+    const H = panes.reduce((s, p) => s + p.h, 0) + GAP * (panes.length - 1) + capH + 4;
+    // An SVG is drawn in its own units (the viewBox); only a PNG is scaled to dpi.
+    const scale = o.vector ? 1 : o.widthCm / CM_PER_IN * o.dpi / FIG_W;
+    const g = make(FIG_W, H, scale);
+    const bg = getComputedStyle(document.documentElement).getPropertyValue('--panel').trim() || '#fff';
+    g.setTransform(scale, 0, 0, scale, 0, 0);
+    g.fillStyle = bg; g.fillRect(0, 0, FIG_W, H);
+    let y = 2;
+    for (const p of panes) {
+      RENDER = new Map([[p.id, { g, w: FIG_W, h: p.h, scale, oy: y }]]);
+      p.draw();
+      RENDER = null;
+      y += p.h + GAP;
+    }
+    if (cap.length) {
+      g.setTransform(scale, 0, 0, scale, 0, 0);
+      g.fillStyle = C.dim; g.font = '9.5px ' + C.mono; g.textAlign = 'left'; g.textBaseline = 'top';
+      cap.forEach((line, i) => g.fillText(line, PAD.l, y + 4 + i * 13));
+    }
+    return { g, H, scale, t0: S.win[0], t1: S.win[1] };
+  } finally {
+    RENDER = null;
+    Object.assign(S, { win: saved.win, sel: saved.sel, cursor: saved.cursor, selectedItem: saved.item, analysis: saved.analysis });
+    if (document.documentElement.dataset.theme !== saved.theme) { document.documentElement.dataset.theme = saved.theme; readPalette(); }
+    drawAll();
+  }
+}
+
+/* What produced the picture, in Praat's own words, so the figure can be
+   reproduced and its caption written from it. */
+function figureCaption() {
+  const [t0, t1] = S.win, p = params();
+  const cmds = commandList(p, t0, t1).filter(c => !/^Extract part/.test(c));
+  const models = TKEYS.map(k => S.tracks[k].source && `${tierOf(k).label}: ${S.tracks[k].source}`).filter(Boolean);
+  const parts = [`${S.file?.name || S.name}, ${f3(t0)}–${f3(t1)} s.`, 'Praat:', ...cmds.map((c, i) => c + (i < cmds.length - 1 ? ';' : '.')),
+                 ...(models.length ? ['Tiers:', models.join('; ') + '.'] : [])];
+  // Wrapped to the figure's width at whole commands.
+  const lines = [];
+  let cur = '';
+  for (const part of parts) {
+    if (cur && (cur + ' ' + part).length > 118) { lines.push(cur); cur = part; }
+    else cur = cur ? cur + ' ' + part : part;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+async function exportPng() {
+  const o = figOpts();
+  try {
+    let cv;
+    const f = await drawFigure(o, (w, h, scale) => {
+      cv = document.createElement('canvas');
+      cv.width = Math.round(w * scale); cv.height = Math.round(h * scale);
+      return cv.getContext('2d');
+    });
+    const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
+    downloadBlob(`${fileStem()}_${spanTag(f.t0, f.t1)}_${o.dpi}dpi.png`, await pngWithDpi(blob, o.dpi));
+    status(`figure saved: ${cv.width} × ${cv.height} px, ${o.widthCm} cm wide at ${o.dpi} dpi`);
+  } catch (e) { status('figure failed: ' + (e.message || e), true); }
+}
+
+async function exportSvg() {
+  const o = figOpts();
+  try {
+    let svg;
+    const f = await drawFigure({ ...o, vector: true }, () => (svg = new SvgCtx()));
+    download(`${fileStem()}_${spanTag(f.t0, f.t1)}.svg`, svg.svg(FIG_W, f.H, o.widthCm), 'image/svg+xml');
+    status(`figure saved as SVG, ${o.widthCm} cm wide`);
+  } catch (e) { status('figure failed: ' + (e.message || e), true); }
+}
+
+/* ------------------------------------------------------- measurements */
+/* Values of one matrix row over [a, b], from an analysis of [A.t0, A.t1]. */
+function framesIn(m, A, a, b) {
+  const out = [];
+  if (!m || !m.rows[0]) return out;
+  for (let i = 0; i < m.nx; i++) {
+    const t = A.t0 + m.x1 + i * m.dx;
+    if (t < a) continue;
+    if (t > b) break;
+    const v = m.rows[0][i];
+    if (v > 0) out.push(v);
+  }
+  return out;
+}
+const mean = xs => xs.length ? xs.reduce((s, v) => s + v, 0) / xs.length : NaN;
+
+/* Duration, mean f0 over the voiced frames, F1-F3 as means and at the
+   midpoint, and mean intensity, as a phonetician tabulates vowels. */
+function measureFrom(A, a, b) {
+  const mid = (a + b) / 2;
+  return {
+    duration_ms: (b - a) * 1000,
+    f0_mean_Hz: mean(framesIn(A.pitch, A, a, b)),
+    F1_mean_Hz: mean(framesIn(A.formants[0], A, a, b)),
+    F2_mean_Hz: mean(framesIn(A.formants[1], A, a, b)),
+    F3_mean_Hz: mean(framesIn(A.formants[2], A, a, b)),
+    F1_mid_Hz: sampleAt(A.formants[0], mid, A.t0),
+    F2_mid_Hz: sampleAt(A.formants[1], mid, A.t0),
+    F3_mid_Hz: sampleAt(A.formants[2], mid, A.t0),
+    intensity_mean_dB: A.intensity ? mean(framesIn(A.intensity, A, a, b)) : NaN,
+  };
+}
+const MEAS_COLS = ['duration_ms', 'f0_mean_Hz', 'F1_mean_Hz', 'F2_mean_Hz', 'F3_mean_Hz',
+                   'F1_mid_Hz', 'F2_mid_Hz', 'F3_mid_Hz', 'intensity_mean_dB'];
+const fmtNum = (v, d = 1) => isFinite(v) ? v.toFixed(d) : '';
+const csvCell = v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+
+/* The analysis in use if it covers [a, b] with the current arguments, or a
+   fresh one of just that stretch (with a margin, so the edge frames exist). */
+async function analysisFor(a, b) {
+  const p = params(), A = S.analysis;
+  if (A && A.t0 <= a && b <= A.t1 && JSON.stringify(A.p) === JSON.stringify(p)) return A;
+  return analyseSpan(Math.max(0, a - 0.05), Math.min(S.dur, b + 0.05), p);
+}
+
+async function measureOne(a, b) { return measureFrom(await analysisFor(a, b), a, b); }
+
+/* f0, F1-F3 and intensity frame by frame over the window, on pitch's frames. */
+function tracksCsv() {
+  const A = S.analysis;
+  if (!A) throw new Error('nothing analysed yet');
+  const rows = ['time_s,f0_Hz,F1_Hz,F2_Hz,F3_Hz,intensity_dB'];
+  const m = A.pitch;
+  for (let i = 0; i < m.nx; i++) {
+    const t = A.t0 + m.x1 + i * m.dx;
+    const v = m.rows[0][i];
+    rows.push([t.toFixed(4), fmtNum(v > 0 ? v : NaN), ...[0, 1, 2].map(k => fmtNum(sampleAt(A.formants[k], t, A.t0))),
+               fmtNum(A.intensity ? sampleAt(A.intensity, t, A.t0) : NaN, 2)].join(','));
+  }
+  return rows.join('\n') + '\n';
+}
+
+/* One row per labelled interval of a tier, over the whole file. The file is
+   analysed in stretches of at most 15 s around the intervals, not all at once:
+   cost grows with length, and an hour of audio in one pass would stall. */
+async function intervalsCsv(key) {
+  const track = trackOf(key);
+  const items = (track?.items || []).filter(it => (it.text || '').trim());
+  if (!items.length) throw new Error('no labelled intervals on that tier');
+  const spk = S.tracks.speaker.items.length > 0 && key !== 'speaker';
+  const rows = [['tier', 'label', 'start_s', 'end_s', ...(spk ? ['speaker'] : []), ...MEAS_COLS].join(',')];
+  const label = lanes().find(l => l.key === key)?.label || key;
+  let i = 0, done = 0;
+  while (i < items.length) {
+    const a = items[i].start;
+    let j = i;
+    while (j + 1 < items.length && items[j + 1].end - a <= 15) j++;
+    const A = await analysisFor(a, Math.max(items[j].end, a + 0.02));
+    for (let k = i; k <= j; k++) {
+      const it = items[k], m = measureFrom(A, it.start, it.end);
+      rows.push([csvCell(label), csvCell(it.text), it.start.toFixed(4), it.end.toFixed(4),
+                 ...(spk ? [csvCell(speakerFor(it.start, it.end)?.name || '')] : []),
+                 ...MEAS_COLS.map(c => fmtNum(m[c], c === 'intensity_mean_dB' ? 2 : 1))].join(','));
+    }
+    done = j + 1; i = j + 1;
+    status(`measuring: ${done} of ${items.length} intervals`);
+  }
+  return rows.join('\n') + '\n';
+}
+
+async function saveTracks() {
+  try {
+    const [a, b] = S.analysis ? [S.analysis.t0, S.analysis.t1] : S.win;
+    download(`${fileStem()}_${spanTag(a, b)}_tracks.csv`, tracksCsv(), 'text/csv');
+    status('tracks saved');
+  } catch (e) { status('tracks failed: ' + e.message, true); }
+}
+async function saveIntervals(key) {
+  try {
+    const csv = await intervalsCsv(key);
+    download(`${fileStem()}_${key}_measurements.csv`, csv, 'text/csv');
+    status(`measurements saved: ${csv.split('\n').length - 2} intervals`);
+  } catch (e) { status('measurements failed: ' + e.message, true); }
+}
+
+function openPaperDialog() {
+  if (!S.audio) return status('open a recording first', true);
+  const sel = S.sel;
+  $('figSpanWinLabel').textContent = `the window on screen (${f2(S.win[0])}–${f2(S.win[1])} s)`;
+  $('figSpanSel').disabled = !sel;
+  $('figSpanSelLabel').textContent = sel ? `the selection (${f2(sel[0])}–${f2(sel[1])} s)` : 'the selection (none)';
+  if (!sel) $('figSpanWin').checked = true;
+  $('figInt').disabled = !S.analysis?.intensity;
+  $('mTier').innerHTML = lanes().filter(l => l.track.items.length)
+    .map(l => `<option value="${esc(l.key)}">${esc(l.label)}</option>`).join('') || '<option value="">(no tier has intervals)</option>';
+  $('mTier').value = lanes().some(l => l.key === S.activeLane && l.track.items.length) ? S.activeLane : $('mTier').value;
+  $('paperDlg').hidden = false;
+}
+$('paperOpen').addEventListener('click', openPaperDialog);
+$('paperClose').addEventListener('click', () => { $('paperDlg').hidden = true; });
+$('paperDlg').addEventListener('click', e => { if (e.target === $('paperDlg')) $('paperDlg').hidden = true; });
+$('figPng').addEventListener('click', exportPng);
+$('figSvg').addEventListener('click', exportSvg);
+$('mTracks').addEventListener('click', saveTracks);
+$('mIntervals').addEventListener('click', () => $('mTier').value && saveIntervals($('mTier').value));
+
+/* ---------------------------------------------------- right-click menus */
+/* Every menu offers what the toolbar already does, at the place it applies to,
+   plus copying: a label, a time, a measurement, in the form a spreadsheet or a
+   paper takes it. */
+function openMenu(x, y, items) {
+  closeMenu();
+  const el = document.createElement('div');
+  el.className = 'ctxmenu';
+  el.innerHTML = items.map((it, i) => it === '-' ? '<hr>' :
+    `<div data-i="${i}" class="${it.off ? 'off' : ''}">${esc(it.label)}${it.key ? `<i>${esc(it.key)}</i>` : ''}</div>`).join('');
+  document.body.appendChild(el);
+  const r = el.getBoundingClientRect();
+  el.style.left = Math.min(x, innerWidth - r.width - 6) + 'px';
+  el.style.top = Math.min(y, innerHeight - r.height - 6) + 'px';
+  el.addEventListener('mousedown', e => e.preventDefault());
+  el.addEventListener('click', e => {
+    const d = e.target.closest('div[data-i]');
+    if (!d || d.classList.contains('off')) return;
+    closeMenu();
+    items[+d.dataset.i].run?.();
+  });
+  openMenu.el = el;
+}
+function closeMenu() { openMenu.el?.remove(); openMenu.el = null; }
+addEventListener('mousedown', e => { if (openMenu.el && !openMenu.el.contains(e.target)) closeMenu(); }, true);
+addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+addEventListener('blur', closeMenu);
+addEventListener('resize', closeMenu);
+addEventListener('scroll', closeMenu, true);
+
+async function copyText(text, what) {
+  try { await navigator.clipboard.writeText(text); status(`copied ${what}`); }
+  catch { status('the clipboard is not available here', true); }
+}
+const timesRow = (a, b) => `${a.toFixed(3)}\t${b.toFixed(3)}\t${((b - a) * 1000).toFixed(0)}`;
+async function copyMeasurements(a, b, label) {
+  try {
+    status('measuring…');
+    const m = await measureOne(a, b);
+    copyText(`label\tstart_s\tend_s\t${MEAS_COLS.join('\t')}\n` +
+             `${label ?? ''}\t${a.toFixed(4)}\t${b.toFixed(4)}\t${MEAS_COLS.map(c => fmtNum(m[c], c === 'intensity_mean_dB' ? 2 : 1)).join('\t')}`,
+             'the measurements (tab-separated, with a header)');
+  } catch (e) { status('measuring failed: ' + e.message, true); }
+}
+const zoomTo = (a, b) => { const pad = Math.max(0.05, (b - a) * 0.15); setWindow(a - pad, b + pad); };
+const selectSpan = (a, b, item = null) => { S.sel = [a, b]; S.selectedItem = item; drawAll(); };
+
+$('tiers').addEventListener('contextmenu', e => {
+  if (!S.audio) return;
+  e.preventDefault();
+  const r = $('tiers').getBoundingClientRect();
+  const lane = laneAtY(e.clientY), t = timeAtX(e.clientX), track = lane.track;
+  const fixed = TIERS.find(T => T.key === lane.key), extra = S.extra.find(x => x.key === lane.key);
+  if (lane.key !== S.activeLane) setActiveLane(lane.key, false);
+  const tierItems = [
+    ...(fixed && S.tracks[lane.key].model ? [{ label: `Run ${S.tracks[lane.key].model} on this tier`, run: () => enqueue(lane.key) }] : []),
+    ...(extra ? [{ label: 'Rename tier…', run: renameTier }, { label: 'Remove tier', run: removeTier }] : []),
+    { label: 'Copy the whole tier', off: !track.items.length,
+      run: () => copyText('start\tend\tduration_ms\tlabel\n' + track.items.map(it => `${timesRow(it.start, it.end)}\t${it.text || ''}`).join('\n'), `the ${lane.label} tier`) },
+    { label: 'Measure every interval (CSV)…', off: !track.items.some(it => (it.text || '').trim()), run: () => saveIntervals(lane.key) },
+  ];
+  if (e.clientX - r.left < PAD.l) return openMenu(e.clientX, e.clientY, tierItems);
+  const busy = busyTrack(track);
+  const it = track.items.find(x => x.start <= t && t <= x.end);
+  if (!it) {
+    return openMenu(e.clientX, e.clientY, [
+      { label: 'Add an interval here…', off: busy, key: 'double-click',
+        run: () => $('tiers').dispatchEvent(new MouseEvent('dblclick', { clientX: e.clientX, clientY: e.clientY })) },
+      '-', ...tierItems, '-',
+      { label: 'Figure / measurements…', run: openPaperDialog },
+    ]);
+  }
+  selectSpan(it.start, it.end, it); probe(t);
+  const items = track.items, idx = items.indexOf(it);
+  openMenu(e.clientX, e.clientY, [
+    { label: 'Play', key: 'Space', run: () => play(it.start, it.end) },
+    { label: 'Zoom to this interval', run: () => zoomTo(it.start, it.end) },
+    { label: 'Edit label', key: 'Enter', off: busy, run: () => openLabelEditor(lane.key, it) },
+    '-',
+    { label: 'Add boundary here', key: 'B', off: busy, run: () => { S.cursor = t; splitAtCursor(); } },
+    { label: 'Merge with next', key: 'M', off: busy || idx === items.length - 1, run: () => { S.selectedItem = it; mergeNext(); } },
+    { label: 'Merge with previous', off: busy || idx === 0, run: () => { S.selectedItem = items[idx - 1]; mergeNext(); } },
+    { label: 'Delete interval', key: 'Del', off: busy, run: () => { S.selectedItem = it; deleteSelected(); } },
+    '-',
+    { label: 'Copy label', run: () => copyText(it.text || '', 'the label') },
+    { label: 'Copy times', run: () => copyText(timesRow(it.start, it.end), 'start, end and duration (ms)') },
+    { label: 'Copy measurements', run: () => copyMeasurements(it.start, it.end, it.text) },
+    '-', ...tierItems.filter(x => !/Copy the whole/.test(x.label)),
+    { label: 'Figure / measurements…', run: openPaperDialog },
+  ]);
+});
+
+/* Waveform, intensity and spectrogram share one menu: they share the time axis. */
+for (const id of ['wave', 'intens', 'spec']) {
+  $(id).addEventListener('contextmenu', e => {
+    if (!S.audio) return;
+    e.preventDefault();
+    const t = xToTime(e, S.win[0], S.win[1]);
+    probe(t); drawAll();
+    const A = S.analysis, lane = lanes().find(l => l.key === S.activeLane);
+    const readout = () => {
+      const vals = [t.toFixed(4), ...(A ? [sampleAt(A.pitch, t, A.t0), ...A.formants.map(m => sampleAt(m, t, A.t0))].map(v => fmtNum(v)) : ['', '', '', '']),
+                    fmtNum(A?.intensity ? sampleAt(A.intensity, t, A.t0) : NaN, 2), labelAt(t).replace(/^—$/, '')];
+      copyText('time_s\tf0_Hz\tF1_Hz\tF2_Hz\tF3_Hz\tintensity_dB\tlabel\n' + vals.join('\t'), 'the readout at the cursor');
+    };
+    openMenu(e.clientX, e.clientY, [
+      S.sel ? { label: 'Play selection', key: 'Space', run: () => play(S.sel[0], S.sel[1]) }
+            : { label: 'Play window', key: 'Space', run: () => play(S.win[0], S.win[1]) },
+      { label: 'Zoom to selection', off: !S.sel, run: () => setWindow(S.sel[0], S.sel[1]) },
+      { label: 'Zoom out', run: () => $('zoomOut').click() },
+      { label: 'Show the whole file', run: () => setWindow(0, S.dur) },
+      '-',
+      { label: `Add boundary here on ${lane?.label || 'the active tier'}`, off: !lane || busyTrack(lane.track),
+        run: () => { S.cursor = t; splitAtCursor(); } },
+      ...(S.sel ? [{ label: 'Copy measurements of the selection', run: () => copyMeasurements(S.sel[0], S.sel[1], labelAt((S.sel[0] + S.sel[1]) / 2)) }] : []),
+      { label: 'Copy the readout here', off: !A, run: readout },
+      ...(id === 'spec' ? ['-',
+        { label: ($('showF0').checked ? '✓ ' : '') + 'Show f0', run: () => { $('showF0').click(); } },
+        { label: ($('showFmt').checked ? '✓ ' : '') + 'Show formants', run: () => { $('showFmt').click(); } }] : []),
+      '-',
+      { label: 'Save figure…', run: openPaperDialog },
+      { label: 'Save tracks of this window (CSV)', off: !A, run: saveTracks },
+    ]);
+  });
+}
+
+$('segTable').addEventListener('contextmenu', e => {
+  const tr = e.target.closest('tr[data-i]');
+  if (!tr) return;
+  e.preventDefault();
+  const key = $('segWhich').value, it = trackOf(key)?.items[+tr.dataset.i];
+  if (!it) return;
+  tr.click();
+  openMenu(e.clientX, e.clientY, [
+    { label: 'Play', run: () => play(it.start, it.end) },
+    { label: 'Zoom to this interval', run: () => zoomTo(it.start, it.end) },
+    '-',
+    { label: 'Copy row', run: () => copyText(`${timesRow(it.start, it.end)}\t${it.text || ''}`, 'the row') },
+    { label: 'Copy measurements', run: () => copyMeasurements(it.start, it.end, it.text) },
+    { label: 'Copy table', run: () => $('segCopy').click() },
+    { label: 'Measure every interval (CSV)…', run: () => saveIntervals(key) },
+  ]);
+});
+
+$('transcript').addEventListener('contextmenu', e => {
+  const cue = e.target.closest('.cue[data-a]');
+  if (!cue) return;
+  e.preventDefault();
+  const a = +cue.dataset.a, b = +cue.dataset.b;
+  const text = cue.querySelector('.tx')?.textContent || '', ipa = cue.querySelector('.ipa')?.textContent || '';
+  selectSpan(a, b);
+  openMenu(e.clientX, e.clientY, [
+    { label: 'Play', run: () => play(a, b) },
+    { label: 'Zoom to this line', run: () => zoomTo(a, b) },
+    '-',
+    { label: 'Copy text', run: () => copyText(text, 'the line') },
+    ...(ipa ? [{ label: 'Copy text and IPA', run: () => copyText(`${text}\n${ipa}`, 'the line and its IPA') }] : []),
+    { label: 'Copy the whole transcript', run: () => copyText($('transcript').innerText, 'the transcript') },
+  ]);
+});
 
 /* --------------------------------------------------------------- settings */
 function openSettings(open) { $('settings').hidden = !open; }

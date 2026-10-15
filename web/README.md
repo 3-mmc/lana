@@ -141,6 +141,14 @@ That choice matters more for documentation work than for laboratory phonetics. F
 
 One point about the import itself. Praat requires the intervals of a tier to tile the file without gaps, so this tool writes an empty interval wherever no word or phone falls. ELAN's import dialog offers "Skip empty intervals / annotations", and leaving that checked keeps the padding out of the ELAN document, where it would otherwise arrive as a run of empty annotations.
 
+### Figures and measurements for a paper
+
+**⬇ Figure / measurements…** draws the panes again for print rather than capturing the screen. The same functions that draw the window draw the figure, into a canvas at 300 or 600 dpi or into an SVG, so the exported axes, tracks and tier boundaries are the ones that were inspected, on the white Paper theme by default. The PNG carries its resolution in the file, so a 16 cm figure arrives in Word or LaTeX at 16 cm rather than at the size a 96 dpi assumption would give it. The SVG keeps text, tracks and boundaries as vectors for editing in Inkscape or Illustrator; the spectrogram remains an image inside it, because it is raster data in the first place. A caption under the figure prints the file, the time span, every Praat command with its arguments and the model behind each tier, which is what a figure legend in a phonetics paper has to report anyway.
+
+Measurements come out as CSV for R or a spreadsheet. The tracks file holds f0, F1 to F3 and intensity frame by frame over the window. The intervals file holds one row per labelled interval of a chosen tier across the whole recording: duration, mean f0 over the voiced frames, F1 to F3 as means and at the midpoint, mean intensity, and the speaker where a speaker tier exists. The file is analysed in stretches of at most fifteen seconds around the intervals, with the arguments in the Analysis pane, so a vowel table for an hour of fieldwork does not require analysing the hour in one pass.
+
+Right-clicking offers the same operations where they apply. On an interval: play, zoom, edit, split, merge, delete, and copy its label, its times or its measurements. On the waveform or spectrogram: playback and zoom, a boundary at the pointer, the readout at the pointer, and the figure and tracks exports. Copied values are tab-separated with a header row, so they paste into a spreadsheet as columns.
+
 ## Connecting a recogniser
 
 There are two ways to reach one, and the tool does not prefer either.
