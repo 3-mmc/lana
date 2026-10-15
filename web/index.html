@@ -125,6 +125,19 @@
   #spec{height:330px;cursor:crosshair}
   #tiers{height:132px;cursor:pointer;display:block;width:100%}
   .tierwrap{position:relative}
+  .pane{position:relative}
+  /* The playback position, one line per pane, laid over the canvases. Red with
+     a dark edge, so it shows on the light spectrogram and the dark waveform. */
+  .playhead{position:absolute;width:2px;margin-left:-1px;background:#ff453a;pointer-events:none;z-index:3;
+            box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+  /* Actions for the selection, floating at its top edge, so what can be done
+     with a selection is next to it rather than in a row of small buttons. */
+  #selbar{position:absolute;z-index:5;display:flex;gap:4px;padding:3px;border-radius:5px;
+          background:var(--raise);border:1px solid var(--line);box-shadow:0 2px 8px rgba(0,0,0,.25);
+          transform:translateX(-50%);white-space:nowrap}
+  #selbar button{font-size:11px}
+  #selbar[hidden], #selbar [hidden]{display:none}
+  .row .sep{width:1px;align-self:stretch;background:var(--line2);margin:0 4px}
   #labEdit{position:absolute;z-index:4;box-sizing:border-box;padding:0 6px;text-align:center;
            font:13px ui-sans-serif,system-ui,sans-serif;background:var(--panel);color:var(--ink);
            border:1px solid var(--accent);border-radius:3px;outline:none}
@@ -555,11 +568,19 @@
     </h2>
     <canvas id="overview"></canvas>
     <canvas id="wave"></canvas>
+    <div id="selbar" hidden>
+      <button class="tiny" data-sb="zoom" title="Show only the selection (Z)">⤢ Zoom in</button>
+      <button class="tiny" data-sb="play" title="Play the selection (Space)">▶ Play</button>
+      <button class="tiny" data-sb="run" title="Run the chosen recognisers on this stretch only">Recognise…</button>
+    </div>
     <div class="row tight">
       <button id="play" class="tiny">▶ File</button>
       <button id="playwin" class="tiny">▶ Window</button>
       <button id="playsel" class="tiny" disabled>▶ Selection</button>
-      <button id="zoomSel" class="tiny" disabled>zoom to selection</button>
+      <button id="pause" class="tiny" hidden title="Pause, and carry on from the same place (Space)">⏸ Pause</button>
+      <button id="stopPlay" class="tiny" hidden title="Stop playing (Esc)">■ Stop</button>
+      <span class="sep"></span>
+      <button id="zoomSel" class="tiny" disabled title="Show only the selection (Z)">⤢ zoom to selection</button>
       <button id="zoomOut" class="tiny">−</button>
       <button id="zoomIn" class="tiny">+</button>
       <button id="zoomAll" class="tiny">all</button>
@@ -806,7 +827,7 @@
 </div>
 
 <footer>
-  <strong>Lana</strong> (Linguistic ANAlysis) — phonetic analysis with recognised tiers. Not affiliated with the Praat project.
+  <strong>Lana</strong> (Linguistic ANAlysis) by Aaron van Blerkom — phonetic analysis with recognised tiers. Not affiliated with the Praat project.
   Analysis by <a href="https://www.fon.hum.uva.nl/praat/" target="_blank" rel="noopener">Praat</a>
   (Paul Boersma &amp; David Weenink), compiled to WebAssembly as
   <a href="https://www.npmjs.com/package/praat-wasm" target="_blank" rel="noopener">praat-wasm</a>
@@ -1340,6 +1361,7 @@ $('file').addEventListener('change', async ev => {
    $('file').files (the upload, fileKey) sees it too. Used for dropped files and
    for a file the desktop app was opened with. */
 function openFile(f) {
+  stopPlayback();
   const dt = new DataTransfer();
   dt.items.add(f);
   $('file').files = dt.files;
@@ -1379,6 +1401,18 @@ async function wav16k() {
   const blob = new Blob([encodeWav(await ctx.startRendering())], { type: 'audio/wav' });
   S.wav16 = { key, blob };
   return blob;
+}
+
+/* A stretch of the recording as 16 kHz mono WAV, for a run on the selection.
+   Every recogniser takes WAV, and an excerpt is small enough that sending it
+   uncompressed costs nothing. */
+async function wavSpan(a, b) {
+  const rate = 16000, len = Math.max(1, Math.ceil((b - a) * rate));
+  const ctx = new OfflineAudioContext(1, len, rate);
+  const src = ctx.createBufferSource();
+  src.buffer = S.audio; src.connect(ctx.destination);
+  src.start(0, a, b - a);
+  return new Blob([encodeWav(await ctx.startRendering())], { type: 'audio/wav' });
 }
 
 function encodeWav(buf) {
@@ -2078,6 +2112,8 @@ function drawAll() {
   $('wininfo').textContent =
     `window ${f3(t0)}–${f3(t1)} s (${f3(t1 - t0)} s, ${Math.round((t1 - t0) * (S.audio?.sampleRate || 0))} samples)`;
   updateSelInfo();
+  placeSelbar();
+  drawPlayhead();
   ensureHatch();
 }
 
@@ -2206,21 +2242,120 @@ $('zoomSel').addEventListener('click', () => { if (S.sel) setWindow(S.sel[0], S.
 for (const id of ['showF0', 'showFmt']) $(id).addEventListener('change', drawSpec);
 
 /* ------------------------------------------------------------- playback */
+/* One player. A range plays from a position: Pause keeps the position and
+   Resume carries on from it, Stop forgets it. Web Audio cannot pause a buffer
+   source, so Pause stops the source and Resume starts a new one where the old
+   one was. A red line in every pane shows what is playing. */
+const PB = { from: 0, to: 0, pos: 0, t0: 0, state: 'stopped', src: null, raf: 0 };
+const playPos = () => PB.state === 'playing' ? Math.min(PB.to, PB.pos + (S.ctx.currentTime - PB.t0)) : PB.pos;
 function play(from, to) {
   if (!S.audio) return;
-  if (S.src) { try { S.src.stop(); } catch {} }
+  stopSource();
+  PB.from = from; PB.to = to;
+  startAt(from);
+}
+function startAt(pos) {
+  if (S.ctx.state === 'suspended') S.ctx.resume();
   const src = S.ctx.createBufferSource();
   src.buffer = S.audio; src.connect(S.ctx.destination);
-  src.start(0, from, Math.max(0.01, to - from));
-  S.src = src;
+  src.start(0, pos, Math.max(0.01, PB.to - pos));
+  src.onended = () => {
+    if (PB.src !== src) return;          // stopped on purpose; the stopper set the state
+    PB.src = null; PB.state = 'stopped'; PB.pos = PB.from;
+    showTransport();
+  };
+  Object.assign(PB, { src, pos, t0: S.ctx.currentTime, state: 'playing' });
+  showTransport();
+}
+function stopSource() {
+  const s = PB.src;
+  PB.src = null;
+  if (s) try { s.stop(); } catch {}
+}
+function pausePlayback() {
+  if (PB.state !== 'playing') return;
+  PB.pos = playPos(); stopSource(); PB.state = 'paused';
+  showTransport();
+}
+function resumePlayback() { if (PB.state === 'paused') startAt(PB.pos); }
+function stopPlayback() { stopSource(); PB.state = 'stopped'; PB.pos = PB.from; showTransport(); }
+/* Space: pause what is playing, resume what is paused, or play the selection
+   (the window when nothing is selected). */
+function togglePlay() {
+  if (PB.state === 'playing') pausePlayback();
+  else if (PB.state === 'paused') resumePlayback();
+  else S.sel ? play(S.sel[0], S.sel[1]) : play(S.win[0], S.win[1]);
+}
+function showTransport() {
+  const on = PB.state !== 'stopped';
+  $('pause').hidden = $('stopPlay').hidden = !on;
+  $('pause').textContent = PB.state === 'paused' ? '▶ Resume' : '⏸ Pause';
+  cancelAnimationFrame(PB.raf);
+  const step = () => { drawPlayhead(); if (PB.state === 'playing') PB.raf = requestAnimationFrame(step); };
+  step();
+}
+const PH_PANES = ['overview', 'wave', 'intens', 'spec', 'tiers'];
+function drawPlayhead() {
+  const t = PB.state === 'stopped' ? null : playPos();
+  for (const id of PH_PANES) {
+    const cv = $(id);
+    let el = cv._playhead;
+    if (!el) { el = cv._playhead = document.createElement('div'); el.className = 'playhead'; el.hidden = true; }
+    const host = cv.offsetParent;
+    if (t == null || !host || !cv.clientWidth) { el.hidden = true; continue; }
+    if (el.parentElement !== host) host.appendChild(el);
+    const [a, b] = id === 'overview' ? [0, S.dur] : S.win;
+    const frac = (t - a) / ((b - a) || 1);
+    if (frac < 0 || frac > 1) { el.hidden = true; continue; }
+    el.hidden = false;
+    el.style.left = cv.offsetLeft + PAD.l + frac * (cv.clientWidth - PAD.l - PAD.r) + 'px';
+    el.style.top = cv.offsetTop + 'px';
+    el.style.height = cv.clientHeight + 'px';
+  }
 }
 $('play').addEventListener('click', () => play(0, S.dur));
 $('playwin').addEventListener('click', () => play(S.win[0], S.win[1]));
 $('playsel').addEventListener('click', () => S.sel && play(S.sel[0], S.sel[1]));
+$('pause').addEventListener('click', () => PB.state === 'paused' ? resumePlayback() : pausePlayback());
+$('stopPlay').addEventListener('click', stopPlayback);
 
 addEventListener('keydown', e => {
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
-  if (e.code === 'Space') { e.preventDefault(); S.sel ? play(S.sel[0], S.sel[1]) : play(S.win[0], S.win[1]); }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+  else if (e.key === 'Escape' && PB.state !== 'stopped' && !openMenu.el) stopPlayback();
+  else if ((e.key === 'z' || e.key === 'Z') && !e.shiftKey && S.sel) { e.preventDefault(); setWindow(S.sel[0], S.sel[1]); }
+});
+
+/* The selection's own actions, at its top edge on the waveform. Hidden when
+   the selection is off screen, and when it already fills the window there is
+   nothing to zoom to, so that button goes. */
+function placeSelbar() {
+  const bar = $('selbar'), cv = $('wave');
+  if (!S.sel || !S.audio || !cv.clientWidth) { bar.hidden = true; return; }
+  const [w0, w1] = S.win, a = Math.max(S.sel[0], w0), b = Math.min(S.sel[1], w1);
+  if (b <= a) { bar.hidden = true; return; }
+  const iw = cv.clientWidth - PAD.l - PAD.r, x = t => PAD.l + (t - w0) / (w1 - w0) * iw;
+  const fills = Math.abs(S.sel[0] - w0) < 1e-3 && Math.abs(S.sel[1] - w1) < 1e-3;
+  bar.querySelector('[data-sb=zoom]').hidden = fills;
+  bar.querySelector('[data-sb=run]').hidden = !TKEYS.some(k => S.tracks[k].model);
+  bar.hidden = false;
+  const half = bar.offsetWidth / 2;
+  bar.style.left = cv.offsetLeft + Math.max(half + 2, Math.min(cv.clientWidth - half - 2, (x(a) + x(b)) / 2)) + 'px';
+  bar.style.top = cv.offsetTop + 4 + 'px';
+}
+$('selbar').addEventListener('mousedown', e => e.preventDefault());
+$('selbar').addEventListener('click', e => {
+  const b = e.target.closest('button[data-sb]');
+  if (!b || !S.sel) return;
+  if (b.dataset.sb === 'zoom') setWindow(S.sel[0], S.sel[1]);
+  else if (b.dataset.sb === 'play') {
+    // Pause/resume the selection if it is what is playing; otherwise play it,
+    // even if the whole file is playing at the moment.
+    const same = PB.state !== 'stopped' && PB.from === S.sel[0] && PB.to === S.sel[1];
+    same ? togglePlay() : play(S.sel[0], S.sel[1]);
+  }
+  else { const r = b.getBoundingClientRect(); openMenu(r.left, r.bottom + 2, recogniseSelectionItems()); }
 });
 
 /* ------------------------------------------------------------ connection */
@@ -2243,6 +2378,7 @@ const ctrlUrl = path => CFG.ctrlBase ? asrUrl(CFG.ctrlBase.replace(/\/$/, '') + 
 
 const ROLE_HINTS = { ipa: 'both', 'ipa-buckeye': 'both', mms: 'words', whisper: 'words', owsm: 'words' };
 const guessRole = id => ROLE_HINTS[id] || (/diariz|speaker/i.test(id) ? 'speakers'
+                       : /zipa|powsm|wav2vec2?-.*phon/i.test(id) ? 'phones'
                        : /ipa|phone|xeus|buckeye|allosaurus/i.test(id) ? 'both' : 'words');
 
 const NET = {
@@ -2273,14 +2409,14 @@ const NET = {
   async loadModels() {
     if (NET.mode === 'broker') {
       NET.models = (NET.provider?.models || []).map(m => ({
-        id: m.id, label: m.label || m.id, role: m.role || guessRole(m.id) }));
+        id: m.id, label: m.label || m.id, role: m.role || guessRole(m.id), guessed: !m.role }));
       $('asrstate').textContent = 'not checked';
     } else {
       try {
         const r = await fetch(asrUrl('/v1/models'), { cache: 'no-store' });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const ids = ((await r.json()).data || []).map(m => m.id).filter(Boolean).sort();
-        NET.models = ids.map(id => ({ id, label: id, role: guessRole(id) }));
+        NET.models = ids.map(id => ({ id, label: id, role: guessRole(id), guessed: true }));
         $('asrstate').textContent = `${ids.length} model${ids.length === 1 ? '' : 's'} listed`
           + (NET.hasControl() ? '' : ' · no control endpoint');
       } catch (e) {
@@ -2390,19 +2526,28 @@ function renderConnection() {
 function fillModelSelects() {
   for (const t of TIERS) {
     const el = $(t.sel), cur = S.tracks[t.key].model || CFG[t.cfg];
-    /* A speakers model cannot fill a word tier and a recogniser cannot fill a
-       speaker tier, so the speaker select offers only what could work. The
-       other two keep listing everything, because the response is believed over
-       the provider's role hint and a model often returns more than it claims. */
+    /* Each tier offers the models made for it: a word model on the phone tier
+       fills it with whole words, which looked like a broken recogniser. A
+       model whose role the provider did not say is offered everywhere, since
+       nothing says it cannot. The others are listed under the ones that fit,
+       greyed out, with the tier they are for, so a missing model is explained
+       rather than just absent. The speaker tier lists speaker models only.
+       A role Lana only guessed from the model's name (a direct endpoint, or a
+       provider that did not say) never locks a model out: it is listed with
+       the others, still choosable, since the guess may be wrong. */
     const pins = CFG.mmsPins || [];
     const pinned = m => pins.includes((m.id.match(/^mms-(.+)$/) || [])[1]);
-    const pool = (t.optional ? NET.models.filter(m => m.role === t.role) : NET.models)
+    const fits = m => !m.role || m.role === 'both' || m.role === t.role;
+    const lockedOut = m => !fits(m) && !m.guessed;
+    const sorted = (t.optional ? NET.models.filter(m => m.role === t.role) : NET.models)
       .slice().sort((a, b) => pinned(b) - pinned(a));
-    el.innerHTML = '<option value="">(none)</option>' + pool.map(m => {
-      const fits = m.role === 'both' || m.role === t.role;
-      return `<option value="${esc(m.id)}">${esc(m.label)}${fits ? '' : ' — ' + m.role + ' only'}</option>`;
-    }).join('');
-    el.value = pool.some(m => m.id === cur) ? cur : '';
+    const good = sorted.filter(m => !lockedOut(m)), other = sorted.filter(lockedOut);
+    const tierName = { words: 'word', phones: 'phone', speakers: 'speaker' };
+    el.innerHTML = '<option value="">(none)</option>' +
+      good.map(m => `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join('') +
+      (other.length ? `<optgroup label="For other tiers">` + other.map(m =>
+        `<option value="${esc(m.id)}" disabled>${esc(m.label)} — for the ${tierName[m.role] || m.role} tier</option>`).join('') + '</optgroup>' : '');
+    el.value = good.some(m => m.id === cur) ? cur : '';
     S.tracks[t.key].model = el.value;
   }
   renderPlan();
@@ -2889,6 +3034,7 @@ function showIdle(note) {
    that away. */
 async function pullPartial(j) {
   if (S.running && S.running.file !== fileKey()) return;
+  if (S.running?.span) return;   // an excerpt's times; the merged result arrives at the end
   if (j.job != null && j.job !== partialJob) {
     partialJob = j.job; partialSince = 0; partialCues = [];
   }
@@ -2975,6 +3121,56 @@ $('stop').addEventListener('click', async () => {
 /* --------------------------------------------------------------- the run */
 function sizeApplies(model) {
   return ['ipa', 'ipa-buckeye', 'whisper'].includes(model);
+}
+
+/* A selection run: the recogniser heard only [a, b], so its times are moved
+   back to the recording's, and on each tier it fills, the intervals inside
+   the selection are replaced while those outside stay as they were. The
+   span was already widened to whole intervals (enqueue); an interval that
+   crosses an edge anyway, edited in while the job waited, is cut at it. The tier then counts as edited,
+   since it is no longer one model's output, and the transcript is rebuilt
+   from the intervals. */
+function shiftCues(cues, d) {
+  const sh = v => (v == null || v === '' || !isFinite(+v)) ? v : +v + d;
+  return cues.map(c => ({ ...c, start: sh(c.start), end: sh(c.end),
+    words: (c.words || []).map(w => ({ ...w, start: sh(w.start), end: sh(w.end),
+                                       ...(w.phone_times ? { phone_times: w.phone_times.map(sh) } : {}) })) }));
+}
+function mergeSpan(job, cues) {
+  const [a, b] = job.span, shifted = shiftCues(cues, a);
+  for (const k of job.claims) {
+    const t = S.tracks[k];
+    const fresh = itemsFrom(shifted, k).items
+      .map(it => ({ ...it, start: Math.max(a, it.start), end: Math.min(b, it.end) }))
+      .filter(it => it.end - it.start > 1e-4);
+    const kept = [];
+    for (const it of t.items) {
+      if (it.end <= a || it.start >= b) kept.push(it);
+      else {
+        if (it.start < a) kept.push({ ...it, end: a });
+        if (it.end > b) kept.push({ ...it, start: b });
+      }
+    }
+    t.items = tidy([...kept, ...fresh].sort((x, y) => x.start - y.start), S.dur);
+    t.edited = true; t.state = 'done';
+    t.note = `${fresh.length} interval${fresh.length === 1 ? '' : 's'} from ${job.model} on ${f2(a)}–${f2(b)} s`;
+    if (!/\(selection\)/.test(t.source || '')) t.source = (t.source ? t.source + ' + ' : '') + job.model + ' (selection)';
+  }
+  stampSpeakers();
+  renderPlan(); renderSegments(); drawTiers(); updateTierInfo(); renderTranscript();
+  PROJ.dirty();
+}
+/* What can be run on the selection: each tier with a model, or all of them. */
+function recogniseSelectionItems() {
+  const ready = TIERS.filter(T => S.tracks[T.key].model && (!T.optional || shownTiers().includes(T)));
+  if (!S.sel) return [{ label: 'Select a stretch first', off: true }];
+  if (!ready.length) return [{ label: 'Choose a model for a tier first (Recognition panel)', off: true }];
+  const busy = ready.some(T => busyTrack(S.tracks[T.key]));
+  return [
+    ...(ready.length > 1 ? [{ label: 'All chosen models', off: busy, run: () => enqueue(null, S.sel) }, '-'] : []),
+    ...ready.map(T => ({ label: `${T.label} — ${S.tracks[T.key].model}`, off: busyTrack(S.tracks[T.key]),
+                         run: () => enqueue(T.key, S.sel) })),
+  ];
 }
 
 function buildJobs(only) {
@@ -3066,7 +3262,8 @@ async function runJob(job) {
      transcribe ("unsupported codec"). Anything that plays here now transcribes,
      and nothing is lost, since every built-in model reads 16 kHz mono anyway.
      Cloud services keep the original, which is usually far smaller. */
-  if (NET.mode === 'broker' && NET.provider?.kind === 'builtin' && S.audio) fd.append('file', await wav16k(), S.name + '.wav');
+  if (job.span) fd.append('file', await wavSpan(job.span[0], job.span[1]), `${fileStem()}_${spanTag(...job.span)}.wav`);
+  else if (NET.mode === 'broker' && NET.provider?.kind === 'builtin' && S.audio) fd.append('file', await wav16k(), S.name + '.wav');
   else fd.append('file', f, f.name);
   fd.append('model', job.model);
   fd.append('response_format', 'verbose_json');
@@ -3106,17 +3303,19 @@ async function runJob(job) {
     /* The service keeps this recording against its hash, which is what makes a
        re-cluster possible. Tie it to the file identity as well: a hash from the
        previous file would re-cluster the wrong recording. */
+    // An excerpt's hash would re-cluster the excerpt onto the whole tier: none.
     if (job.concurrent)
-      S.tracks.speaker.cached = body.hash ? { hash: body.hash, file: fileKey() } : null;
-    applyCues(cues, job.model, 'done', job.claims);
-    if (!cues.length && (body.text || '').trim()) {
+      S.tracks.speaker.cached = body.hash && !job.span ? { hash: body.hash, file: fileKey() } : null;
+    if (job.span) mergeSpan(job, cues);
+    else applyCues(cues, job.model, 'done', job.claims);
+    if (!job.span && !cues.length && (body.text || '').trim()) {
       mergeTranscript([{ start: 0, end: S.dur, plain: body.text.trim() }]);
       for (const k of job.claims)
         setTrackState(k, 'done', 'the model returned text with no timings, so no tier could be drawn');
     }
     job.state = 'done';
     job.note = `${f2((performance.now() - t0) / 1000)} s`;
-    status(`${job.model} finished in ${f2((performance.now() - t0) / 1000)} s` +
+    status(`${job.model} finished${job.span ? ' on ' + f2(job.span[0]) + '–' + f2(job.span[1]) + ' s' : ''} in ${f2((performance.now() - t0) / 1000)} s` +
            (body.language ? ` · language ${body.language}` : '') +
            (body.speakers != null ? ` · ${body.speakers} speaker${body.speakers === 1 ? '' : 's'}` : ''));
   } catch (e) {
@@ -3135,9 +3334,21 @@ async function runJob(job) {
 }
 
 /* Add a run to the queue: one job per model, as buildJobs splits it. */
-function enqueue(only) {
+function enqueue(only, span) {
   if (!S.audio) return;
   const jobs = buildJobs(only);
+  /* A selection that cuts through a word (or a phone, or a turn) is widened
+     to its edges on the tiers the job fills: the recogniser then hears the
+     whole word, and the tier is not left with half of the old one. */
+  if (span) for (const job of jobs) {
+    let [a, b] = [Math.max(0, span[0]), Math.min(S.dur, span[1])];
+    for (const k of job.claims)
+      for (const it of S.tracks[k].items) {
+        if (it.start < a && it.end > a) a = it.start;
+        if (it.start < b && it.end > b) b = it.end;
+      }
+    job.span = [a, b];
+  }
   if (!jobs.length) { status('choose a model for at least one tier', true); return; }
   const file = fileKey(), size = $('asrsize').value;
   const spkN = $('spkN').value.trim(), spkTh = $('spkTh').value.trim();
@@ -3148,7 +3359,7 @@ function enqueue(only) {
     for (const k of job.claims)
       if (!['running', 'partial'].includes(S.tracks[k].state)) setTrackState(k, 'queued', '');
   }
-  if (Q.main || Q.side) status(`queued ${jobs.map(j => j.model).join(' and ')}`);
+  if (Q.main || Q.side) status(`queued ${jobs.map(j => j.model).join(' and ')}${span ? ' on the selection' : ''}`);
   renderQueue(); renderPlan();
   pump();
 }
@@ -3175,7 +3386,7 @@ async function runQueued(job) {
   renderQueue();
   /* A run replaces whatever is on the tiers it fills, hand edits included.
      Keep the state from before it, so Undo brings them back. */
-  const replacing = job.claims.filter(k => S.tracks[k].edited);
+  const replacing = job.span ? [] : job.claims.filter(k => S.tracks[k].edited);
   pushUndo(snap());
   if (replacing.length)
     status(`running replaces your edits on the ${replacing.map(k => tierOf(k).label).join(' and ')} tier — Undo brings them back`);
@@ -3212,7 +3423,7 @@ function renderQueue() {
   $('queueNote').textContent = waiting ? `${waiting} waiting` : '';
   const lab = { queued: 'waiting', running: 'running', done: 'done', failed: 'failed', cancelled: 'cancelled' };
   $('queueList').innerHTML = shown.map(j => {
-    const tiers = j.claims.map(k => tierOf(k).label).join(' + ');
+    const tiers = j.claims.map(k => tierOf(k).label).join(' + ') + (j.span ? ` (${f2(j.span[0])}–${f2(j.span[1])} s)` : '');
     const lang = j.concurrent ? '' : (j.language ? LANG.name(j.language) : 'language detected');
     const st = j.state === 'running' && j.pct != null ? `${j.pct.toFixed(0)}%` : lab[j.state];
     const act = j.state === 'queued' ? 'remove' : j.state === 'running' ? 'stop' : '';
@@ -3377,6 +3588,7 @@ async function pngWithDpi(blob, dpi) {
   return new Blob([out], { type: 'image/png' });
 }
 function downloadBlob(name, blob) {
+  if (DESK.caps) return saveAs(name, blob);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -3733,7 +3945,9 @@ for (const id of ['wave', 'intens', 'spec']) {
     openMenu(e.clientX, e.clientY, [
       S.sel ? { label: 'Play selection', key: 'Space', run: () => play(S.sel[0], S.sel[1]) }
             : { label: 'Play window', key: 'Space', run: () => play(S.win[0], S.win[1]) },
-      { label: 'Zoom to selection', off: !S.sel, run: () => setWindow(S.sel[0], S.sel[1]) },
+      { label: 'Zoom to selection', key: 'Z', off: !S.sel, run: () => setWindow(S.sel[0], S.sel[1]) },
+      ...(S.sel ? [{ label: 'Recognise the selection…', off: !TKEYS.some(k => S.tracks[k].model),
+                     run: () => openMenu(e.clientX, e.clientY, recogniseSelectionItems()) }] : []),
       { label: 'Zoom out', run: () => $('zoomOut').click() },
       { label: 'Show the whole file', run: () => setWindow(0, S.dur) },
       '-',
@@ -3811,6 +4025,7 @@ $('asrtest').addEventListener('click', () => NET.loadModels());
 
 /* --------------------------------------------------------------- exports */
 function download(name, text, type = 'text/plain') {
+  if (DESK.caps) return saveAs(name, new Blob([text], { type: type + ';charset=utf-8' }));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([text], { type: type + ';charset=utf-8' }));
   a.download = name; a.click(); URL.revokeObjectURL(a.href);
@@ -4502,8 +4717,8 @@ $('segWhich').addEventListener('change', () => setActiveLane($('segWhich').value
 addEventListener('keydown', e => {
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
   const mod = e.ctrlKey || e.metaKey;
-  if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
-  if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+  if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? once('redo', redo) : once('undo', undo); return; }
+  if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); once('redo', redo); return; }
   if (mod || e.altKey) return;
   if (e.key === 'Enter') {
     const it = selectedOnActive();
@@ -4651,10 +4866,12 @@ $('openAnn').addEventListener('click', () => {
   if (!S.audio) return status('open the recording first, then its annotation', true);
   $('annFile').click();
 });
-$('annFile').addEventListener('change', async () => {
+$('annFile').addEventListener('change', () => {
   const f = $('annFile').files[0];
   $('annFile').value = '';
-  if (!f) return;
+  if (f) openAnnotationFile(f);
+});
+async function openAnnotationFile(f) {
   try {
     const buf = await f.arrayBuffer();
     if (/\.(json|lana)$/i.test(f.name)) {
@@ -4664,9 +4881,90 @@ $('annFile').addEventListener('change', async () => {
       status(`opened ${f.name}` + (other ? ` · it was saved for ${d.audio.name || 'a different recording'}` : ''), !!other);
     } else importTextGrid(parseTextGrid(buf), f.name.replace(/\.textgrid$/i, ''));
   } catch (e) { status(`could not open ${f.name}: ${e.message}`, true); }
-});
+}
 $('dlLana').addEventListener('click', () =>
   download(S.name + '.lana.json', JSON.stringify(annotationData()), 'application/json'));
+
+/* ------------------------------------------------- the app's own dialogs */
+/* In the desktop app an export opens the system's Save dialog, so the user
+   chooses the name and the folder, instead of the webview dropping it in
+   Downloads (or, in some webviews, nowhere). */
+async function saveAs(name, blob) {
+  try {
+    const r = await fetch(apiUrl('/save-as?name=' + enc(name)), { method: 'POST', body: blob });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 404 || r.status === 501) throw new Error('fallback');
+    if (!r.ok) return status(j.error || `could not save ${name}`, true);
+    if (!j.cancelled) status(`saved ${j.path}`);
+  } catch {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+}
+/* Open from the menu bar. A page may open a file chooser only from a click,
+   and a menu command is not one, so the app shows its own dialog and sends
+   the file back. */
+async function openNative(kind) {
+  try {
+    const r = await fetch(apiUrl('/open?kind=' + kind), { method: 'POST' });
+    if (r.status === 204) return;
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `error ${r.status}`);
+    const name = decodeURIComponent(r.headers.get('x-lana-name') || 'file');
+    const blob = await r.blob();
+    const file = new File([blob], name, { type: blob.type });
+    if (kind === 'audio') openFile(file);
+    else openAnnotationFile(file);
+  } catch (e) { status('could not open: ' + e.message, true); }
+}
+
+/* The menu bar (macOS), which calls window.lanaMenu(id). Each command does
+   what the page's own button or key does. On some systems ⌘Z reaches both the
+   page's key handler and the menu, so undo and redo run once per press. */
+const ONCE = {};
+function once(name, fn) {
+  const now = performance.now();
+  if (now - (ONCE[name] || 0) < 250) return;
+  ONCE[name] = now; fn();
+}
+const inField = () => ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+function clickIf(id) {
+  if ($(id).disabled) return status('nothing to export yet', true);
+  $(id).click();
+}
+function openLink(url) {
+  const a = document.createElement('a');
+  a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.click();
+}
+window.lanaMenu = id => {
+  const needAudio = fn => () => S.audio ? fn() : status('open a recording first', true);
+  const zoomSel = () => S.sel ? setWindow(S.sel[0], S.sel[1]) : status('select a stretch first', true);
+  const act = {
+    'open-audio': () => openNative('audio'),
+    'open-annotation': needAudio(() => openNative('annotation')),
+    'record': () => $('recBtn').click(),
+    'save-lana': () => clickIf('dlLana'),
+    'export-textgrid': () => clickIf('dlTextGrid'),
+    'export-srt': () => clickIf('dlSrt'), 'export-vtt': () => clickIf('dlVtt'),
+    'export-ass': () => clickIf('dlAss'), 'export-tsv': () => clickIf('dlTsv'),
+    'figure': needAudio(openPaperDialog),
+    'undo': () => once('undo', () => inField() ? document.execCommand('undo') : undo()),
+    'redo': () => once('redo', () => inField() ? document.execCommand('redo') : redo()),
+    'add-tier': () => addTier(),
+    'play': needAudio(togglePlay), 'stop-playback': stopPlayback,
+    'zoom-sel': needAudio(zoomSel), 'zoom-in': needAudio(() => $('zoomIn').click()),
+    'zoom-out': needAudio(() => $('zoomOut').click()), 'zoom-all': needAudio(() => $('zoomAll').click()),
+    'toggle-f0': () => $('showF0').click(), 'toggle-formants': () => $('showFmt').click(),
+    'theme-graphite': () => { $('theme').value = 'graphite'; $('theme').dispatchEvent(new Event('change')); },
+    'theme-paper': () => { $('theme').value = 'paper'; $('theme').dispatchEvent(new Event('change')); },
+    'settings': () => openSettings(true),
+    'check-update': () => DESK.checkUpdate(true),
+    'help-site': () => openLink('https://openlana.app'),
+    'help-guide': () => openLink('https://github.com/3-mmc/lana#readme'),
+    'help-issues': () => openLink('https://github.com/3-mmc/lana/issues'),
+  }[id];
+  if (act) act();
+};
 
 /* ------------------------------------------------------------- saving */
 /* Every change is saved a moment after it is made, under a key derived from
@@ -4885,14 +5183,16 @@ const DESK = {
 
   /* A newer release on GitHub, offered once per version: "Later" hides it
      until the next version appears. Installing restarts the app. */
-  async checkUpdate() {
+  async checkUpdate(asked = false) {
     let j;
     try {
       const r = await fetch(apiUrl('/update'), { cache: 'no-store' });
-      if (!r.ok) return;
+      if (!r.ok) return asked && status('could not check for updates', true);
       j = await r.json();
-    } catch { return; }
-    if (!j.available || CFG.updateSkipped === j.version) return;
+    } catch { return asked && status('could not check for updates', true); }
+    if (asked && j.error) return status('could not reach GitHub to check for updates', true);
+    if (asked && !j.available) return status(`Lana ${j.current || ''} is the newest version`);
+    if (!j.available || (!asked && CFG.updateSkipped === j.version)) return;
     $('updText').textContent = `Lana ${j.version} is available (you have ${j.current}).`;
     $('updBar').hidden = false;
     $('updLater').onclick = () => { CFG.updateSkipped = j.version; saveCfg(); $('updBar').hidden = true; };

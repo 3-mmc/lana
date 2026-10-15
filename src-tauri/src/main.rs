@@ -15,6 +15,8 @@ mod server;
 mod settings;
 mod models_dir;
 mod update;
+mod files;
+mod menu;
 
 /// The running app, for the few server routes that need the native side: the
 /// folder picker and a restart.
@@ -99,6 +101,10 @@ fn main() {
                 // handler would otherwise consume them before the page sees them.
                 .disable_drag_drop_handler()
                 .build()?;
+            if menu::wanted() {
+                app.set_menu(menu::build(app.handle())?)?;
+                app.on_menu_event(menu::on_event);
+            }
             #[cfg(target_os = "linux")]
             allow_microphone(&window);
             #[cfg(not(target_os = "linux"))]

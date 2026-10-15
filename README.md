@@ -127,6 +127,8 @@ Without an Apple Developer ID, macOS builds are ad-hoc signed. A copy built on t
 
 ## Credits and licence
 
+Lana is made by [Aaron van Blerkom](https://www.linkedin.com/in/aaron-van-blerkom).
+
 The analysis is Praat by Paul Boersma and David Weenink, through [praat-wasm](https://www.npmjs.com/package/praat-wasm) by reynoldsnlp. If Praat contributed to published work, cite it as its authors ask:
 
 > Boersma, Paul & Weenink, David. *Praat: doing phonetics by computer* [Computer program]. http://www.praat.org/
