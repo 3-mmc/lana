@@ -14,6 +14,17 @@ use tokio::io::AsyncWriteExt;
 const WHISPER: &str = "ggerganov/whisper.cpp";
 const SHERPA_SEG: &str = "csukuangfj/sherpa-onnx-pyannote-segmentation-3-0";
 const SHERPA_EMB: &str = "csukuangfj/speaker-embedding-models";
+const PARAKEET: &str = "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8";
+const TAGGER: &str = "k2-fsa/sherpa-onnx-zipformer-small-audio-tagging-2024-04-15";
+
+/// Silero VAD v5 (MIT), as k2-fsa's maintainer publishes it for sherpa-onnx.
+/// Not a catalogue entry: it is 2.3 MB, every recogniser cuts its pieces with
+/// it, and it does nothing on its own, so asking the user to choose it would
+/// only be one more thing to understand. It comes down with the first model
+/// the user downloads (and with any later one, until it is here), from the
+/// same host as the models, so the privacy claim is unchanged. Without it,
+/// pieces are cut by energy as before (see vad.rs).
+pub const VAD: File = File { repo: "csukuangfj/vad", path: "silero_vad_v5.onnx", local: "silero_vad_v5.onnx" };
 
 /// What a model does, which decides the engine that runs it and the tier it fills.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -26,9 +37,51 @@ pub enum Kind {
     Letters,
     /// pyannote segmentation + a speaker embedding, run by sherpa-onnx.
     Speakers,
+    /// A NeMo transducer (Parakeet TDT) through sherpa-onnx: words from
+    /// word pieces, with token times and durations.
+    Transducer,
+    /// An AudioSet tagger through sherpa-onnx: laughter, music, coughs.
+    Tags,
+    /// CREPE through ort: a second f0 track, drawn beside Praat's. It fills
+    /// no tier, so the providers list leaves it out.
+    Pitch,
 }
 
-/// One file of a model, from a HuggingFace repository.
+impl Kind {
+    /// The role the page fills a tier by, and the settings screen groups by.
+    pub fn role(self) -> &'static str {
+        match self {
+            Kind::Whisper | Kind::Letters | Kind::Transducer => "words",
+            Kind::Phones => "phones",
+            Kind::Speakers => "speakers",
+            Kind::Tags => "tags",
+            Kind::Pitch => "pitch",
+        }
+    }
+}
+
+/// Files that are GitHub release assets rather than HuggingFace files: the
+/// repo is written "github:<owner>/<repo>@<tag>". GitHub publishes no
+/// checksum the app can check a download against, so each file's SHA-256 and
+/// size are pinned here, measured from the release when it was added.
+const PINNED: &[(&str, &str, &str, u64)] = &[
+    (CREPE, "tiny.onnx", "91fc2a0fd10f965dbf7775995daf50e99273caedd7efd00001f23be649da1bc3", 1_955_762),
+    (CREPE, "small.onnx", "cd119f6f5f608d9342a1c6f81e4653f21dbcde440a96d474ecbf6f27c6253466", 6_524_192),
+];
+const CREPE: &str = "github:yqzhishen/onnxcrepe@v1.1.0";
+
+/// Where a file comes from, with its checksum and size when they are pinned.
+fn source(f: &File) -> (String, Option<(String, u64)>) {
+    match f.repo.strip_prefix("github:").and_then(|r| r.split_once('@')) {
+        Some((repo, tag)) => {
+            let pin = PINNED.iter().find(|p| p.0 == f.repo && p.1 == f.path).map(|p| (p.2.to_owned(), p.3));
+            (format!("https://github.com/{repo}/releases/download/{tag}/{}", f.path), pin)
+        }
+        None => (format!("https://huggingface.co/{}/resolve/main/{}", f.repo, f.path), None),
+    }
+}
+
+/// One file of a model, from a HuggingFace repository or a GitHub release.
 pub struct File {
     pub repo: &'static str,
     pub path: &'static str,
@@ -76,6 +129,13 @@ pub fn catalogue() -> Vec<Entry> {
                          File { repo: "csukuangfj2/sherpa-onnx-omnilingual-asr-1600-languages-1B-ctc-v2-int8-2026-02-05", path: "tokens.txt", local: "tokens.txt" }],
                 label: "Omnilingual 1B",
                 note: "Words like Omnilingual 300M, with the same caveat about alphabets; more accurate on Georgian (2.2% character errors against 6.0% in testing). Needs 2 GB of memory while it runs." },
+        Entry { id: "parakeet-tdt-0.6b-v3", kind: Kind::Transducer, size_mb: 646, dtw: P::Base, licence: "CC BY 4.0",
+                files: &[File { repo: PARAKEET, path: "encoder.int8.onnx", local: "encoder.int8.onnx" },
+                         File { repo: PARAKEET, path: "decoder.int8.onnx", local: "decoder.int8.onnx" },
+                         File { repo: PARAKEET, path: "joiner.int8.onnx", local: "joiner.int8.onnx" },
+                         File { repo: PARAKEET, path: "tokens.txt", local: "tokens.txt" }],
+                label: "Parakeet v3",
+                note: "Words with punctuation in 25 European languages (NVIDIA, 2025), which it detects itself. No Georgian or Caucasian languages." },
         Entry { id: "zipa-small", kind: Kind::Phones, size_mb: 71, dtw: P::Base, licence: "CC BY 4.0",
                 files: &[File { repo: "anyspeech/zipa-small-crctc-500k", path: "model.int8.onnx", local: "model.int8.onnx" },
                          File { repo: "anyspeech/zipa-small-crctc-500k", path: "tokens.txt", local: "tokens.txt" }],
@@ -91,6 +151,19 @@ pub fn catalogue() -> Vec<Entry> {
                          File { repo: SHERPA_EMB, path: "wespeaker_en_voxceleb_CAM++.onnx", local: "campplus.onnx" }],
                 label: "Speakers",
                 note: "Who is talking, by voice: fills the speaker tier, beside whichever recogniser runs." },
+        Entry { id: "sounds", kind: Kind::Tags, size_mb: 27, dtw: P::Base, licence: "Apache 2.0",
+                files: &[File { repo: TAGGER, path: "model.int8.onnx", local: "model.int8.onnx" },
+                         File { repo: TAGGER, path: "class_labels_indices.csv", local: "labels.csv" }],
+                label: "Sounds",
+                note: "Laughter, music, coughs, breathing and other sounds that are not words, from the 527 AudioSet classes: fills an events tier." },
+        Entry { id: "crepe-tiny", kind: Kind::Pitch, size_mb: 2, dtw: P::Base, licence: "MIT",
+                files: &[File { repo: CREPE, path: "tiny.onnx", local: "model.onnx" }],
+                label: "CREPE tiny",
+                note: "A second f0 track, read from the waveform by a network rather than by autocorrelation, drawn beside Praat's: where the two part, in creak or noise, look closer. Agreed with Praat's median f0 on both demo clips; about 5x real time." },
+        Entry { id: "crepe-small", kind: Kind::Pitch, size_mb: 7, dtw: P::Base, licence: "MIT",
+                files: &[File { repo: CREPE, path: "small.onnx", local: "model.onnx" }],
+                label: "CREPE small",
+                note: "CREPE, larger and slower (about 2.5x real time); try tiny first." },
     ]
 }
 
@@ -159,7 +232,7 @@ impl Models {
                 let d = downloads.get(e.id);
                 json!({
                     "id": e.id, "label": e.label, "note": e.note, "size_mb": e.size_mb,
-                    "kind": match e.kind { Kind::Whisper | Kind::Letters => "words", Kind::Phones => "phones", Kind::Speakers => "speakers" },
+                    "kind": e.kind.role(),
                     "licence": e.licence,
                     "installed": self.is_installed(e),
                     "downloading": d.filter(|d| d.error.is_none()).map(|d| json!({ "done": d.done, "total": d.total })),
@@ -231,6 +304,11 @@ impl Models {
         let mut want = Vec::new();
         let mut lists: HashMap<&str, Value> = HashMap::new();
         for f in e.files {
+            if f.repo.starts_with("github:") {
+                let pin = source(f).1.ok_or_else(|| format!("{} has no pinned checksum.", f.path))?;
+                want.push((f, pin));
+                continue;
+            }
             if !lists.contains_key(f.repo) {
                 lists.insert(f.repo, self.listing(f.repo).await?);
             }
@@ -241,12 +319,31 @@ impl Models {
         for (f, (sha, size)) in want {
             let dest = self.file(e, f);
             if !dest.is_file() {
-                let url = format!("https://huggingface.co/{}/resolve/main/{}", f.repo, f.path);
-                self.fetch_file(e.id, &url, &dest, &sha, size, before, total).await?;
+                self.fetch_file(e.id, &source(f).0, &dest, &sha, size, before, total).await?;
             }
             before += size;
         }
+        if !self.vad_path().is_file() {
+            if let Err(err) = self.fetch_vad().await {
+                // The model itself is in place; pieces fall back to energy cuts.
+                eprintln!("lana: VAD download failed: {err}");
+            }
+        }
         Ok(())
+    }
+
+    pub fn vad_path(&self) -> PathBuf {
+        self.dir.join("vad").join(VAD.local)
+    }
+
+    /// The VAD model, verified like any other file. Its progress is reported
+    /// under an id no download is listed by, so it does not move the bar of
+    /// the model it came with.
+    pub async fn fetch_vad(&self) -> Result<(), String> {
+        let list = self.listing(VAD.repo).await?;
+        let (sha, size) = expected(&list, &VAD)?;
+        let url = format!("https://huggingface.co/{}/resolve/main/{}", VAD.repo, VAD.path);
+        self.fetch_file("vad", &url, &self.vad_path(), &sha, size, 0, size).await
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -66,6 +66,9 @@ const MMS_LANGS: &[(&str, &str)] = &[("dar", "dar"), ("kat", "ka")];
 fn clips_for(model: &str) -> Vec<&'static Clip> {
     let ids: &[&str] = match model {
         m if m.starts_with("whisper") => &["de", "ka"],
+        // Parakeet knows no Georgian; the ka run shows what it does instead.
+        "parakeet-tdt-0.6b-v3" => &["de", "ka"],
+        "sounds" => &["de", "ka"],
         "mms-dar" => &["dar"],
         "mms-kat" => &["ka"],
         "speakers" => &["de", "ka"],
@@ -144,6 +147,19 @@ fn run(args: &[String]) -> Result<(), String> {
             fetched_any = true;
         }
         plan.push((id.clone(), own_dir.clone()));
+    }
+    // The VAD every recogniser cuts its pieces with comes down with a model
+    // download; a folder whose models are all there already may lack it.
+    let mut dirs: Vec<&PathBuf> = plan.iter().map(|(_, d)| d).collect();
+    dirs.dedup();
+    for d in dirs {
+        let m = Models::new(d.clone());
+        if !m.vad_path().is_file() {
+            let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+            if let Err(e) = rt.block_on(m.fetch_vad()) {
+                println!("Could not download the VAD model ({e}); pieces are cut by energy instead.");
+            }
+        }
     }
 
     let machine = machine();
@@ -273,12 +289,15 @@ fn child(id: &str, dir: &Path) {
     let mut error = None;
     // The first clip twice: cold, then warm.
     let order: Vec<(&Clip, bool)> = std::iter::once((clips[0], true)).chain(clips.iter().map(|c| (*c, false))).collect();
+    // LANA_BENCH_FILE reads that recording in place of each clip, to try a
+    // model on other audio (with LANA_BENCH_DUMP to see what it returned).
+    let own = std::env::var_os("LANA_BENCH_FILE").map(PathBuf::from);
     for (clip, cold) in order {
         let t = Instant::now();
         let (code, v) = local.transcribe(Request {
             model: id.into(),
-            bytes: clip.bytes.to_vec(),
-            filename: clip.file.into(),
+            bytes: own.as_ref().map_or_else(|| clip.bytes.to_vec(), |p| std::fs::read(p).unwrap_or_default()),
+            filename: own.as_ref().map_or_else(|| clip.file.into(), |p| p.to_string_lossy().into_owned()),
             language: (!clip.lang.is_empty() && id.starts_with("whisper")).then(|| clip.lang.into()),
             speakers: None,
             threshold: None,
@@ -290,12 +309,16 @@ fn child(id: &str, dir: &Path) {
         }
         let audio = v["duration"].as_f64().unwrap_or(0.0);
         let text = v["text"].as_str().unwrap_or("").to_string();
-        let words = id.starts_with("whisper") || id.starts_with("omnilingual") || id.starts_with("mms-");
+        if std::env::var_os("LANA_BENCH_DUMP").is_some() {
+            eprintln!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+        }
+        let words = id.starts_with("whisper") || id.starts_with("omnilingual") || id.starts_with("mms-") || id.starts_with("parakeet");
         runs.push(json!({
             "clip": clip.id, "cold": cold, "audio_seconds": audio, "seconds": round3(secs),
             "x_realtime": round3(audio / secs.max(1e-6)),
             "cer": words.then(|| round3(cer(clip.reference, &text, clip.id == "dar"))),
             "speakers": v.get("speakers"),
+            "warnings": v.get("warnings").filter(|w| w.as_array().is_some_and(|a| !a.is_empty())),
             "text": if id == "speakers" { Value::Null } else { json!(text) },
         }));
     }
@@ -313,6 +336,7 @@ fn child(id: &str, dir: &Path) {
         "warm_seconds": warm.first().map(|r| r["seconds"].clone()),
         "x_realtime": (secs > 0.0).then(|| round3(audio / secs)),
         "peak_mb": peak_rss() / 1_048_576,
+        "vad": local.models.vad_path().is_file(),
         "runs": runs,
     });
     println!("{result}");

@@ -169,7 +169,7 @@
   .pad{padding:6px 9px}
 
   /* readout: a fixed table so numbers never jump as you move the cursor */
-  #readout{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));
+  #readout{display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));
            gap:0;border-top:1px solid var(--line2);background:var(--panel2)}
   #readout div{padding:4px 9px;border-right:1px solid var(--line2)}
   #readout div:last-child{border-right:0}
@@ -204,6 +204,8 @@
   .params label{font-size:11px}
   .params input,.params select{width:86px;text-align:right;padding:2px 5px;font-family:var(--mono);font-size:11.5px}
   .params select{text-align:left;padding-right:18px}
+  .params input[type=checkbox]{width:auto;justify-self:end}
+  .params .sub2{grid-column:1/-1;font-size:10.5px;color:var(--dim);margin-top:3px}
   pre.cmd{margin:0;padding:6px 9px;background:var(--sunken);border-top:1px solid var(--line2);
       font-family:var(--mono);font-size:10.5px;color:var(--dim);white-space:pre-wrap;word-break:break-word}
   pre.cmd b{color:var(--ink);font-weight:400}
@@ -397,6 +399,26 @@
   .nrow button{visibility:hidden}
   .nrow:hover button{visibility:visible}
   .nempty{padding:8px 9px;color:var(--dim2);font-size:11px}
+  /* to check, find similar: fixed heights, so a list that fills or empties
+     never moves what is below it */
+  #checkList,#searchList{height:150px;overflow:auto}
+  #checkPane>h2,#searchPane>h2{white-space:nowrap}
+  #checkCount{flex:none}
+  #searchCount{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .pane>h2 .h2lab{text-transform:none;letter-spacing:0;display:flex;gap:3px;align-items:center;white-space:nowrap}
+  #doubtAt{width:42px;padding:1px 4px;font-size:11px;text-align:right;flex:none}
+  .crow .cbar{flex:none;width:10px;height:3px;align-self:center;background:var(--warn)}
+  .crow .tx b{font-family:var(--mono);font-weight:600}
+  .srow{align-items:center}
+  .srow .sbar{flex:none;width:38px;height:4px;background:var(--line2);border-radius:2px;overflow:hidden}
+  .srow .sbar i{display:block;height:100%;background:var(--accent)}
+  .srow .sc{flex:none;font-size:11px;color:var(--dim)}
+  #searchPane .row input{flex:1;min-width:0;padding:1px 6px}
+  #altBar{display:flex;gap:4px;align-items:center;justify-content:flex-end}
+  #altBar span{color:var(--dim2);overflow:hidden;text-overflow:ellipsis;min-width:0}
+  #altBar button{flex:none;font-family:var(--mono)}
+  #altBar button b{color:var(--dim2);font-weight:400;margin-right:2px}
+  #altBar button.own{border-color:var(--warnline)}
   #noteEd{position:fixed;z-index:75;width:300px;padding:8px;display:grid;gap:6px;background:var(--raise);
           border:1px solid var(--line);border-radius:6px;box-shadow:0 8px 24px #0007}
   #noteEd .tags{display:flex;flex-wrap:wrap;gap:4px}
@@ -538,6 +560,15 @@
         <div data-kind="speakers"></div>
         <div class="mgalso" data-also="speakers"></div>
       </div>
+      <div class="mgsec">
+        <div class="mghead">Sounds <span>— laughter, music, coughs, for the events tier</span><span class="inuse" data-use="event"></span></div>
+        <div data-kind="tags"></div>
+        <div class="mgalso" data-also="tags"></div>
+      </div>
+      <div class="mgsec">
+        <div class="mghead">Pitch <span>— a second f0 track beside Praat's (the CREPE box over the spectrogram)</span></div>
+        <div data-kind="pitch"></div>
+      </div>
       <div data-kind=""></div>
     </div>
     <div class="mgsec">
@@ -673,6 +704,7 @@
         <span style="color:var(--f3)"><i class="swatch" style="background:var(--f3)"></i>F3</span>
         <label style="margin-left:6px"><input type="checkbox" id="showF0" checked> f0</label>
         <label><input type="checkbox" id="showFmt" checked> formants</label>
+        <label id="crepeBox" hidden title="A second f0 track from CREPE, a network that reads pitch from the waveform, dashed beside Praat's: where the two part (creak, breathy voice, noise), look closer. Downloads under ⚙ Recognisers → Pitch."><input type="checkbox" id="showCrepe"> CREPE</label>
       </span>
     </h2>
     <canvas id="spec"></canvas>
@@ -684,6 +716,9 @@
       <div><k>F2</k><v id="rF2">—</v></div>
       <div><k>F3</k><v id="rF3">—</v></div>
       <div><k>intensity</k><v id="rInt">—</v></div>
+      <div title="Harmonics-to-noise ratio, To Harmonicity (cc); shown when voice quality is measured (Analysis pane)"><k>HNR</k><v id="rHnr">—</v></div>
+      <div title="Smoothed cepstral peak prominence, from the PowerCepstrogram"><k>CPPS</k><v id="rCpps">—</v></div>
+      <div title="First minus second harmonic, uncorrected for formants"><k>H1–H2</k><v id="rH12">—</v></div>
       <div><k>label</k><v id="rLab">—</v></div>
     </div>
   </div>
@@ -698,11 +733,12 @@
       <button class="tiny" id="edUndo" title="Undo (Ctrl+Z)">↶ undo</button>
       <button class="tiny" id="edRedo" title="Redo (Ctrl+Shift+Z)">↷ redo</button>
       <span class="sep"></span>
-      <button class="tiny" id="tierAdd" title="Add a tier: empty for notes, a copy of another tier, or ARPABET from the phones">+ tier ▾</button>
+      <button class="tiny" id="tierAdd" title="Add a tier: empty for notes, a copy of another tier, ARPABET from the phones, or voice quality by thresholds">+ tier ▾</button>
       <button class="tiny" id="tierRen" hidden>rename tier</button>
       <button class="tiny" id="tierDel" hidden>remove tier</button>
       <span class="sp"></span>
-      <span class="hint" title="Select a stretch on the waveform first to label only that stretch. Enter edits the selected interval, Tab moves to the next one.">double-click a tier to type a label · drag a boundary to move it</span>
+      <span class="hint" id="altBar" hidden title="The model's readings of the selected label, with its share for each: 1 keeps the label, 2–4 take another"></span>
+      <span class="hint" id="edHint" title="Select a stretch on the waveform first to label only that stretch. Enter edits the selected interval, Tab moves to the next one.">double-click a tier to type a label · drag a boundary to move it</span>
     </div>
     <div class="tierwrap"><canvas id="tiers"></canvas><input id="labEdit" hidden autocomplete="off" spellcheck="false"></div>
     <div class="row tight">
@@ -787,6 +823,18 @@
       </div>
       <div class="meta" id="mtSpeaker">who is talking, by voice</div>
     </div>
+    <div class="track" data-track="event" id="trkEvent" hidden>
+      <div class="top">
+        <span class="name">Events tier</span>
+        <span class="sp"></span>
+        <span class="state" id="stEvent" data-s="empty">no model</span>
+        <button class="tiny" id="reEvent" title="Run this tier only">⟲</button>
+      </div>
+      <div class="row tight" style="padding:5px 0 0;border:0">
+        <select id="mdEvent"><option value="">(none)</option></select>
+      </div>
+      <div class="meta" id="mtEvent">sounds that are not words</div>
+    </div>
     <div class="row tight" id="sizeRow">
       <label>whisper size</label>
       <select id="asrsize" class="num">
@@ -820,6 +868,32 @@
     <div id="notesList"></div>
   </div>
 
+  <div class="pane" id="checkPane">
+    <h2>To check
+      <span class="sub" id="checkCount">—</span>
+      <span class="sp"></span>
+      <label class="h2lab" title="Mark labels the model was less sure of than this, with a bar along their foot that thickens as its confidence falls"><input type="checkbox" id="doubtOn"> mark</label>
+      <input id="doubtAt" class="tiny num" title="Confidence threshold, 0–1">
+      <button class="tiny" id="checkPrev" title="Previous label to check (,)">‹</button>
+      <button class="tiny" id="checkNext" title="Next label to check (.)">›</button>
+    </h2>
+    <div id="checkList"></div>
+  </div>
+
+  <div class="pane" id="searchPane" hidden>
+    <h2>Find similar
+      <span class="sub" id="searchCount">—</span>
+      <span class="sp"></span>
+      <button class="tiny" id="searchKeep" disabled title="Keep the stretches found as notes tagged “example”">keep as notes</button>
+    </h2>
+    <div class="row tight">
+      <button class="tiny" id="searchSel" title="Stretches whose phones are like those ZIPA hears in the selection">like the selection</button>
+      <input id="searchIpa" class="ipa" placeholder="or type IPA" autocomplete="off" spellcheck="false" title="Phones to look for, in IPA">
+      <button class="tiny" id="searchGo">find</button>
+    </div>
+    <div id="searchList"></div>
+  </div>
+
   <div class="pane">
     <h2>Analysis <span class="sub">Praat arguments, as typed</span>
       <span class="sp"></span>
@@ -849,6 +923,44 @@
       <label for="pFmtCeil">max formant (Hz)</label><input id="pFmtCeil" class="num" value="5500">
       <label for="pFmtWin">window length (s)</label><input id="pFmtWin" class="num" value="0.025">
       <label for="pFmtPre">pre-emphasis from (Hz)</label><input id="pFmtPre" class="num" value="50">
+
+      <div class="head">Voice quality</div>
+      <label for="pVoice" title="HNR, CPPS and H1–H2 in the readout and the measurement tables. Off, they are computed only for the voice-quality tier.">measure in the window and tables (slower)</label><input type="checkbox" id="pVoice">
+      <div class="sub2" data-vq>Harmonicity (cc), for HNR</div>
+      <label for="pHnrStep">time step (s)</label><input id="pHnrStep" class="num" value="0.01" data-vq>
+      <label for="pHnrFloor">minimum pitch (Hz)</label><input id="pHnrFloor" class="num" value="75" data-vq>
+      <label for="pHnrSil">silence threshold</label><input id="pHnrSil" class="num" value="0.1" data-vq>
+      <label for="pHnrPer">periods per window</label><input id="pHnrPer" class="num" value="1.0" data-vq>
+      <div class="sub2" data-vq>PowerCepstrogram, for CPPS</div>
+      <label for="pCepFloor">pitch floor (Hz)</label><input id="pCepFloor" class="num" value="60" data-vq>
+      <label for="pCepStep">time step (s)</label><input id="pCepStep" class="num" value="0.002" data-vq>
+      <label for="pCepMax">max frequency (Hz)</label><input id="pCepMax" class="num" value="5000" data-vq>
+      <label for="pCepPre">pre-emphasis from (Hz)</label><input id="pCepPre" class="num" value="50" data-vq>
+      <label for="pCppsTime">smoothing: time window (s)</label><input id="pCppsTime" class="num" value="0.02" data-vq>
+      <label for="pCppsQuef">smoothing: quefrency window (s)</label><input id="pCppsQuef" class="num" value="0.0005" data-vq>
+      <label for="pCppsLo">peak search from (Hz)</label><input id="pCppsLo" class="num" value="60" data-vq>
+      <label for="pCppsHi">peak search to (Hz)</label><input id="pCppsHi" class="num" value="330" data-vq>
+      <label for="pCppsTol">tolerance (0–1)</label><input id="pCppsTol" class="num" value="0.05" data-vq>
+      <label for="pCppsInterp">interpolation</label>
+      <select id="pCppsInterp" class="num" data-vq><option>Parabolic</option><option>Cubic</option><option>Sinc70</option><option>Sinc700</option><option>None</option></select>
+      <label for="pCppsTrLo">trend line from (s)</label><input id="pCppsTrLo" class="num" value="0.001" data-vq>
+      <label for="pCppsTrHi">trend line to (s, 0 = end)</label><input id="pCppsTrHi" class="num" value="0.0" data-vq>
+      <label for="pCppsLine">trend line type</label>
+      <select id="pCppsLine" class="num" data-vq><option>Straight</option><option>Exponential decay</option></select>
+      <label for="pCppsFit" title="Praat's own default is Robust, which took some 25 times longer here; least squares is the regression line Hillenbrand used">fit method</label>
+      <select id="pCppsFit" class="num" data-vq><option>Least squares</option><option>Robust</option><option>Robust slow</option></select>
+      <div class="sub2" data-vq>Spectrogram, for H1–H2 (time step as above)</div>
+      <label for="pH12Win">window length (s)</label><input id="pH12Win" class="num" value="0.025" data-vq>
+      <label for="pH12Max">max frequency (Hz)</label><input id="pH12Max" class="num" value="1500" data-vq>
+      <label for="pH12FStep">frequency step (Hz)</label><input id="pH12FStep" class="num" value="5" data-vq>
+      <label for="pH12Tol" title="Not a Praat argument: H1 is the strongest bin within this share of f0 around f0, H2 the same around 2·f0">harmonic search (± % of f0)</label><input id="pH12Tol" class="num" value="10" data-vq>
+
+      <div class="head" title="Each voiced frame is labelled by the rules below, then runs are joined into intervals. Nothing here was trained on anything.">Voice-quality tier · a threshold heuristic, not a model</div>
+      <label for="vqHnr">noisy: HNR below (dB)</label><input id="vqHnr" class="num" value="10" data-vqt>
+      <label for="vqCpps">noisy: CPPS below (dB)</label><input id="vqCpps" class="num" value="5" data-vqt>
+      <label for="vqCreak">creaky: noisy, H1–H2 below (dB)</label><input id="vqCreak" class="num" value="0" data-vqt>
+      <label for="vqBreath">breathy: HNR low, H1–H2 above (dB)</label><input id="vqBreath" class="num" value="10" data-vqt>
+      <label for="vqMin">shortest interval (s)</label><input id="vqMin" class="num" value="0.04" data-vqt>
     </div>
     <pre class="cmd" id="cmdEcho"></pre>
   </div>
@@ -909,10 +1021,10 @@
     <fieldset>
       <legend>Measurements</legend>
       <div class="dlgrow"><button id="mTracks">Save tracks (CSV)</button>
-        <span class="hint">f0, F1–F3 and intensity frame by frame over the window on screen, with the Praat arguments in the Analysis pane.</span></div>
+        <span class="hint">f0, F1–F3 and intensity frame by frame over the window on screen (and HNR, CPPS and H1–H2 when voice quality is measured), with the Praat arguments in the Analysis pane.</span></div>
       <div class="dlgrow"><button id="mIntervals">Save intervals (CSV)</button>
         <select id="mTier"></select>
-        <span class="hint">One row per labelled interval of the tier, over the whole file: duration, mean f0, F1–F3 (mean and at the midpoint), mean intensity, and the speaker when there is a speaker tier.</span></div>
+        <span class="hint">One row per labelled interval of the tier, over the whole file: duration, mean f0, F1–F3 (mean and at the midpoint), mean intensity, mean HNR, CPPS and H1–H2 when voice quality is measured, and the speaker when there is a speaker tier.</span></div>
     </fieldset>
   </div>
 </div>
@@ -1017,6 +1129,7 @@ const CFG = {
   langWord: '', langPhone: '', size: 'medium', nameTiers: false,
   theme: 'graphite',
   follow: true, followPage: 5, rewind: true,   // the listening pass; see "playback"
+  doubtOn: true, doubtAt: 0.6,                 // labels the model was unsure of; see "doubt"
 };
 // The project's old name, kept so saved settings survive the rename. The demo
 // keeps its own, so trying it out never rewrites a working configuration.
@@ -1229,6 +1342,12 @@ const TIERS = [
     sel: 'mdSpeaker', st: 'stSpeaker', mt: 'mtSpeaker', rerun: 'reSpeaker',
     row: 'trkSpeaker', cfg: 'speakerModel', optional: true, concurrent: true,
     gist: 'who is talking, by voice' },
+  /* Sounds that are not words (laughter, music, coughs), from a tagger that
+     names a window at a time: its boundaries are a second apart at best. */
+  { key: 'event',   role: 'tags',     label: 'events',
+    sel: 'mdEvent',   st: 'stEvent',   mt: 'mtEvent',   rerun: 'reEvent',
+    row: 'trkEvent', cfg: 'eventModel', optional: true,
+    gist: 'sounds that are not words, to the nearest second' },
 ];
 const TKEYS = TIERS.map(t => t.key);
 const tierOf = k => TIERS.find(t => t.key === k);
@@ -1308,6 +1427,7 @@ const S = {
   lastReadout: {},
   extra: [],            // tiers added by hand or from a TextGrid: {key, label, items, ...}
   notes: [],            // {start, end, text, tag, tier}: see "notes"
+  warnings: [],         // {start, end, reason, tier, model, done}: a model's own warnings; see "doubt"
   activeLane: 'word',   // the tier the edit buttons and keys act on
   undo: [], redo: [],
   file: null,           // {name, size} of the loaded recording
@@ -1358,13 +1478,15 @@ async function dumpMatrix(obj, cmd, made, ...args) {
   return parseMatrix(new TextDecoder().decode(bytes));
 }
 
-/* Sample a matrix row at an absolute time, given the window it was cut from. */
-function sampleAt(m, t, t0) {
+/* Sample a matrix row at an absolute time, given the window it was cut from.
+   A value counts when `ok` says so: positive for f0, formants and intensity,
+   where 0 means "none"; anyDb for the voice-quality tracks. */
+function sampleAt(m, t, t0, ok = v => v > 0) {
   if (!m || !m.rows[0]) return NaN;
   const i = Math.round((t - t0 - m.x1) / m.dx);
   if (i < 0 || i >= m.nx) return NaN;
   const v = m.rows[0][i];
-  return v > 0 ? v : NaN;
+  return ok(v) ? v : NaN;
 }
 
 /* ------------------------------------------------------------ file load */
@@ -1428,7 +1550,7 @@ $('file').addEventListener('change', async ev => {
   for (const job of Q.items) if (job.state === 'queued') cancelQueued(job, 'another recording was opened');
   renderQueue();
   for (const k of TKEYS) S.tracks[k].edited = false;
-  S.extra = []; S.notes = []; S.undo = []; S.redo = []; S.selectedItem = null;
+  S.extra = []; S.notes = []; S.warnings = []; S.undo = []; S.redo = []; S.selectedItem = null; TRI.cur = null;
   NOTES.current = null; renderNotes();
   if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
   S.file = { name: f.name, size: f.size };
@@ -1546,16 +1668,48 @@ function params() {
     pitchCeil: num('pPitchCeil', 600),
     fmtStep: num('pFmtStep', 0), fmtN: num('pFmtN', 5), fmtCeil: num('pFmtCeil', 5500),
     fmtWin: num('pFmtWin', 0.025), fmtPre: num('pFmtPre', 50),
+    voice: $('pVoice').checked, vq: voiceParams(),
+  };
+}
+/* Voice quality: HNR, CPPS and H1–H2, with Praat's own defaults but one.
+   The CPPS trend line is fitted by least squares, not Praat's default
+   Robust: Robust took 11 s for 5 s of speech in the wasm (least squares
+   0.45 s) and reads about 1.5 dB higher on the demo clips, so values from
+   the two are not comparable and the fit method belongs in any report.
+   Least squares is the regression line of Hillenbrand's original CPPS. */
+function voiceParams() {
+  return {
+    hnrStep: num('pHnrStep', 0.01), hnrFloor: num('pHnrFloor', 75),
+    hnrSil: num('pHnrSil', 0.1), hnrPer: num('pHnrPer', 1),
+    cepFloor: num('pCepFloor', 60), cepStep: num('pCepStep', 0.002),
+    cepMax: num('pCepMax', 5000), cepPre: num('pCepPre', 50),
+    cppsTime: num('pCppsTime', 0.02), cppsQuef: num('pCppsQuef', 0.0005),
+    cppsLo: num('pCppsLo', 60), cppsHi: num('pCppsHi', 330), cppsTol: num('pCppsTol', 0.05),
+    cppsInterp: $('pCppsInterp').value, cppsTrLo: num('pCppsTrLo', 0.001), cppsTrHi: num('pCppsTrHi', 0),
+    cppsLine: $('pCppsLine').value, cppsFit: $('pCppsFit').value,
+    h12Win: num('pH12Win', 0.025), h12Max: num('pH12Max', 1500), h12FStep: num('pH12FStep', 5),
+    h12Tol: num('pH12Tol', 10),
   };
 }
 
-function commandList(p, t0, t1) {
+function commandList(p, t0, t1, voice = true) {
   return [
     `Extract part... ${f3(t0)} ${f3(t1)} rectangular 1 no`,
     `To Spectrogram... ${p.specWin} ${p.maxHz} ${p.specStep} ${p.specFStep} ${p.shape}`,
     `To Pitch... ${p.pitchStep} ${p.pitchFloor} ${p.pitchCeil}`,
     `To Formant (burg)... ${p.fmtStep} ${p.fmtN} ${p.fmtCeil} ${p.fmtWin} ${p.fmtPre}`,
     `To Intensity... ${p.pitchFloor} ${p.pitchStep} yes`,
+    ...(voice ? voiceCommands(p.vq) : []),
+  ];
+}
+function voiceCommands(v) {
+  return [
+    `To Harmonicity (cc)... ${v.hnrStep} ${v.hnrFloor} ${v.hnrSil} ${v.hnrPer}`,
+    `To PowerCepstrogram... ${v.cepFloor} ${v.cepStep} ${v.cepMax} ${v.cepPre}`,
+    `Smooth... ${v.cppsTime} ${v.cppsQuef}`,
+    `To Table (cepstral peak prominences)... no yes 6 3 no 6 ${v.cppsLo} ${v.cppsHi} ${v.cppsTol} ` +
+      `${v.cppsInterp} ${v.cppsTrLo} ${v.cppsTrHi} "${v.cppsLine}" "${v.cppsFit}"`,
+    `To Spectrogram... ${v.h12Win} ${v.h12Max} ${v.hnrStep} ${v.h12FStep} Gaussian`,
   ];
 }
 
@@ -1567,6 +1721,7 @@ for (const id of ['pSpecWin','pMaxHz','pSpecStep','pSpecFStep','pSpecShape','pDy
                   'pPitchStep','pPitchFloor','pPitchCeil','pFmtStep','pFmtN','pFmtCeil',
                   'pFmtWin','pFmtPre'])
   $(id).addEventListener('change', echoCommands);
+for (const el of document.querySelectorAll('.params [data-vq]')) el.addEventListener('change', echoCommands);
 echoCommands();
 
 let intensityWorks = true;   // set false the first time Praat refuses the command
@@ -1579,12 +1734,15 @@ let intensityWorks = true;   // set false the first time Praat refuses the comma
 /* Analyses take turns: every matrix leaves Praat through the same file, so a
    table export and a zoom running at once would read each other's numbers. */
 let praatTurn = Promise.resolve();
-function analyseSpan(t0, t1, p) {
-  const run = praatTurn.then(() => analyseSpanNow(t0, t1, p));
+/* `voice` adds HNR, CPPS and H1–H2 (about three times the cost of the rest);
+   `lean` leaves out the spectrogram, formants and intensity, for the
+   voice-quality tier, which needs only pitch and those three. */
+function analyseSpan(t0, t1, p, { voice = p.voice, lean = false } = {}) {
+  const run = praatTurn.then(() => analyseSpanNow(t0, t1, p, voice, lean));
   praatTurn = run.catch(() => {});
   return run;
 }
-async function analyseSpanNow(t0, t1, p) {
+async function analyseSpanNow(t0, t1, p, voice, lean) {
   const made = [];
   const keep = o => (made.push(o), o);
   try {
@@ -1593,12 +1751,14 @@ async function analyseSpanNow(t0, t1, p) {
        Praat itself only ever analyses the visible window for the same reason. */
     const part = keep(await S.praat.call(S.sound, 'Extract part...', t0, t1, 'rectangular', 1, 'no'));
 
+    const pitchObj = keep(await S.praat.call(part, 'To Pitch...', p.pitchStep, p.pitchFloor, p.pitchCeil));
+    const pitch = await dumpMatrix(pitchObj, 'To Matrix', made);
+    const vq = voice ? await voiceSpan(part, pitch, p.vq, keep, made) : null;
+    if (lean) return { pitch, vq, formants: [], spec: null, intensity: null, t0, t1, p, lean };
+
     const specObj = keep(await S.praat.call(part, 'To Spectrogram...',
       p.specWin, p.maxHz, p.specStep, p.specFStep, p.shape));
     const spec = await dumpMatrix(specObj, 'To Matrix', made);
-
-    const pitchObj = keep(await S.praat.call(part, 'To Pitch...', p.pitchStep, p.pitchFloor, p.pitchCeil));
-    const pitch = await dumpMatrix(pitchObj, 'To Matrix', made);
 
     const formObj = keep(await S.praat.call(part, 'To Formant (burg)...',
       p.fmtStep, p.fmtN, p.fmtCeil, p.fmtWin, p.fmtPre));
@@ -1624,10 +1784,78 @@ async function analyseSpanNow(t0, t1, p) {
         }
       }
     }
-    return { spec, pitch, formants, intensity, t0, t1, p };
+    return { spec, pitch, formants, intensity, vq, t0, t1, p };
   } finally {
     for (const o of made) { try { await S.praat.call(o, 'Remove'); } catch {} }
   }
+}
+
+/* Voice quality of one extracted part, as three tracks on matrices shaped
+   like the others (rows[0] over time), so sampleAt and framesIn read them.
+   Unlike f0 these can be negative, so they are read with `anyDb`.
+
+   HNR: Praat's harmonicity, cross-correlation method; -200 marks the frames
+   it found unvoiced, and those become NaN here.
+
+   CPPS: Praat's PowerCepstrogram, smoothed over time and quefrency
+   (Hillenbrand's CPPS), then the cepstral peak prominence of every frame as a
+   table. The mean of that column is exactly what "Get CPPS..." returns for
+   the same arguments (checked: 6.69 dB both ways on 5 s of the German demo
+   clip), so the per-frame values and per-interval means are Praat's numbers.
+
+   H1–H2: the amplitudes of the first two harmonics, from a narrow-band
+   spectrogram (a 25 ms Gaussian window, which Praat makes 50 ms long, so a
+   -3 dB bandwidth of about 52 Hz) centred on each frame: the strongest bin
+   within ± h12Tol % of the f0 Praat tracked there, and the same around 2·f0.
+   Uncorrected: H1*–H2* (Iseli and Alwan's correction for F1 and B1) would
+   need formant bandwidths at every frame, and a wrong F1 near H2 moves the
+   correction by more than the effect being measured, so it is left out. */
+const anyDb = v => isFinite(v) && v > -150;
+async function voiceSpan(part, pitch, v, keep, made) {
+  const hnrObj = keep(await S.praat.call(part, 'To Harmonicity (cc)...', v.hnrStep, v.hnrFloor, v.hnrSil, v.hnrPer));
+  let hnr;
+  try { hnr = await dumpMatrix(hnrObj, 'To Matrix', made); }
+  catch { hnr = await dumpMatrix(hnrObj, 'Down to Matrix', made); }
+
+  const cep = keep(await S.praat.call(part, 'To PowerCepstrogram...', v.cepFloor, v.cepStep, v.cepMax, v.cepPre));
+  const smooth = keep(await S.praat.call(cep, 'Smooth...', v.cppsTime, v.cppsQuef));
+  const tab = keep(await S.praat.call(smooth, 'To Table (cepstral peak prominences)...',
+    'no', 'yes', 6, 3, 'no', 6, v.cppsLo, v.cppsHi, v.cppsTol, v.cppsInterp,
+    v.cppsTrLo, v.cppsTrHi, v.cppsLine, v.cppsFit));
+  await S.praat.call(tab, 'Save as tab-separated file...', '/tmp.tsv');
+  const cpps = trackFromTable(new TextDecoder().decode(await S.praat.getFile('/tmp.tsv')));
+
+  const nb = keep(await S.praat.call(part, 'To Spectrogram...', v.h12Win, v.h12Max, v.hnrStep, v.h12FStep, 'Gaussian'));
+  const h1h2 = harmonicDiff(await dumpMatrix(nb, 'To Matrix', made), pitch, v.h12Tol / 100);
+  return { hnr, cpps, h1h2 };
+}
+
+/* A two-column Praat table (time, value) as a one-row matrix. */
+function trackFromTable(text) {
+  const lines = text.trim().split('\n').slice(1).map(l => l.split('\t').map(Number));
+  const nx = lines.length, row = new Float64Array(nx);
+  lines.forEach((l, i) => { row[i] = l[1]; });   // "--undefined--" reads as NaN
+  const x1 = nx ? lines[0][0] : 0, dx = nx > 1 ? (lines[nx - 1][0] - x1) / (nx - 1) : 1;
+  return { nx, dx, x1, rows: [row] };
+}
+
+/* H1–H2 in dB at every frame of the narrow-band spectrogram where pitch has
+   an f0; NaN elsewhere, or where 2·f0 is above the spectrogram's top. */
+function harmonicDiff(sp, pitch, tol) {
+  const row = new Float64Array(sp.nx).fill(NaN);
+  const peak = (i, f) => {
+    const lo = Math.max(0, Math.ceil((f * (1 - tol) - sp.y1) / sp.dy));
+    const hi = Math.floor((f * (1 + tol) - sp.y1) / sp.dy);
+    if (hi >= sp.ny || hi < lo) return NaN;
+    let best = 0;
+    for (let r = lo; r <= hi; r++) best = Math.max(best, sp.rows[r][i]);
+    return best > 0 ? 10 * Math.log10(best) : NaN;
+  };
+  for (let i = 0; i < sp.nx; i++) {
+    const f0 = sampleAt(pitch, sp.x1 + i * sp.dx, 0);
+    if (f0 > 0) row[i] = peak(i, f0) - peak(i, 2 * f0);
+  }
+  return { nx: sp.nx, dx: sp.dx, x1: sp.x1, rows: [row] };
 }
 
 async function analyse() {
@@ -1658,6 +1886,9 @@ $('reanalyse').addEventListener('click', analyse);
 for (const el of document.querySelectorAll('.params input, .params select'))
   el.addEventListener('change', () => {
     if (el.id === 'pDyn') { drawAll(); return; }
+    // The tier's thresholds are read when the tier is made; voice arguments
+    // matter to the window only while voice quality is measured there.
+    if (el.dataset.vqt != null || (el.dataset.vq != null && !$('pVoice').checked)) return;
     clearTimeout(analyseTimer); analyseTimer = setTimeout(analyse, 150);
   });
 
@@ -2089,6 +2320,21 @@ function drawSpec() {
       g.stroke(); g.lineWidth = 1;
     }
   }
+  /* CREPE's track, dashed so it reads apart from Praat's without a second
+     hue, drawn only where CREPE found the frame periodic. */
+  const cr = $('showCrepe').checked && S.crepe?.key === PROJ.key ? S.crepe : null;
+  if (cr) {
+    g.strokeStyle = C.f0; g.lineWidth = 1.5; g.setLineDash([4, 3]); g.beginPath();
+    const k0 = Math.max(0, Math.floor(w0 / cr.hop)), k1 = Math.min(cr.f0.length - 1, Math.ceil(w1 / cr.hop));
+    let on = false;
+    for (let k = k0; k <= k1; k++) {
+      if (cr.conf[k] < CREPE_VOICED) { on = false; continue; }
+      const x = xOf(k * cr.hop), y = y1 - Math.min(1, cr.f0[k] / f0max) * ih;
+      on ? g.lineTo(x, y) : g.moveTo(x, y);
+      on = true;
+    }
+    g.stroke(); g.setLineDash([]); g.lineWidth = 1;
+  }
   g.globalAlpha = 1;
   g.restore();
 
@@ -2209,11 +2455,28 @@ function drawTiers() {
     g.font = lane.key === 'phone' ? '13px ' + mono
            : lane.key === 'speaker' || arpa ? '11px ' + mono
            : '12px ui-sans-serif';
+    // Hand tiers carry doubt too when a romanisation tier marked a reading.
+    const doubt = !RENDER && CFG.doubtOn && (TRI_TIERS.includes(lane.key) || lane.track?.custom) && !busy;
     for (const it of t.items) {
       if (it.end < t0 || it.start > t1) continue;
       const a = Math.max(x0, xOf(it.start)), b = Math.min(F.x1, xOf(it.end));
       g.fillStyle = it === S.selectedItem ? alpha(tc, 0.32) : alpha(tc, 0.10);
       g.fillRect(a, ly + 1, Math.max(1, b - a), lh - 4);
+      /* Doubt: a warm wash and a bar along the foot, dashed and thin just
+         under the threshold, solid and thick far below it. Orange against
+         the tiers' blue holds for the common colour-vision deficiencies, and
+         the bar's weight and dashes carry it without colour at all. */
+      const d = doubt ? doubtOf(it) : 0;
+      if (d > 0) {
+        g.fillStyle = alpha(C.warn, 0.10 + 0.18 * d);
+        g.fillRect(a, ly + 1, Math.max(1, b - a), lh - 4);
+        const h = 3 + Math.round(4 * d), yb = ly + lh - 3 - h / 2;
+        g.save();
+        g.strokeStyle = alpha(C.warn, d < 0.4 ? 0.8 : 1); g.lineWidth = h;
+        g.setLineDash(d < 0.4 ? [4, 2] : []);
+        g.beginPath(); g.moveTo(a + 1, yb); g.lineTo(Math.max(a + 2, b - 1), yb); g.stroke();
+        g.restore();
+      }
       g.strokeStyle = C.boundary;
       g.beginPath(); g.moveTo(a + .5, ly + 1); g.lineTo(a + .5, ly + lh - 3); g.stroke();
       if (b - a > 7) {
@@ -2262,6 +2525,7 @@ function drawTiers() {
   shadeSelection(F, t0, t1);
   drawCursor(F, t0, t1);
   drawTimeAxis(F, t0, t1);
+  if (!RENDER) showAlts();
 }
 
 function anyBusy() {
@@ -2373,10 +2637,12 @@ $('spec').addEventListener('pointerdown', e => {
   if (S.notes.length && noteAtPin(e)) return;
   probe(xToTime(e, S.win[0], S.win[1])); drawAll();
 });
-function labelAt(t) {
+function labelAt(t, withScores = false) {
   const w = S.tracks.word.items.find(it => it.start <= t && t <= it.end);
   const p = S.tracks.phone.items.find(it => it.start <= t && t <= it.end);
-  const lab = [p && p.text, w && w.text].filter(Boolean).join(' / ');
+  // With the model's readings and their shares, where it gave them.
+  const scored = it => it && (withScores && it.conf != null ? (it === p ? candLine(it) : candText([it.text, it.conf])) : it.text);
+  const lab = [scored(p), scored(w)].filter(Boolean).join(' / ');
   // The voice goes in front of the labels rather than into a column of its
   // own, so the readout row does not carry a permanently empty cell for
   // everyone who never diarizes anything.
@@ -2395,8 +2661,10 @@ function probe(t, cursorHz) {
     ['rF1', 'rF2', 'rF3'].forEach((id, i) => { $(id).textContent = hz(sampleAt(A.formants[i], t, A.t0)); });
     const iv = A.intensity ? sampleAt(A.intensity, t, A.t0) : NaN;
     $('rInt').textContent = isFinite(iv) ? iv.toFixed(1) + ' dB' : '—';
+    const db = m => { const v = A.vq ? sampleAt(m, t, A.t0, anyDb) : NaN; return isFinite(v) ? v.toFixed(1) + ' dB' : '—'; };
+    $('rHnr').textContent = db(A.vq?.hnr); $('rCpps').textContent = db(A.vq?.cpps); $('rH12').textContent = db(A.vq?.h1h2);
   }
-  const lab = labelAt(t);
+  const lab = labelAt(t, true);
   $('rLab').textContent = lab;
   $('rLab').title = lab;
 }
@@ -2412,6 +2680,32 @@ $('zoomOut').addEventListener('click', () => {
 $('zoomAll').addEventListener('click', () => setWindow(0, S.dur));
 $('zoomSel').addEventListener('click', () => { if (S.sel) setWindow(S.sel[0], S.sel[1]); });
 for (const id of ['showF0', 'showFmt']) $(id).addEventListener('change', drawSpec);
+$('showCrepe').addEventListener('change', async () => {
+  if ($('showCrepe').checked) await crepeTrack();
+  drawSpec();
+});
+/* CREPE's periodicity above which a frame counts as voiced. */
+const CREPE_VOICED = 0.5;
+/* CREPE over the whole recording, once per recording, from the built-in
+   pitch model (the first one downloaded). */
+async function crepeTrack() {
+  if (!S.audio || S.crepe?.key === PROJ.key) return;
+  try {
+    const list = await (await fetch(apiUrl('/local/models'))).json();
+    const m = (list.models || list).find(x => x.kind === 'pitch' && x.installed);
+    if (!m) { $('showCrepe').checked = false; return status('the CREPE track needs a pitch model: add CREPE tiny under ⚙ Recognisers → Pitch', true); }
+    status(`${m.label}: reading the pitch of the whole recording…`);
+    const fd = new FormData();
+    fd.append('file', new Blob([await wav16k()], { type: 'audio/wav' }), 'audio.wav');
+    fd.append('model', m.id);
+    const body = await localCall('pitch', fd);
+    S.crepe = { key: PROJ.key, model: m.id, hop: body.hop, f0: Float32Array.from(body.f0), conf: Float32Array.from(body.conf) };
+    status(`${m.label}: f0 every ${Math.round(body.hop * 1000)} ms, dashed beside Praat's`);
+  } catch (e) {
+    $('showCrepe').checked = false;
+    status('the CREPE track failed: ' + e.message, true);
+  }
+}
 
 /* ------------------------------------------------------------- playback */
 /* One player. A range plays from a position: Pause keeps the position and
@@ -2778,7 +3072,7 @@ function groupLabel(p) {
 function fillModelSelects() {
   const pins = CFG.mmsPins || [];
   const pinned = m => pins.includes((m.id.match(/^mms-(.+)$/) || [])[1]);
-  const tierName = { words: 'word', phones: 'phone', speakers: 'speaker' };
+  const tierName = { words: 'word', phones: 'phone', speakers: 'speaker', tags: 'events' };
   // The built-in group's own name says where it runs; each label need not.
   const short = (m, p) => p?.kind === 'builtin'
     ? m.label.replace(/ \(on this computer\)$/, '').replace(/\(on this computer, /, '(') : m.label;
@@ -2840,8 +3134,10 @@ function fillModelSelects() {
 function langStyle(model) {
   if (!model) return 'none';
   if (/^mms-/.test(model)) return 'fixed';
-  if (/^(zipa|omnilingual)|^(speakers|diarize)$/.test(model)) return 'none';
-  if (model === 'mms' || model === 'owsm') return 'iso3';
+  if (/^zipa|^(speakers|diarize)$/.test(model)) return 'none';
+  // Omnilingual is told the language so that Lana can hold it to the
+  // language's alphabet; it reads the language itself either way.
+  if (model === 'mms' || model === 'owsm' || /^omnilingual/.test(model)) return 'iso3';
   if (/whisper/i.test(model) || model === 'ipa' || model === 'ipa-buckeye') return 'whisper';
   return 'iso1';
 }
@@ -2974,18 +3270,19 @@ function renderPlan() {
     const bits = [esc(T.gist)];
     if (t.source) bits.push('from ' + esc(t.source));
     if (t.note) bits.push(esc(t.note));
-    const warn = T.key !== 'speaker' && langWarning(t.model, CFG.language);
+    const warn = !T.optional && langWarning(t.model, CFG.language);
     if (warn) bits.push(`<span class="warn">${esc(warn)}</span>`);
     $(T.mt).innerHTML = bits.join(' · ');
   }
-  const wm = S.tracks.word.model, pm = S.tracks.phone.model, sm = S.tracks.speaker.model;
-  $('planNote').textContent = !wm && !pm && !sm
+  const wm = S.tracks.word.model, pm = S.tracks.phone.model, sm = S.tracks.speaker.model, em = S.tracks.event.model;
+  $('planNote').textContent = !wm && !pm && !sm && !em
     ? 'No model chosen. Everything except recognition works without one, including an empty TextGrid to annotate by hand.'
     : (wm && wm === pm)
       ? `${wm} fills both tiers in one pass, so it runs once.`
       : wm && pm ? `${wm} runs first and fills the word tier; ${pm} follows for the phone tier.`
-      : wm || pm ? `Only the ${wm ? 'word' : 'phone'} tier will be filled${sm ? ', beside the speaker tier' : ''}.`
-      : 'Only the speaker tier will be filled: turns and their boundaries, with nothing said in them.';
+      : wm || pm ? `Only the ${wm ? 'word' : 'phone'} tier will be filled${sm ? ', beside the speaker tier' : ''}${em ? (sm ? ' and the events tier' : ', beside the events tier') : ''}.`
+      : sm ? 'Only the speaker tier will be filled: turns and their boundaries, with nothing said in them.'
+      : 'Only the events tier will be filled.';
   /* Worth saying out loud, because it is the one thing here that does not
      queue: the diarizer holds no GPU, so it starts at the same moment the
      recogniser does rather than after it. */
@@ -3001,7 +3298,7 @@ function renderPlan() {
     $('planNote').textContent +=
       ` ${pt.source} returned per-word boundaries — choose it for the word tier too.`;
   /* Run stays live while a job runs: a click then adds to the queue. */
-  $('run').disabled = !S.audio || (!wm && !pm && !sm);
+  $('run').disabled = !S.audio || (!wm && !pm && !sm && !em);
   $('run').textContent = Q.items.some(x => x.state === 'queued' || x.state === 'running')
     ? 'Add to queue' : 'Run recognition';
   if (LANG.rows.length) renderLanguage();
@@ -3062,6 +3359,20 @@ $('nameTiers').addEventListener('change', () => { CFG.nameTiers = $('nameTiers')
 /* ---------------------------------------------------------- the results */
 const MIN_IV = 0.004;   // Praat rejects zero-width intervals outright
 
+/* What a model thought of a label travels with the interval: `conf`, how sure
+   it was of this symbol rather than another (0–1), and `alts`, the others it
+   weighed, as [label, share], most likely first. `rv` marks a label a person
+   has decided on, and `why` one that re-timing flagged. A TextGrid has no
+   room for any of it; Lana's own annotation file and autosave keep it. */
+const DOUBT_KEYS = ['conf', 'alts', 'rv', 'why'];
+const withDoubt = (o, it) => { for (const k of DOUBT_KEYS) if (it[k] != null) o[k] = it[k]; return o; };
+function doubtFrom(o, conf, alts) {
+  if (conf != null && isFinite(+conf)) o.conf = +conf;
+  const a = (alts || []).filter(x => Array.isArray(x) && x[0] != null && isFinite(+x[1])).map(x => [String(x[0]), +x[1]]);
+  if (a.length) o.alts = a;
+  return o;
+}
+
 /* Force a list of intervals to be sorted, non-overlapping, strictly widening
    and inside [0, dur]. Nothing upstream guarantees this: a phone's CTC spike is
    an absolute time that can land a few ms past the end of the word it was
@@ -3074,7 +3385,7 @@ function tidy(items, dur) {
     let st = Math.min(Math.max(it.start, prev), Math.max(0, dur - MIN_IV));
     let en = Math.min(Math.max(it.end, st + MIN_IV), dur);
     if (en - st < MIN_IV / 2) continue;
-    out.push({ start: st, end: en, text: it.text });
+    out.push(withDoubt({ start: st, end: en, text: it.text }, it));
     prev = en;
   }
   return out;
@@ -3090,8 +3401,8 @@ function itemsFrom(cues, kind) {
       // to align: the label is the speaker, and the boundaries are the answer.
       if (c.speaker != null)
         out.push({ start: +c.start, end: +c.end, text: spkName(c.speaker) });
-    } else if (kind === 'word') {
-      if (ws.length) for (const w of ws) out.push({ start: +w.start, end: +w.end, text: w.text || '' });
+    } else if (kind === 'word' || kind === 'event') {
+      if (ws.length) for (const w of ws) out.push(doubtFrom({ start: +w.start, end: +w.end, text: w.text || '' }, w.conf, w.alts));
       else {
         const txt = (c.plain ?? c.text ?? '').trim();
         if (txt) { out.push({ start: +c.start, end: +c.end, text: txt }); cueLevel = true; }
@@ -3103,7 +3414,7 @@ function itemsFrom(cues, kind) {
           // Fall back to an even split only when the model gave no phone times.
           const st = pt[i] ?? (+w.start + (+w.end - +w.start) * i / Math.max(1, ps.length));
           const en = pt[i + 1] ?? Math.max(+w.end, st + MIN_IV);
-          out.push({ start: st, end: en, text: ph });
+          out.push(doubtFrom({ start: st, end: en, text: ph }, w.phone_conf?.[i], w.phone_alts?.[i]));
         });
       }
     }
@@ -3185,11 +3496,12 @@ function assignTrack(key, cues, source, state) {
   if (state === 'done' && !items.length)
     t.note = { phone: 'this model returned no phone labels',
                word: 'this model returned no word timings',
-               speaker: 'this model found no speech to attribute' }[key] || '';
+               speaker: 'this model found no speech to attribute',
+               event: 'no sounds besides speech were heard' }[key] || '';
   else if (cueLevel)
     t.note = 'cue-level intervals: the model timed segments, not words';
   stampSpeakers();
-  renderPlan(); renderSegments(); drawTiers(); updateTierInfo(); renderTranscript();
+  renderPlan(); renderSegments(); drawTiers(); updateTierInfo(); renderTranscript(); renderChecks();
   if (state === 'done') PROJ.dirty();
 }
 
@@ -3327,10 +3639,13 @@ async function pullPartial(j) {
    would be wrong for exactly the models that matter. */
 function applyCues(cues, source, state, claims) {
   const hasPhones = cues.some(c => (c.words || []).some(w => (w.phones || []).length));
-  const hasWords = cues.some(c => (c.words || []).length || (c.plain ?? c.text ?? '').trim());
+  /* A sound tagger's cues carry their label as a word, marked `event`: they
+     are not a transcription and never fill the word tier or the transcript. */
+  const hasEvents = cues.some(c => c.event != null);
+  const hasWords = !hasEvents && cues.some(c => (c.words || []).length || (c.plain ?? c.text ?? '').trim());
   const hasSpeakers = cues.some(c => c.speaker != null);
   const targets = claims || [...(hasWords ? ['word'] : []), ...(hasPhones ? ['phone'] : []),
-                             ...(hasSpeakers ? ['speaker'] : [])];
+                             ...(hasSpeakers ? ['speaker'] : []), ...(hasEvents ? ['event'] : [])];
   for (const k of targets) {
     if (k === 'phone' && !hasPhones && state === 'partial') continue;
     /* A finished tier is never replaced by a partial one. The poller awaits its
@@ -3430,7 +3745,7 @@ function mergeSpan(job, cues) {
     if (!/\(selection\)/.test(t.source || '')) t.source = (t.source ? t.source + ' + ' : '') + job.model + ' (selection)';
   }
   stampSpeakers();
-  renderPlan(); renderSegments(); drawTiers(); updateTierInfo(); renderTranscript();
+  renderPlan(); renderSegments(); drawTiers(); updateTierInfo(); renderTranscript(); renderChecks();
   PROJ.dirty();
 }
 /* What can be run on the selection: each tier with a model, or all of them. */
@@ -3456,9 +3771,12 @@ function buildJobs(only) {
     else gpu.push({ k, model, provider });
   }
   // One model that fills two tiers is one job, not two identical uploads.
-  if (gpu.length === 2 && gpu[0].model === gpu[1].model && gpu[0].provider === gpu[1].provider)
-    out.push({ model: gpu[0].model, provider: gpu[0].provider, claims: gpu.map(g => g.k) });
-  else for (const g of gpu) out.push({ model: g.model, provider: g.provider, claims: [g.k] });
+  // (By model rather than by pair: the events tier makes three queued tiers.)
+  for (const g of gpu) {
+    const same = out.find(j => !j.concurrent && j.model === g.model && j.provider === g.provider);
+    if (same) same.claims.push(g.k);
+    else out.push({ model: g.model, provider: g.provider, claims: [g.k] });
+  }
   return out;
 }
 
@@ -3579,6 +3897,7 @@ async function runJob(job) {
     // An excerpt's hash would re-cluster the excerpt onto the whole tier: none.
     if (job.concurrent)
       S.tracks.speaker.cached = body.hash && !job.span ? { hash: body.hash, file: fileKey() } : null;
+    if (!job.concurrent) takeWarnings(job, body.warnings);
     if (job.span) mergeSpan(job, cues);
     else applyCues(cues, job.model, 'done', job.claims);
     if (!job.span && !cues.length && (body.text || '').trim()) {
@@ -3590,6 +3909,8 @@ async function runJob(job) {
     job.note = `${f2((performance.now() - t0) / 1000)} s`;
     status(`${job.model} finished${job.span ? ' on ' + f2(job.span[0]) + '–' + f2(job.span[1]) + ' s' : ''} in ${f2((performance.now() - t0) / 1000)} s` +
            (body.language ? ` · language ${body.language}` : '') +
+           (body.alphabet ? ` · held to the ${LANG.name(body.alphabet)} alphabet` : '') +
+           (S.warnings.some(w => w.model === job.model && !w.done) ? ` · ${S.warnings.filter(w => w.model === job.model && !w.done).length} warning(s), listed under To check` : '') +
            (body.speakers != null ? ` · ${body.speakers} speaker${body.speakers === 1 ? '' : 's'}` : ''));
   } catch (e) {
     const cancelled = /cancel|abort|stopped/i.test(e.message) || e.name === 'AbortError';
@@ -3697,7 +4018,7 @@ function renderQueue() {
   const lab = { queued: 'waiting', running: 'running', done: 'done', failed: 'failed', cancelled: 'cancelled' };
   $('queueList').innerHTML = shown.map(j => {
     const tiers = j.claims.map(k => tierOf(k).label).join(' + ') + (j.span ? ` (${f2(j.span[0])}–${f2(j.span[1])} s)` : '');
-    const lang = j.concurrent ? '' : (j.language ? LANG.name(j.language) : 'language detected');
+    const lang = j.concurrent || j.claims.every(k => k === 'event') ? '' : (j.language ? LANG.name(j.language) : 'language detected');
     const st = j.state === 'running' && j.pct != null ? `${j.pct.toFixed(0)}%` : lab[j.state];
     const act = j.state === 'queued' ? 'remove' : j.state === 'running' ? 'stop' : '';
     return `<div class="qrow" data-id="${j.id}" data-s="${j.state}">
@@ -3727,6 +4048,7 @@ $('run').addEventListener('click', () => enqueue());
 $('reWord').addEventListener('click', () => enqueue('word'));
 $('rePhone').addEventListener('click', () => enqueue('phone'));
 $('reSpeaker').addEventListener('click', () => enqueue('speaker'));
+$('reEvent').addEventListener('click', () => enqueue('event'));
 $('spkRe').addEventListener('click', reclusterSpeakers);
 
 /* ------------------------------------------------------- for a paper */
@@ -3932,7 +4254,7 @@ async function drawFigure(o, make) {
    reproduced and its caption written from it. */
 function figureCaption() {
   const [t0, t1] = S.win, p = params();
-  const cmds = commandList(p, t0, t1).filter(c => !/^Extract part/.test(c));
+  const cmds = commandList(p, t0, t1, p.voice).filter(c => !/^Extract part/.test(c));
   const models = TKEYS.map(k => S.tracks[k].source && `${tierOf(k).label}: ${S.tracks[k].source}`).filter(Boolean);
   const parts = [`${S.file?.name || S.name}, ${f3(t0)}–${f3(t1)} s.`, 'Praat:', ...cmds.map((c, i) => c + (i < cmds.length - 1 ? ';' : '.')),
                  ...(models.length ? ['Tiers:', models.join('; ') + '.'] : [])];
@@ -3974,7 +4296,7 @@ async function exportSvg() {
 
 /* ------------------------------------------------------- measurements */
 /* Values of one matrix row over [a, b], from an analysis of [A.t0, A.t1]. */
-function framesIn(m, A, a, b) {
+function framesIn(m, A, a, b, ok = v => v > 0) {
   const out = [];
   if (!m || !m.rows[0]) return out;
   for (let i = 0; i < m.nx; i++) {
@@ -3982,7 +4304,7 @@ function framesIn(m, A, a, b) {
     if (t < a) continue;
     if (t > b) break;
     const v = m.rows[0][i];
-    if (v > 0) out.push(v);
+    if (ok(v)) out.push(v);
   }
   return out;
 }
@@ -4002,34 +4324,56 @@ function measureFrom(A, a, b) {
     F2_mid_Hz: sampleAt(A.formants[1], mid, A.t0),
     F3_mid_Hz: sampleAt(A.formants[2], mid, A.t0),
     intensity_mean_dB: A.intensity ? mean(framesIn(A.intensity, A, a, b)) : NaN,
+    // Means over the frames that have a value: HNR's voiced frames, every
+    // CPPS frame, and H1–H2 where there is an f0.
+    ...(A.vq ? { HNR_mean_dB: mean(framesIn(A.vq.hnr, A, a, b, anyDb)),
+                 CPPS_mean_dB: mean(framesIn(A.vq.cpps, A, a, b, anyDb)),
+                 H1H2_mean_dB: mean(framesIn(A.vq.h1h2, A, a, b, anyDb)) } : {}),
   };
 }
-const MEAS_COLS = ['duration_ms', 'f0_mean_Hz', 'F1_mean_Hz', 'F2_mean_Hz', 'F3_mean_Hz',
-                   'F1_mid_Hz', 'F2_mid_Hz', 'F3_mid_Hz', 'intensity_mean_dB'];
+/* The voice-quality columns are there when voice quality is measured
+   (Analysis pane), so a table never carries columns that are always empty. */
+const VQ_COLS = ['HNR_mean_dB', 'CPPS_mean_dB', 'H1H2_mean_dB'];
+const measCols = () => ['duration_ms', 'f0_mean_Hz', 'F1_mean_Hz', 'F2_mean_Hz', 'F3_mean_Hz',
+                        'F1_mid_Hz', 'F2_mid_Hz', 'F3_mid_Hz', 'intensity_mean_dB',
+                        ...($('pVoice').checked ? VQ_COLS : [])];
 const fmtNum = (v, d = 1) => isFinite(v) ? v.toFixed(d) : '';
+const fmtMeas = (m, c) => fmtNum(m[c], /_dB$/.test(c) ? 2 : 1);
 const csvCell = v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
 
 /* The analysis in use if it covers [a, b] with the current arguments, or a
-   fresh one of just that stretch (with a margin, so the edge frames exist). */
+   fresh one of just that stretch (with a margin, so the edge frames exist).
+   Voice arguments only count while voice quality is measured. */
+const argsKey = p => JSON.stringify({ ...p, vq: p.voice ? p.vq : null });
 async function analysisFor(a, b) {
   const p = params(), A = S.analysis;
-  if (A && A.t0 <= a && b <= A.t1 && JSON.stringify(A.p) === JSON.stringify(p)) return A;
+  if (A && !A.lean && A.t0 <= a && b <= A.t1 && argsKey(A.p) === argsKey(p)) return A;
   return analyseSpan(Math.max(0, a - 0.05), Math.min(S.dur, b + 0.05), p);
 }
 
 async function measureOne(a, b) { return measureFrom(await analysisFor(a, b), a, b); }
 
-/* f0, F1-F3 and intensity frame by frame over the window, on pitch's frames. */
+/* f0, F1-F3 and intensity frame by frame over the window, on pitch's frames;
+   HNR, CPPS and H1–H2 too when voice quality is measured, each read at its
+   own frame nearest the pitch frame (CPPS has five frames to pitch's one at
+   Praat's defaults, already smoothed over 20 ms). */
 function tracksCsv() {
   const A = S.analysis;
   if (!A) throw new Error('nothing analysed yet');
-  const rows = ['time_s,f0_Hz,F1_Hz,F2_Hz,F3_Hz,intensity_dB'];
+  const vq = A.vq;
+  const cr = S.crepe?.key === PROJ.key ? S.crepe : null;
+  const rows = ['time_s,f0_Hz,F1_Hz,F2_Hz,F3_Hz,intensity_dB' + (vq ? ',HNR_dB,CPPS_dB,H1H2_dB' : '') +
+                (cr ? ',f0_CREPE_Hz,CREPE_periodicity' : '')];
   const m = A.pitch;
   for (let i = 0; i < m.nx; i++) {
     const t = A.t0 + m.x1 + i * m.dx;
     const v = m.rows[0][i];
     rows.push([t.toFixed(4), fmtNum(v > 0 ? v : NaN), ...[0, 1, 2].map(k => fmtNum(sampleAt(A.formants[k], t, A.t0))),
-               fmtNum(A.intensity ? sampleAt(A.intensity, t, A.t0) : NaN, 2)].join(','));
+               fmtNum(A.intensity ? sampleAt(A.intensity, t, A.t0) : NaN, 2),
+               ...(vq ? [vq.hnr, vq.cpps, vq.h1h2].map(x => fmtNum(sampleAt(x, t, A.t0, anyDb), 2)) : []),
+               // CREPE's nearest frame; its f0 only where it found the frame periodic.
+               ...(cr ? (k => [fmtNum(cr.conf[k] >= CREPE_VOICED ? cr.f0[k] : NaN), fmtNum(cr.conf[k], 3)])(
+                 Math.min(cr.f0.length - 1, Math.max(0, Math.round(t / cr.hop)))) : [])].join(','));
   }
   return rows.join('\n') + '\n';
 }
@@ -4042,7 +4386,8 @@ async function intervalsCsv(key) {
   const items = (track?.items || []).filter(it => (it.text || '').trim());
   if (!items.length) throw new Error('no labelled intervals on that tier');
   const spk = S.tracks.speaker.items.length > 0 && key !== 'speaker';
-  const rows = [['tier', 'label', 'start_s', 'end_s', ...(spk ? ['speaker'] : []), ...MEAS_COLS].join(',')];
+  const cols = measCols();
+  const rows = [['tier', 'label', 'start_s', 'end_s', ...(spk ? ['speaker'] : []), ...cols].join(',')];
   const label = lanes().find(l => l.key === key)?.label || key;
   let i = 0, done = 0;
   while (i < items.length) {
@@ -4054,7 +4399,7 @@ async function intervalsCsv(key) {
       const it = items[k], m = measureFrom(A, it.start, it.end);
       rows.push([csvCell(label), csvCell(it.text), it.start.toFixed(4), it.end.toFixed(4),
                  ...(spk ? [csvCell(speakerFor(it.start, it.end)?.name || '')] : []),
-                 ...MEAS_COLS.map(c => fmtNum(m[c], c === 'intensity_mean_dB' ? 2 : 1))].join(','));
+                 ...cols.map(c => fmtMeas(m, c))].join(','));
     }
     done = j + 1; i = j + 1;
     status(`measuring: ${done} of ${items.length} intervals`);
@@ -4146,9 +4491,9 @@ const timesRow = (a, b) => `${a.toFixed(3)}\t${b.toFixed(3)}\t${((b - a) * 1000)
 async function copyMeasurements(a, b, label) {
   try {
     status('measuring…');
-    const m = await measureOne(a, b);
-    copyText(`label\tstart_s\tend_s\t${MEAS_COLS.join('\t')}\n` +
-             `${label ?? ''}\t${a.toFixed(4)}\t${b.toFixed(4)}\t${MEAS_COLS.map(c => fmtNum(m[c], c === 'intensity_mean_dB' ? 2 : 1)).join('\t')}`,
+    const m = await measureOne(a, b), cols = measCols();
+    copyText(`label\tstart_s\tend_s\t${cols.join('\t')}\n` +
+             `${label ?? ''}\t${a.toFixed(4)}\t${b.toFixed(4)}\t${cols.map(c => fmtMeas(m, c)).join('\t')}`,
              'the measurements (tab-separated, with a header)');
   } catch (e) { status('measuring failed: ' + e.message, true); }
 }
@@ -4162,8 +4507,10 @@ $('tiers').addEventListener('contextmenu', e => {
   const lane = laneAtY(e.clientY), t = timeAtX(e.clientX), track = lane.track;
   const fixed = TIERS.find(T => T.key === lane.key), extra = S.extra.find(x => x.key === lane.key);
   if (lane.key !== S.activeLane) setActiveLane(lane.key, false);
+  const priorSel = S.sel;
   const tierItems = [
     ...(fixed && S.tracks[lane.key].model ? [{ label: `Run ${S.tracks[lane.key].model} on this tier`, run: () => enqueue(lane.key) }] : []),
+    ...(fixed && TRI_TIERS.includes(lane.key) ? [{ label: 'Next label to check', key: '.', off: !checkList().length, run: () => stepCheck(1) }] : []),
     ...(extra ? [{ label: 'Rename tier…', run: renameTier }, { label: 'Remove tier', run: removeTier }] : []),
     ...(ARPA.setOf(extra) ? [{ label: 'Next label that is not ARPABET', off: track.items.every(it => ARPA.valid(it.text, ARPA.setOf(extra))),
                                          run: () => nextInvalid(track) }] : []),
@@ -4172,7 +4519,7 @@ $('tiers').addEventListener('contextmenu', e => {
       run: () => copyText('start\tend\tduration_ms\tlabel\n' + track.items.map(it => `${timesRow(it.start, it.end)}\t${it.text || ''}`).join('\n'), `the ${lane.label} tier`) },
     { label: 'Measure every interval (CSV)…', off: !track.items.some(it => (it.text || '').trim()), run: () => saveIntervals(lane.key) },
   ];
-  if (e.clientX - r.left < PAD.l) return openMenu(e.clientX, e.clientY, tierItems);
+  if (e.clientX - r.left < PAD.l) return openMenu(e.clientX, e.clientY, [...retimeItems(lane.key, S.sel), ...tierItems]);
   const busy = busyTrack(track);
   const it = track.items.find(x => x.start <= t && t <= x.end);
   if (!it) {
@@ -4183,7 +4530,10 @@ $('tiers').addEventListener('contextmenu', e => {
       { label: 'Figure / measurements…', run: openPaperDialog },
     ]);
   }
-  selectSpan(it.start, it.end, it); probe(t);
+  // Inside a wider selection the interval is picked and the stretch kept.
+  if (priorSel && priorSel[0] <= t && t <= priorSel[1] && priorSel[1] - priorSel[0] > it.end - it.start + 1e-6) { S.selectedItem = it; drawAll(); }
+  else selectSpan(it.start, it.end, it);
+  probe(t);
   const items = track.items, idx = items.indexOf(it);
   openMenu(e.clientX, e.clientY, [
     { label: 'Play', key: 'Space', run: () => play(it.start, it.end) },
@@ -4194,6 +4544,11 @@ $('tiers').addEventListener('contextmenu', e => {
     { label: 'Merge with next', key: 'M', off: busy || idx === items.length - 1, run: () => { S.selectedItem = it; mergeNext(); } },
     { label: 'Merge with previous', off: busy || idx === 0, run: () => { S.selectedItem = items[idx - 1]; mergeNext(); } },
     { label: 'Delete interval', key: 'Del', off: busy, run: () => { S.selectedItem = it; deleteSelected(); } },
+    ...(candidates(it).length > 1 ? ['-', ...candidates(it).slice(1, 4).map((c, i) => (
+      { label: `Use the model's reading ${candText(c)}`, key: String(i + 2), off: busy,
+        run: () => { S.selectedItem = it; setActiveLane(lane.key, false); pickCandidate(i + 1); } }))] : []),
+    ...(doubtOf(it) > 0 ? [{ label: 'Mark as checked', key: '1', run: () => markChecked({ key: lane.key, it }) }] : []),
+    ...(retimeItems(lane.key, retimeSpan(lane.key, t, it, priorSel)).length ? ['-', ...retimeItems(lane.key, retimeSpan(lane.key, t, it, priorSel))] : []),
     '-',
     ...(flagOf(lane.key, it)
       ? [{ label: 'Edit flag…', key: 'F', run: () => openNoteEditor(flagOf(lane.key, it), false, e.clientX, e.clientY) },
@@ -4228,6 +4583,9 @@ for (const id of ['wave', 'intens', 'spec']) {
       { label: 'Zoom to selection', key: 'Z', off: !S.sel, run: () => setWindow(S.sel[0], S.sel[1]) },
       ...(S.sel ? [{ label: 'Recognise the selection…', off: !TKEYS.some(k => S.tracks[k].model),
                      run: () => openMenu(e.clientX, e.clientY, recogniseSelectionItems()) }] : []),
+      ...(S.sel && localTools() ? [{ label: 'Find similar stretches', run: () => findSimilar(S.sel, '') }] : []),
+      ...(S.sel && localTools() && TRI_TIERS.includes(S.activeLane) && S.tracks[S.activeLane].items.length
+        ? [{ label: `Re-time the ${tierOf(S.activeLane).label} from the sound`, key: 'R', run: () => retime(S.activeLane, S.sel) }] : []),
       { label: 'Zoom out', run: () => $('zoomOut').click() },
       { label: 'Show the whole file', run: () => setWindow(0, S.dur) },
       '-',
@@ -4631,7 +4989,9 @@ function cuesFromItems() {
 }
 
 /* ----------------------------------------------------------- undo / redo */
-const plain = items => items.map(({ start, end, text }) => ({ start, end, text }));
+const plain = items => items.map(it => withDoubt({ start: it.start, end: it.end, text: it.text }, it));
+// Without what the model thought of each label: a copy is a hand tier.
+const bare = items => items.map(({ start, end, text }) => ({ start, end, text }));
 function snap() {
   const tracks = {};
   for (const k of TKEYS) {
@@ -4642,12 +5002,13 @@ function snap() {
   }
   return { tracks, transcript: S.transcript,
            extra: S.extra.map(x => ({ ...x, items: plain(x.items) })),
-           notes: S.notes.map(n => ({ ...n })) };
+           notes: S.notes.map(n => ({ ...n })), warnings: S.warnings.map(w => ({ ...w })) };
 }
 function applySnap(sn) {
   for (const k of TKEYS) Object.assign(S.tracks[k], sn.tracks[k], { items: plain(sn.tracks[k].items) });
   S.extra = sn.extra.map(x => ({ ...x, items: plain(x.items) }));
   S.notes = (sn.notes || []).map(n => ({ ...n }));
+  S.warnings = (sn.warnings || []).map(w => ({ ...w }));
   S.transcript = sn.transcript;
   S.selectedItem = null;
   if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
@@ -4694,7 +5055,7 @@ function edit(keys, fn) {
 }
 function afterEdit() {
   stampSpeakers();
-  renderPlan(); renderSegments(); updateTierInfo(); renderTranscript(); renderNotes(); drawAll();
+  renderPlan(); renderSegments(); updateTierInfo(); renderTranscript(); renderNotes(); renderChecks(); drawAll();
   PROJ.dirty();
 }
 
@@ -4713,7 +5074,7 @@ function setActiveLane(key, redraw = true) {
 function fillSegWhich() {
   // The table always shows the tier the edit keys act on.
   const el = $('segWhich'), cur = S.activeLane;
-  const opts = [...TIERS.map(T => [T.key, { word: 'words', phone: 'phones', speaker: 'speakers' }[T.key]]),
+  const opts = [...TIERS.map(T => [T.key, { word: 'words', phone: 'phones', speaker: 'speakers', event: 'events' }[T.key]]),
                 ...S.extra.map(x => [x.key, x.label])];
   const html = opts.map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join('');
   if (el.innerHTML !== html) el.innerHTML = html;
@@ -4769,6 +5130,9 @@ $('tiers').addEventListener('pointerdown', e => {
   closeLabelEditor(true);
   const lane = laneAtY(e.clientY), t = timeAtX(e.clientX);
   if (lane.key !== S.activeLane) setActiveLane(lane.key, false);
+  // A right click leaves the selection to the menu, which keeps a stretch
+  // selected across several intervals (to re-time it, say).
+  if (e.button === 2) return;
   const b = !busyTrack(lane.track) && boundaryNear(lane.track, t);
   if (b) {
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -4783,9 +5147,13 @@ $('tiers').addEventListener('pointerdown', e => {
 $('tiers').addEventListener('pointermove', e => {
   if (!bdrag) {
     if (!S.audio) return;
-    const lane = laneAtY(e.clientY);
+    const lane = laneAtY(e.clientY), t = timeAtX(e.clientX);
     e.currentTarget.style.cursor =
-      !busyTrack(lane.track) && boundaryNear(lane.track, timeAtX(e.clientX)) ? 'col-resize' : 'pointer';
+      !busyTrack(lane.track) && boundaryNear(lane.track, t) ? 'col-resize' : 'pointer';
+    // The model's readings of the label under the pointer, as a tooltip.
+    const it = lane.track.items.find(x => x.start <= t && t <= x.end);
+    const tip = it && it.conf != null ? candLine(it) + (it.rv ? ' · checked' : '') : '';
+    if (e.currentTarget.title !== tip) e.currentTarget.title = tip;
     return;
   }
   const { b } = bdrag;
@@ -4868,7 +5236,7 @@ function closeLabelEditor(commit) {
   if (commit && ARPA.setOf(trackOf(key))) value = ARPA.normalise(value, ARPA.setOf(trackOf(key)));
   if (commit && value !== (it.text || '')) {
     if (isNew) { it.text = value; afterEdit(); }        // the creation is already one undo step
-    else edit([key], () => { it.text = value; });
+    else edit([key], () => decideLabel(it, value));
   } else if (!commit && isNew) {
     // Escape on an interval that only existed to be labelled takes it back.
     S.undo.length && applySnap(S.undo.pop());
@@ -4913,7 +5281,7 @@ function mergeNext() {
   // On the speaker tier the left label stands.
   const sep = S.activeLane === 'phone' ? '' : ' ';
   edit([S.activeLane], () => {
-    if (S.activeLane !== 'speaker') it.text = [it.text, next.text].filter(Boolean).join(sep);
+    if (S.activeLane !== 'speaker') decideLabel(it, [it.text, next.text].filter(Boolean).join(sep));
     it.end = next.end;
     items.splice(items.indexOf(next), 1);
   });
@@ -4945,12 +5313,114 @@ function addTier(e) {
     ]) : [{ label: 'ARPABET from phones — fill the phone tier first', off: true }]),
     '-',
     ...(filled.length ? filled.flatMap(l => [
-      { label: `Copy of ${l.label}`, run: () => makeTier(`${l.label} copy`, plain(l.track.items), l.track.format || '') },
+      { label: `Copy of ${l.label}`, run: () => makeTier(`${l.label} copy`, bare(l.track.items), l.track.format || '') },
       { label: `Copy of ${l.label}, boundaries only`,
-        run: () => makeTier(`${l.label} notes`, plain(l.track.items).map(it => ({ ...it, text: '' }))) },
+        run: () => makeTier(`${l.label} notes`, bare(l.track.items).map(it => ({ ...it, text: '' }))) },
     ]) : [{ label: 'Copy of a tier — nothing to copy yet', off: true }]),
+    '-',
+    { label: 'Voice quality (creaky / breathy / modal) over the window — thresholds, not a model',
+      run: () => voiceTier(S.win[0], S.win[1]) },
+    { label: 'Voice quality over the whole file', run: () => voiceTier(0, S.dur) },
+    ...romanItems(filled),
   ];
   openMenu(r.left, r.bottom + 2, items);
+}
+
+/* A tier of creaky, breathy and modal stretches. It is a threshold heuristic,
+   not a classifier: every voiced frame (one with an f0) is labelled by fixed
+   rules on its HNR, CPPS and H1–H2, with the thresholds on screen in the
+   Analysis pane, and runs of one label become intervals. The rules follow the
+   usual reading of these measures (Garellek and colleagues' work on H1–H2
+   and CPP among others): creaky voice is irregular, so its HNR and CPPS are
+   low, and its glottis is tightly closed, so H1 is weak against H2; breathy
+   voice is noisy too, but the glottis does not close, so H1 is strong.
+   Modal is every voiced frame that is neither. What it cannot see: creak
+   below the pitch floor has no f0 and stays unlabelled (lower the floor to
+   find it), and H1–H2 is uncorrected, so a vowel with F1 near H2 reads as
+   less breathy than it is. The labels are a first pass to listen through and
+   correct, like any recognised tier. */
+function vqThresholds() {
+  return { hnr: num('vqHnr', 10), cpps: num('vqCpps', 5), creak: num('vqCreak', 0),
+           breath: num('vqBreath', 10), min: Math.max(0, num('vqMin', 0.04)) };
+}
+function vqLabel(hnr, cpps, h12, th) {
+  if (hnr < th.hnr && cpps < th.cpps && h12 < th.creak) return 'creaky';
+  if (hnr < th.hnr && h12 > th.breath) return 'breathy';
+  return 'modal';
+}
+
+/* Frames of [a, b], labelled; '' where Praat found no f0. Analysed 15 s at a
+   time, with a margin so that every frame kept was computed from a whole
+   window rather than from the edge of a stretch. */
+async function vqFrames(a, b, th) {
+  const p = params(), out = [], step = 15, margin = 0.1;
+  for (let c0 = a; c0 < b; c0 += step) {
+    const c1 = Math.min(b, c0 + step);
+    status(`voice quality: ${f2(c0 - a)} of ${f2(b - a)} s …`);
+    const A = await analyseSpan(Math.max(0, c0 - margin), Math.min(S.dur, c1 + margin), p, { voice: true, lean: true });
+    const m = A.pitch, half = m.dx / 2;
+    for (let i = 0; i < m.nx; i++) {
+      const t = A.t0 + m.x1 + i * m.dx;
+      if (t < c0 || t >= c1) continue;
+      let text = '';
+      if (m.rows[0][i] > 0) {
+        const cpps = mean(framesIn(A.vq.cpps, A, t - half, t + half, anyDb));
+        text = vqLabel(sampleAt(A.vq.hnr, t, A.t0, anyDb), cpps, sampleAt(A.vq.h1h2, t, A.t0, anyDb), th);
+      }
+      out.push({ t, text, half });
+    }
+  }
+  return out;
+}
+
+/* Runs of one label, edge to edge (a boundary halfway between two frames),
+   then every run shorter than the minimum handed to a neighbour, shortest
+   first: a short voiced run takes the label of its longer voiced neighbour,
+   or becomes unlabelled if it has none; a short gap between two voiced runs
+   (a frame where the pitch track dropped out, as it does in creak) takes the
+   longer one's label. Each step joins two runs, so it ends. */
+function vqRuns(frames, minLen) {
+  let runs = [];
+  frames.forEach((f, i) => {
+    const start = i ? (frames[i - 1].t + f.t) / 2 : f.t - f.half;
+    const end = i < frames.length - 1 ? (f.t + frames[i + 1].t) / 2 : f.t + f.half;
+    const last = runs[runs.length - 1];
+    if (last && last.text === f.text) last.end = end;
+    else runs.push({ start, end, text: f.text });
+  });
+  const len = r => r.end - r.start;
+  for (;;) {
+    let k = -1;
+    runs.forEach((r, i) => {
+      if (len(r) >= minLen) return;
+      if (!r.text && !(runs[i - 1]?.text && runs[i + 1]?.text)) return;
+      if (k < 0 || len(r) < len(runs[k])) k = i;
+    });
+    if (k < 0) break;
+    const voiced = [runs[k - 1], runs[k + 1]].filter(r => r?.text);
+    runs[k].text = voiced.length ? voiced.sort((x, y) => len(y) - len(x))[0].text : '';
+    const joined = [];
+    for (const r of runs) {
+      const last = joined[joined.length - 1];
+      if (last && last.text === r.text) last.end = r.end;
+      else joined.push({ ...r });
+    }
+    runs = joined;
+  }
+  return runs.filter(r => r.text);
+}
+
+async function voiceTier(a, b) {
+  if (!S.sound) return status('open a recording first', true);
+  const th = vqThresholds();
+  try {
+    const items = tidy(vqRuns(await vqFrames(a, b, th), th.min), S.dur);
+    const n = l => items.filter(it => it.text === l).length;
+    makeTier('voice quality', items, '', false);
+    status(`voice quality, ${f2(a)}–${f2(b)} s: ${n('creaky')} creaky, ${n('breathy')} breathy, ${n('modal')} modal · ` +
+           `a threshold heuristic, not a model (HNR < ${th.hnr} dB, CPPS < ${th.cpps} dB, H1–H2 < ${th.creak} / > ${th.breath} dB; ` +
+           `Analysis pane) · listen before you cite it`);
+  } catch (e) { status('voice quality failed: ' + (e.message || e), true); }
 }
 /* The first marked label after the selection (or the cursor), wrapping round. */
 function nextInvalid(track) {
@@ -4977,6 +5447,68 @@ function arpabetTier(lane, set) {
   if (!stress) notes.push('no stress digits: the phones carry no stress marks');
   if (unknown.length) notes.push(`no ARPABET for ${unknown.slice(0, 8).join(' ')}${unknown.length > 8 ? ' …' : ''} — kept and marked in orange`);
   status(notes.join(' · '), unknown.length > 0);
+}
+/* Romanisation tiers (web/romanise.js, loaded the first time one is made):
+   Han characters as pinyin, Wade-Giles, zhuyin or IPA, and MMS's Min Nan
+   (written in Pe̍h-ōe-jī) as Tâi-lô. Like an ARPABET tier, the conversion does
+   not guess: a character read more than one way that its neighbours do not
+   settle keeps its usual reading and is listed under To check, its other
+   readings one key away with their share of CC-CEDICT's words. */
+const HAN_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+let ROM = null;
+async function romaniser() {
+  if (!ROM) { const R = await import('./romanise.js'); await R.load(''); ROM = R; }
+  return ROM;
+}
+const ROMAN_SYSTEMS = [['pinyin', 'pinyin'], ['pinyin-numbers', 'pinyin with tone numbers'], ['wade-giles', 'Wade-Giles'],
+                       ['zhuyin', 'zhuyin (bopomofo)'], ['ipa', 'IPA, citation tones']];
+function romanItems(filled) {
+  const han = filled.filter(l => l.track.items.some(it => HAN_RE.test(it.text || '')));
+  const poj = filled.filter(l => CFG.language === 'nan' || l.track.items.some(it => /o\u0358|ⁿ/.test(it.text || '')));
+  const out = [
+    ...han.flatMap(l => ROMAN_SYSTEMS.map(([sys, name]) => ({ label: `${name[0].toUpperCase() + name.slice(1)} from ${l.label}`, run: () => romanTier(l, sys, name) }))),
+    ...poj.map(l => ({ label: `Tâi-lô from ${l.label} (Pe̍h-ōe-jī, as MMS writes Min Nan)`, run: () => romanTier(l, 'tai-lo', 'Tâi-lô') })),
+  ];
+  return out.length ? ['-', ...out] : [];
+}
+async function romanTier(lane, system, name) {
+  let R;
+  try { R = await romaniser(); } catch (e) { return status('romanisation: ' + e.message, true); }
+  const src = lane.track.items, items = bare(src);
+  if (system === 'tai-lo') {
+    items.forEach(it => { it.text = R.taiLo(it.text || ''); });
+    makeTier(name, items, '', false);
+    return status(`${items.length} intervals from ${lane.label} in Tâi-lô`);
+  }
+  // Consecutive intervals of Han give each other context (one character per
+  // interval is how MMS and Omnilingual write it); anything else breaks it.
+  const syl = new Map(), run = [];
+  const flush = () => { R.pinyinOf(run.map(r => r.c)).forEach((py, k) => syl.set(run[k].key, py)); run.length = 0; };
+  src.forEach((it, i) => {
+    const cs = [...(it.text || '')];
+    if (!cs.some(c => HAN_RE.test(c))) { flush(); return; }
+    cs.forEach((c, j) => { if (HAN_RE.test(c)) run.push({ key: i + ':' + j, c }); });
+  });
+  flush();
+  const conv = py => R.fromPinyin(py, system) ?? py;
+  let marked = 0;
+  items.forEach((it, i) => {
+    const cs = [...(src[i].text || '')];
+    if (!cs.some(c => HAN_RE.test(c))) return;
+    const parts = cs.map((c, j) => syl.get(i + ':' + j) || { text: c });
+    it.text = parts.map(p => HAN_RE.test(p.text) || !syl.size ? p.text : conv(p.text)).join(cs.length > 1 ? ' ' : '');
+    const k = parts.findIndex(p => p.doubt);
+    if (k < 0) return;
+    const p = parts[k], readings = [p.text, ...p.alts], shares = p.shares || [];
+    const label = r => parts.map((q, j) => conv(j === k ? r : q.text)).join(cs.length > 1 ? ' ' : '');
+    it.conf = shares[0] ?? 0;
+    it.alts = readings.slice(1).map((r, n) => [label(r), shares[n + 1] ?? 0]).filter(a => a[1] >= 0.01).slice(0, 3);
+    it.why = 'reading';
+    marked++;
+  });
+  makeTier(name, items, '', false);
+  status(`${items.length} intervals from ${lane.label} in ${name}` +
+         (marked ? ` · ${marked} with more than one reading that the context does not settle, listed under To check` : ''), marked > 0);
 }
 /* The gutter is too narrow to type in, so the name editor sits over the
    tier's first visible stretch instead. */
@@ -5032,7 +5564,19 @@ addEventListener('keydown', e => {
   else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); noteHere(); }
   else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); flagSelected(); }
   else if (e.key === '[' || e.key === ']') { e.preventDefault(); stepNote(e.key === ']' ? 1 : -1); }
+  else if (e.key === ',' || e.key === '.') { e.preventDefault(); stepCheck(e.key === '.' ? 1 : -1); }
+  else if (e.key >= '1' && e.key <= '4' && (candidates(selectedOnActive()).length || TRI.cur?.warn)) { e.preventDefault(); pickCandidate(+e.key - 1); }
+  else if ((e.key === 'r' || e.key === 'R') && localTools()) { e.preventDefault(); retimeSelection(); }
 });
+/* R: re-time the selection on the active tier, or the word a selected phone
+   belongs to. */
+function retimeSelection() {
+  const key = S.activeLane, it = selectedOnActive();
+  if (!TRI_TIERS.includes(key)) return status('re-timing works on the word and phone tiers: click one of them first', true);
+  const t = S.sel ? (S.sel[0] + S.sel[1]) / 2 : it ? (it.start + it.end) / 2 : S.cursor;
+  if (t == null) return status('select a stretch of the tier to re-time', true);
+  retime(key, retimeSpan(key, t, it));
+}
 
 /* ---------------------------------------------------------------- notes */
 /* What a listener leaves for later: a bookmark at a moment, a comment on a
@@ -5279,6 +5823,389 @@ $('noteAdd').addEventListener('mousedown', e => e.preventDefault());
 $('noteAdd').addEventListener('click', () => noteHere());
 renderNotes();
 
+/* ---------------------------------------------------------------- doubt */
+/* A recogniser's labels are not equally good, and the model knows which ones
+   it hesitated over. Each label from a built-in model carries its confidence
+   (conf) and the readings it weighed against it (alts): see doubtFrom. Below
+   a threshold the label is marked on its tier, with a bar along its foot that
+   thickens and closes up as the confidence falls, so the marking does not
+   rest on colour alone. The runner-ups are one key away: 1 keeps the label
+   (and marks it checked), 2 to 4 take the model's second to fourth reading.
+   A label a person has typed or chosen counts as decided and is not marked
+   again; re-timing (below) can flag it once more if the model does not hear
+   the correction where it stands. */
+const doubtAt = () => { const v = +CFG.doubtAt; return isFinite(v) && v > 0 && v <= 1 ? v : 0.6; };
+/* How doubtful a label is, from 0 (not, or already decided) to 1. */
+function doubtOf(it) {
+  if (!it || it.rv) return 0;
+  if (it.why === 'guess' || it.why === 'reading') return 0.5;
+  if (it.conf == null || it.conf >= doubtAt()) return 0;
+  return Math.max(0.02, 1 - it.conf / doubtAt());
+}
+/* The label and the model's other readings, as [label, share], best first. */
+const candidates = it => it && it.conf != null ? [[it.text || '', it.conf], ...(it.alts || [])] : [];
+const candText = c => `${c[0] || '∅'} ${(+c[1]).toFixed(2)}`;
+const candLine = it => candidates(it).map(candText).join(' · ');
+/* A person has settled this label. If it is one of the model's readings, the
+   model's share for it stays with it and the old label joins the runner-ups;
+   any other text has no score from the model, so the scores go. */
+function decideLabel(it, text) {
+  if (text !== (it.text || '')) {
+    const cands = candidates(it), hit = cands.find(c => c[0] === text);
+    if (hit) {
+      it.conf = hit[1];
+      const rest = cands.filter(c => c !== hit);
+      if (rest.length) it.alts = rest; else delete it.alts;
+    } else { delete it.conf; delete it.alts; }
+    it.text = text;
+  }
+  it.rv = true;
+  delete it.why;
+}
+
+/* ---------------------------------------------------------- the triage pass
+   One list of what is worth a look: labels below the threshold, labels that
+   re-timing flagged, and the problems a model reported itself (a Whisper
+   piece dropped because it looped). Checked labels leave the list. Comma and
+   full stop step through it, like [ and ] through the notes. */
+const TRI = { cur: null };
+const TRI_TIERS = ['word', 'phone'];
+const triOrder = (a, b) => a.start - b.start || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0) || (a.warn ? 1 : 0) - (b.warn ? 1 : 0);
+function checkList() {
+  const out = [];
+  for (const k of TRI_TIERS) {
+    const t = S.tracks[k];
+    if (busyTrack(t)) continue;
+    for (const it of t.items) {
+      const d = doubtOf(it);
+      if (d > 0) out.push({ key: k, it, start: it.start, end: it.end, d });
+    }
+  }
+  for (const x of S.extra)
+    for (const it of x.items) {
+      const d = doubtOf(it);
+      if (d > 0) out.push({ key: x.key, it, start: it.start, end: it.end, d });
+    }
+  for (const w of S.warnings) if (!w.done) out.push({ key: w.tier || 'word', warn: w, start: w.start, end: w.end, d: 1 });
+  return out.sort(triOrder);
+}
+function checkReason(e) {
+  if (e.warn) return `${e.warn.model ? e.warn.model + ': ' : ''}${e.warn.reason}`;
+  const it = e.it;
+  if (it.why === 'guess') return 're-timed: no symbol the model knows, spread evenly';
+  if (it.why === 'reading') return 'read more than one way · ' + candLine(it);
+  if (it.why === 'retime') return `re-timed ${(+it.conf).toFixed(2)} · not heard here`;
+  return candLine(it);
+}
+const sameEntry = (e, c) => !!c && (e.warn ? e.warn === c.warn : e.it === c.it);
+function renderChecks() {
+  const list = checkList(), el = $('checkList');
+  $('checkCount').textContent = list.length ? String(list.length) : 'none';
+  const CAP = 400;
+  el.innerHTML = list.length ? list.slice(0, CAP).map((e, i) => {
+    const lab = e.warn ? '' : (e.it.text || '∅');
+    return `<div class="nrow crow${sameEntry(e, TRI.cur) ? ' sel' : ''}" data-i="${i}" title="${esc(checkReason(e))}">
+      <i class="cbar" style="opacity:${(0.45 + 0.55 * e.d).toFixed(2)}"></i><span class="t">${f3(e.start)}</span>
+      <span class="tx">${e.warn ? '' : `<b>${esc(lab)}</b> `}<i>${esc(tierOf(e.key)?.label || e.key)} · ${esc(checkReason(e))}</i></span>
+      <button class="tiny" data-ck title="Checked: take it off the list (1)">✓</button></div>`;
+  }).join('') + (list.length > CAP ? `<div class="nempty">and ${list.length - CAP} more after these</div>` : '')
+    : `<div class="nempty">${S.tracks.word.items.length || S.tracks.phone.items.length
+        ? `Nothing below ${doubtAt().toFixed(2)} and no warnings. Labels from the built-in models carry the model's confidence; others carry none.`
+        : 'Labels the recogniser was unsure of are listed here, with its other readings. Comma and full stop step through them.'}</div>`;
+  renderChecks.list = list;
+}
+function goToCheck(e) {
+  TRI.cur = e;
+  // Close enough to read a phone's label: no wider than 3 s.
+  const span = Math.min(S.win[1] - S.win[0], 3);
+  if (e.end - e.start > span * 0.9) zoomTo(e.start, e.end);
+  else if (span < S.win[1] - S.win[0] - 1e-6) { const c = (e.start + e.end) / 2; setWindow(c - span / 2, c + span / 2, false); }
+  else if (e.start < S.win[0] || e.end > S.win[1]) { const c = (e.start + e.end) / 2; setWindow(c - span / 2, c + span / 2, false); }
+  S.cursor = e.start;
+  if (e.it) { setActiveLane(e.key, false); S.selectedItem = e.it; }
+  else S.selectedItem = null;
+  S.sel = [e.start, Math.max(e.end, e.start + MIN_IV)];
+  probe((e.start + e.end) / 2); renderChecks(); renderSegments(); drawAll();
+  $('checkList').querySelector('.crow.sel')?.scrollIntoView({ block: 'nearest' });
+  const list = renderChecks.list, n = list.findIndex(x => sameEntry(x, e)) + 1;
+  status(`${n} of ${list.length} to check · ${checkReason(e)} · ` +
+         (e.it ? (e.it.alts ? '1 keeps it, 2–4 take a runner-up, Enter edits' : '1 keeps it, Enter edits') : '1 marks it checked'));
+}
+function stepCheck(dir) {
+  const list = checkList();
+  if (!list.length) { TRI.cur = null; renderChecks(); return status('nothing left to check'); }
+  const from = TRI.cur || { start: S.cursor ?? (dir > 0 ? -1 : Infinity), key: dir > 0 ? '' : '~' };
+  const e = dir > 0 ? list.find(x => triOrder(x, from) > 0 && !sameEntry(x, TRI.cur)) || list[0]
+                    : list.slice().reverse().find(x => triOrder(x, from) < 0 && !sameEntry(x, TRI.cur)) || list[list.length - 1];
+  goToCheck(e);
+}
+/* Mark one entry checked: a label is decided as it stands, a warning is done. */
+function markChecked(e) {
+  if (e.warn) edit([], () => { e.warn.done = true; });
+  else if (e.it) edit([e.key], () => decideLabel(e.it, e.it.text || ''));
+}
+/* 1–4: keep the selected label, or take one of the model's other readings. */
+function pickCandidate(n) {
+  const cur = TRI.cur, it = selectedOnActive();
+  if (cur?.warn && !it && n === 0) { markChecked(cur); return stepCheck(1); }
+  const c = candidates(it)[n];
+  if (!it || !c) return status(it && it.conf != null ? `the model had no reading ${n + 1} for this label` : 'this label has no score from the model', true);
+  const was = it.text || '∅', key = S.activeLane, wasCur = cur?.it === it;
+  edit([key], () => decideLabel(it, c[0]));
+  S.selectedItem = it; S.sel = [it.start, it.end];
+  if (wasCur) { TRI.cur = { ...cur, start: it.start }; stepCheck(1); }
+  else drawAll();
+  status((n === 0 ? `kept “${was}” · checked` : `“${was}” → “${c[0] || '∅'}”`) + ' · Ctrl+Z undoes it' +
+         (wasCur && TRI.cur && TRI.cur.it !== it ? ' · on to the next' : ''));
+}
+/* The runner-ups of the selected label, in the tier toolbar, where the hint
+   is otherwise: one line, so choosing one never moves the tiers. */
+function showAlts() {
+  const it = selectedOnActive(), w = !it && TRI.cur?.warn && S.warnings.includes(TRI.cur.warn) ? TRI.cur.warn : null;
+  const cands = candidates(it);
+  const sig = it ? `${S.activeLane}|${it.text}|${it.rv}|${cands.map(c => c.join()).join(';')}` : w ? 'w' + w.start : '';
+  if (sig === showAlts.sig) return;
+  showAlts.sig = sig;
+  const bar = $('altBar');
+  if (cands.length) {
+    bar.innerHTML = `<span>${it.rv ? 'checked · model:' : 'model:'}</span>` + cands.slice(0, 4).map((c, i) =>
+      `<button class="tiny${i ? '' : ' own'}" data-alt="${i}" title="${i ? 'Use this reading instead' : 'Keep this label, marked as checked'} (${i + 1})"><b>${i + 1}</b> ${esc(candText(c))}</button>`).join('');
+  } else if (w) {
+    bar.innerHTML = `<span>${esc(w.reason)}</span><button class="tiny own" data-alt="0" title="Checked: take it off the list (1)"><b>1</b> ✓ checked</button>`;
+  } else bar.innerHTML = '';
+  bar.hidden = !bar.innerHTML;
+  $('edHint').hidden = !bar.hidden;
+}
+$('altBar').addEventListener('mousedown', e => e.preventDefault());
+$('altBar').addEventListener('click', e => {
+  const b = e.target.closest('button[data-alt]');
+  if (b) pickCandidate(+b.dataset.alt);
+});
+$('checkList').addEventListener('click', e => {
+  const row = e.target.closest('.crow[data-i]'), entry = row && renderChecks.list?.[+row.dataset.i];
+  if (!entry) return;
+  if (e.target.closest('button[data-ck]')) { markChecked(entry); return; }
+  goToCheck(entry);
+  play(entry.start, entry.end);
+});
+$('checkPrev').addEventListener('click', () => stepCheck(-1));
+$('checkNext').addEventListener('click', () => stepCheck(1));
+$('doubtOn').checked = !!CFG.doubtOn;
+$('doubtAt').value = doubtAt().toFixed(2);
+$('doubtOn').addEventListener('change', () => { CFG.doubtOn = $('doubtOn').checked; saveCfg(); drawTiers(); });
+$('doubtAt').addEventListener('change', () => {
+  const v = parseFloat($('doubtAt').value);
+  if (isFinite(v) && v > 0 && v <= 1) CFG.doubtAt = v;
+  $('doubtAt').value = doubtAt().toFixed(2);
+  saveCfg(); renderChecks(); showAlts.sig = null; drawTiers();
+});
+
+/* A model's own warnings about a run: Whisper reports the pieces it dropped
+   because the text looped. A run replaces the warnings of the tiers it fills
+   (of the stretch it read, for a run on a selection). */
+function takeWarnings(job, list) {
+  const d = job.span ? job.span[0] : 0, tier = job.claims.includes('word') ? 'word' : job.claims[0];
+  const inSpan = w => !job.span || (w.end > job.span[0] && w.start < job.span[1]);
+  S.warnings = S.warnings.filter(w => !(job.claims.includes(w.tier) && inSpan(w)));
+  for (const w of Array.isArray(list) ? list : [])
+    if (w && isFinite(+w.start))
+      S.warnings.push({ start: +w.start + d, end: (isFinite(+w.end) ? +w.end : +w.start) + d,
+                        reason: String(w.reason || 'the model reported a problem here'), tier, model: job.model });
+  S.warnings.sort((a, b) => a.start - b.start);
+}
+
+/* ------------------------------------------- re-timing and search by example
+   Both run in the desktop app only, on its built-in CTC models: ZIPA for
+   phones, Omnilingual or MMS for words (POST /api/local/align and /search).
+   The browser version has no such route, and hides the commands. */
+const localTools = () => !!DESK.caps && NET.mode === 'broker';
+const builtinIds = () => NET.models.filter(m => NET.prov(m.provider)?.kind === 'builtin').map(m => m.id);
+/* The model to place a tier's labels with: the one that filled the tier if it
+   can, else an installed one (for words, MMS in the recording's language
+   before Omnilingual). */
+function ctcModel(key) {
+  const ids = builtinIds(), t = S.tracks[key];
+  const fits = id => ids.includes(id) && (key === 'phone' ? /^zipa-/.test(id) : /^(omnilingual-|mms-)/.test(id));
+  const own = [t?.source, t?.model].map(s => (s || '').split(/[\s+(]/)[0]).find(fits);
+  if (own) return own;
+  if (key === 'phone') return ids.find(id => /^zipa-/.test(id)) || null;
+  const c = CFG.language, mms = c && ids.find(id => id === 'mms-' + c || id.startsWith('mms-' + c + '-'));
+  return mms || ids.find(id => /^omnilingual-/.test(id)) || null;
+}
+const needModel = key => key === 'phone'
+  ? 'needs a ZIPA model: add ZIPA small under ⚙ Recognisers → Phones'
+  : 'needs Omnilingual or an MMS language: add one under ⚙ Recognisers → Words';
+async function localCall(route, fd) {
+  const r = await fetch(apiUrl('/local/' + route), { method: 'POST', body: fd });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.error || `error ${r.status}`);
+  return body;
+}
+
+/* Re-time from the sound: the labels of a stretch, as they now read, placed
+   again by forced alignment over the stretch, each with the model's
+   confidence in it. The stretch's outer boundaries stay where they are unless
+   asked otherwise; the ones inside it move. A label the model does not hear
+   there comes out with a low confidence and is listed under To check. */
+async function retime(key, span, outer = false) {
+  if (!localTools()) return status('re-timing runs in the desktop app, on its built-in models', true);
+  if (!S.audio) return status('open a recording first', true);
+  if (!TRI_TIERS.includes(key)) return status('re-timing works on the word and phone tiers: click one of them first', true);
+  const t = S.tracks[key];
+  if (busyTrack(t)) return status(`${tierOf(key).label}: wait for the model to finish`, true);
+  if (!span) return status('select a stretch of the tier to re-time', true);
+  // The intervals whose middle is in the stretch.
+  const items = t.items.filter(it => (it.start + it.end) / 2 >= span[0] && (it.start + it.end) / 2 <= span[1]);
+  if (!items.length) return status(`no ${tierOf(key).label} in the selection`, true);
+  const model = ctcModel(key);
+  if (!model) return status(`Re-timing ${tierOf(key).label} ${needModel(key)}.`, true);
+  const a = items[0].start, b = items[items.length - 1].end;
+  const fd = new FormData();
+  fd.append('file', await wav16k(), S.name + '.wav');
+  fd.append('model', model); fd.append('start', String(a)); fd.append('end', String(b));
+  fd.append('labels', JSON.stringify(items.map(it => it.text || '')));
+  status(`re-timing ${items.length} ${tierOf(key).label} with ${model}…`);
+  let body;
+  try { body = await localCall('align', fd); }
+  catch (e) { return status('re-timing failed: ' + e.message, true); }
+  const iv = body.intervals || [];
+  if (iv.length !== items.length) return status('re-timing failed: the reply does not match the labels', true);
+  if (items.some(it => !t.items.includes(it))) return status('the tier changed while it was being re-timed; select the stretch and try again', true);
+  const thr = doubtAt();
+  let moved = 0, flagged = 0;
+  edit([key], () => {
+    items.forEach((it, i) => {
+      const r = iv[i];
+      const s = i === 0 && !outer ? a : +r.start, e = i === items.length - 1 && !outer ? b : +r.end;
+      if (isFinite(s) && isFinite(e) && e - s >= MIN_IV) {
+        if (Math.abs(s - it.start) > 1e-3 || Math.abs(e - it.end) > 1e-3) moved++;
+        it.start = s; it.end = e;
+      }
+      /* A label still as the recogniser read it (or swapped for one of its
+         readings) keeps the recogniser's score. Forced alignment reads a
+         stretch with less context than recognition did, and its scores run
+         lower for labels nobody touched (a 0.46 -> 0.22 on the Georgian demo),
+         so it would flag them for nothing. Only a label typed by hand, which
+         has no score, takes the alignment's. */
+      if (it.conf != null && it.why !== 'retime' && it.why !== 'guess') return;
+      delete it.alts;
+      if (r.conf == null) {
+        delete it.conf;
+        // An empty interval has nothing to hear; a label the model has no symbol for was only spread.
+        if ((it.text || '').trim()) { it.why = 'guess'; delete it.rv; flagged++; } else delete it.why;
+      }
+      else {
+        it.conf = +r.conf;
+        if (it.conf < thr) { it.why = 'retime'; delete it.rv; flagged++; }
+        else delete it.why;
+      }
+    });
+    t.items = tidy(t.items, S.dur);
+  });
+  S.selectedItem = null; S.sel = [a, b];
+  drawAll();
+  status(`re-timed ${items.length} ${tierOf(key).label} with ${model}: ${moved} moved` +
+         (flagged ? ` · ${flagged} the model does not hear there, listed under To check` : ' · the model hears every label') +
+         ' · Ctrl+Z undoes it', flagged > 0);
+}
+/* The stretch a re-time from a tier's menu works on: the selection if the
+   click is inside it, else for a phone the word it belongs to, else the
+   interval itself (which then only gains a score). */
+function retimeSpan(key, t, it, sel = S.sel) {
+  if (sel && sel[0] <= t && t <= sel[1] && sel[1] - sel[0] > (it ? it.end - it.start : 0) + 1e-6) return sel;
+  if (key === 'phone') {
+    const w = S.tracks.word.items.find(x => x.start <= t && t <= x.end);
+    if (w) return [w.start, w.end];
+  }
+  return it ? [it.start, it.end] : sel;
+}
+function retimeItems(key, span) {
+  if (!localTools() || !TRI_TIERS.includes(key) || !S.tracks[key].items.length) return [];
+  const off = !span || busyTrack(S.tracks[key]);
+  return [{ label: 'Re-time from the sound', off, key: 'R', run: () => retime(key, span) },
+          { label: 'Re-time, outer boundaries too', off, run: () => retime(key, span, true) }];
+}
+
+/* Search by example: the stretches of the recording whose phones, as ZIPA
+   hears them, are most like the selection's (or like phones typed in IPA).
+   The first search on a recording has ZIPA read all of it, unless a ZIPA
+   pass just did; later ones are immediate. Hits can be kept as notes tagged
+   "example", which [ and ] then step through. */
+const SEARCH = { hits: [], query: [], model: '', busy: false };
+async function findSimilar(span, typed) {
+  if (!localTools()) return status('search by example runs in the desktop app, on ZIPA', true);
+  if (!S.audio) return status('open a recording first', true);
+  if (SEARCH.busy) return;
+  typed = (typed || '').trim();
+  if (!typed && !span) return status('select a stretch, or type the phones to look for', true);
+  const model = ctcModel('phone');
+  if (!model) return status(`Search by example ${needModel('phone')}.`, true);
+  const fd = new FormData();
+  fd.append('file', await wav16k(), S.name + '.wav');
+  fd.append('model', model); fd.append('max', '30');
+  if (typed) fd.append('phones', typed);
+  else { fd.append('start', String(span[0])); fd.append('end', String(span[1])); }
+  SEARCH.busy = true; $('searchGo').disabled = $('searchSel').disabled = true;
+  $('searchCount').textContent = 'searching…';
+  status(`searching with ${model} · the first search on a recording reads all of it (about 8× real time)…`);
+  try {
+    const body = await localCall('search', fd);
+    Object.assign(SEARCH, { hits: body.hits || [], query: body.query || [], model });
+    renderSearch();
+    const n = SEARCH.hits.filter(h => !h.selection).length;
+    status(`${n} stretch${n === 1 ? '' : 'es'} like /${SEARCH.query.join('')}/ · click one to hear it`);
+  } catch (e) {
+    $('searchCount').textContent = '—';
+    status('search failed: ' + e.message, true);
+  } finally { SEARCH.busy = false; $('searchGo').disabled = $('searchSel').disabled = false; }
+}
+const phonesIn = (a, b) => S.tracks.phone.items.filter(it => (it.start + it.end) / 2 >= a && (it.start + it.end) / 2 <= b).map(it => it.text).join(' ');
+function renderSearch() {
+  const hits = SEARCH.hits;
+  $('searchCount').textContent = SEARCH.query.length ? `/${SEARCH.query.join('')}/ · ${hits.length}` : '—';
+  $('searchKeep').disabled = !hits.some(h => !h.selection);
+  $('searchList').innerHTML = hits.length ? hits.map((h, i) => {
+    const words = S.tracks.word.items.filter(w => w.end > h.start && w.start < h.end).map(w => w.text).join(' ');
+    return `<div class="nrow srow" data-i="${i}" title="${h.selection ? 'the selection itself' : 'score: how close ZIPA’s best reading here is to the query (1 = the same phones)'}">
+      <span class="t">${f3(h.start)}</span><i class="sbar"><i style="width:${Math.round(100 * Math.max(0, Math.min(1, h.score)))}%"></i></i>
+      <span class="sc num">${(+h.score).toFixed(2)}</span>
+      <span class="tx">${esc(phonesIn(h.start, h.end) || '')}${words ? ` <i>· ${esc(words)}</i>` : ''}${h.selection ? ' <i>· the selection</i>' : ''}</span></div>`;
+  }).join('') : `<div class="nempty">${SEARCH.query.length ? 'Nothing like it was found.'
+      : 'Select a stretch and press “like the selection”, or type IPA (diː, say) and press Find. Needs ZIPA.'}</div>`;
+}
+function keepHits() {
+  const hits = SEARCH.hits.filter(h => !h.selection);
+  if (!hits.length) return;
+  const q = SEARCH.query.join('');
+  edit([], () => {
+    for (const h of hits) S.notes.push({ start: h.start, end: h.end, text: `like /${q}/ · ${(+h.score).toFixed(2)}`, tag: 'example', tier: null });
+    S.notes.sort((a, b) => a.start - b.start);
+  });
+  $('noteFilter').value = 'example'; renderNotes();
+  status(`${hits.length} stretches kept as notes tagged “example” · [ and ] step through them`);
+}
+$('searchList').addEventListener('click', e => {
+  const row = e.target.closest('.srow[data-i]'), h = row && SEARCH.hits[+row.dataset.i];
+  if (!h) return;
+  const span = S.win[1] - S.win[0];
+  if (h.start < S.win[0] || h.end > S.win[1]) { const c = (h.start + h.end) / 2; setWindow(c - span / 2, c + span / 2, false); }
+  S.sel = [h.start, h.end]; S.selectedItem = null; probe(h.start);
+  for (const r of $('searchList').children) r.classList.toggle('sel', r === row);
+  drawAll(); play(h.start, h.end);
+});
+$('searchGo').addEventListener('click', () => {
+  const v = $('searchIpa').value.trim();
+  v ? findSimilar(null, v) : findSimilar(S.sel, '');
+});
+$('searchSel').addEventListener('click', () => findSimilar(S.sel, ''));
+$('searchIpa').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); $('searchGo').click(); }
+  e.stopPropagation();
+});
+$('searchKeep').addEventListener('click', keepHits);
+renderSearch();
+renderChecks();
+
 /* --------------------------------------------------- opening a TextGrid */
 /* Praat's long and short text formats are the same sequence of values with
    different decoration, so one tokeniser reads both: quoted strings, numbers
@@ -5336,9 +6263,13 @@ function importTextGrid(tg, filename) {
   const used = new Set(), extra = [];
   const builtin = name => {
     const n = name.toLowerCase();
+    // Lana's own voice-quality tier is a tier of its own, not the speaker
+    // tier that "voices?" would otherwise make it.
+    if (/^(voice quality|phonation)\b/.test(n)) return null;
     for (const [k, re] of [['word', /^(words?|orth\w*|transcri\w*|wort\w*)\b/],
                            ['phone', /^(phones?|phonemes?|segments?|ipa|phon\w*)\b/],
-                           ['speaker', /^(speakers?|spk|turns?|voices?)\b/]])
+                           ['speaker', /^(speakers?|spk|turns?|voices?)\b/],
+                           ['event', /^(events?|sounds?)\b/]])
       if (!used.has(k) && re.test(n)) { used.add(k); return k; }
     return null;
   };
@@ -5366,6 +6297,7 @@ function importTextGrid(tg, filename) {
        name in front of their text, since a note has no tier of its own. */
     S.notes = tidyNotes(points.flatMap(p => p.items.map(({ t, mark }) =>
       parseNoteMark(t, /^notes?$/i.test(p.name.trim()) ? mark : `${p.name}: ${mark}`))));
+    S.warnings = [];
     S.transcript = [];
   });
   // edit() appended "+ hand"; an opened file has not been touched yet.
@@ -5393,6 +6325,7 @@ function annotationData() {
     extra: S.extra.map(x => ({ key: x.key, label: x.label, source: x.source, format: x.format || undefined, color: x.color,
                                items: plain(x.items) })),
     notes: S.notes.map(({ start, end, text, tag, tier }) => ({ start, end, text, tag, ...(tier ? { tier } : {}) })),
+    ...(S.warnings.length ? { warnings: S.warnings } : {}),
     transcript: S.transcript,
   };
 }
@@ -5415,6 +6348,7 @@ function applyAnnotation(d) {
   }
   S.extra = extra;
   S.notes = tidyNotes(d.notes);
+  S.warnings = (d.warnings || []).filter(w => w && isFinite(w.start)).map(w => ({ ...w }));
   S.transcript = d.transcript || [];
   S.selectedItem = null;
   if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
@@ -5511,6 +6445,9 @@ window.lanaMenu = id => {
     'add-tier': () => addTier(),
     'add-note': needAudio(() => noteHere()), 'flag': needAudio(() => flagSelected()),
     'next-note': needAudio(() => stepNote(1)), 'prev-note': needAudio(() => stepNote(-1)),
+    'next-check': needAudio(() => stepCheck(1)), 'prev-check': needAudio(() => stepCheck(-1)),
+    'retime': needAudio(retimeSelection),
+    'find-similar': needAudio(() => findSimilar(S.sel, $('searchIpa').value)),
     'toggle-follow': () => $('followOn').click(),
     'play': needAudio(togglePlay), 'stop-playback': stopPlayback,
     'zoom-sel': needAudio(zoomSel), 'zoom-in': needAudio(() => $('zoomIn').click()),
@@ -5629,7 +6566,7 @@ const PROJ = {
     if (!d || !(d.tiers || []).some(t => (t.items || []).length) && !(d.extra || []).length && !(d.notes || []).length) return false;
     try { applyAnnotation(d); } catch { return false; }
     stampSpeakers();
-    renderPlan(); renderSegments(); updateTierInfo(); renderTranscript(); renderNotes(); drawAll();
+    renderPlan(); renderSegments(); updateTierInfo(); renderTranscript(); renderNotes(); renderChecks(); drawAll();
     const when = d.saved ? new Date(d.saved).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'earlier';
     PROJ.show(`restored your annotation from ${when}`, false, { label: 'start over', run: PROJ.startOver });
     return true;
@@ -5641,7 +6578,7 @@ const PROJ = {
         Object.assign(t, { items: [], cues: [], source: '', note: '', edited: false, cached: null,
                            state: t.model ? 'ready' : 'empty' });
       }
-      S.extra = []; S.notes = []; S.transcript = [];
+      S.extra = []; S.notes = []; S.warnings = []; S.transcript = [];
     });
     status('cleared — Undo brings the annotation back');
   },
@@ -5698,7 +6635,7 @@ const PRESETS = {
     hint: 'Only needed if the server asks for one. Press “Test connection” to list its models.',
   },
 };
-const ROLE_NAMES = { words: 'words', phones: 'phones (IPA)', both: 'words + phones', speakers: 'speakers' };
+const ROLE_NAMES = { words: 'words', phones: 'phones (IPA)', both: 'words + phones', speakers: 'speakers', tags: 'sounds (events)' };
 /* Which of a server's models to tick by default. A gateway lists its language
    models too, and transcribing with one of those just fails. */
 const SPEECHY = /whisper|asr|ipa|mms|owsm|diariz|transcri|speech|parakeet|canary|wav2vec|xeus|buckeye/i;
@@ -5715,6 +6652,9 @@ const DESK = {
       DESK.caps = caps;
     } catch { return; }
     $('fsManage').hidden = false;
+    // Re-timing and search by example run on the app's own models.
+    $('searchPane').hidden = false;
+    $('crepeBox').hidden = false;
     // In the app the "server-side providers" ARE the recognisers listed in
     // these settings, and every tier chooses among all of them: nothing to pick.
     $('fsBroker').hidden = true;
@@ -5819,7 +6759,9 @@ const DESK = {
     const mb = n => n >= 1000 ? (n / 1000).toFixed(1) + ' GB' : n + ' MB';
     const GROUPS = [['words', 'For the word tier', 'orthographic transcription'],
                     ['phones', 'For the phone tier', 'IPA, in any language'],
-                    ['speakers', 'For the speaker tier', 'who is talking']];
+                    ['speakers', 'For the speaker tier', 'who is talking'],
+                    ['tags', 'For the events tier', 'sounds that are not words'],
+                    ['pitch', 'Beside Praat\'s f0', 'a second pitch track']];
     const row = m => {
       const d = m.downloading;
       const pct = d && d.total ? Math.floor(d.done / d.total * 100) : 0;
@@ -5994,7 +6936,7 @@ const DESK = {
         .filter(([, ms]) => ms.length);
       box.querySelector(`[data-also="${T.role}"]`).innerHTML = others.length
         ? 'Also offered: ' + others.map(([p, ms]) => `<b>${esc(p.label)}</b> (${esc(ms.map(x => x.id).join(', '))})${audioChip(p)}`).join(' · ')
-        : T.key === 'speaker' ? '' : 'A cloud service or a speech server added below can offer models for this tier too.';
+        : T.optional ? '' : 'A cloud service or a speech server added below can offer models for this tier too.';
     }
   },
 
