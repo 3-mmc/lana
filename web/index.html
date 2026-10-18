@@ -169,7 +169,7 @@
   .pad{padding:6px 9px}
 
   /* readout: a fixed table so numbers never jump as you move the cursor */
-  #readout{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));
+  #readout{display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));
            gap:0;border-top:1px solid var(--line2);background:var(--panel2)}
   #readout div{padding:4px 9px;border-right:1px solid var(--line2)}
   #readout div:last-child{border-right:0}
@@ -204,6 +204,8 @@
   .params label{font-size:11px}
   .params input,.params select{width:86px;text-align:right;padding:2px 5px;font-family:var(--mono);font-size:11.5px}
   .params select{text-align:left;padding-right:18px}
+  .params input[type=checkbox]{width:auto;justify-self:end}
+  .params .sub2{grid-column:1/-1;font-size:10.5px;color:var(--dim);margin-top:3px}
   pre.cmd{margin:0;padding:6px 9px;background:var(--sunken);border-top:1px solid var(--line2);
       font-family:var(--mono);font-size:10.5px;color:var(--dim);white-space:pre-wrap;word-break:break-word}
   pre.cmd b{color:var(--ink);font-weight:400}
@@ -684,6 +686,9 @@
       <div><k>F2</k><v id="rF2">—</v></div>
       <div><k>F3</k><v id="rF3">—</v></div>
       <div><k>intensity</k><v id="rInt">—</v></div>
+      <div title="Harmonics-to-noise ratio, To Harmonicity (cc); shown when voice quality is measured (Analysis pane)"><k>HNR</k><v id="rHnr">—</v></div>
+      <div title="Smoothed cepstral peak prominence, from the PowerCepstrogram"><k>CPPS</k><v id="rCpps">—</v></div>
+      <div title="First minus second harmonic, uncorrected for formants"><k>H1–H2</k><v id="rH12">—</v></div>
       <div><k>label</k><v id="rLab">—</v></div>
     </div>
   </div>
@@ -698,7 +703,7 @@
       <button class="tiny" id="edUndo" title="Undo (Ctrl+Z)">↶ undo</button>
       <button class="tiny" id="edRedo" title="Redo (Ctrl+Shift+Z)">↷ redo</button>
       <span class="sep"></span>
-      <button class="tiny" id="tierAdd" title="Add a tier: empty for notes, a copy of another tier, or ARPABET from the phones">+ tier ▾</button>
+      <button class="tiny" id="tierAdd" title="Add a tier: empty for notes, a copy of another tier, ARPABET from the phones, or voice quality by thresholds">+ tier ▾</button>
       <button class="tiny" id="tierRen" hidden>rename tier</button>
       <button class="tiny" id="tierDel" hidden>remove tier</button>
       <span class="sp"></span>
@@ -849,6 +854,44 @@
       <label for="pFmtCeil">max formant (Hz)</label><input id="pFmtCeil" class="num" value="5500">
       <label for="pFmtWin">window length (s)</label><input id="pFmtWin" class="num" value="0.025">
       <label for="pFmtPre">pre-emphasis from (Hz)</label><input id="pFmtPre" class="num" value="50">
+
+      <div class="head">Voice quality</div>
+      <label for="pVoice" title="HNR, CPPS and H1–H2 in the readout and the measurement tables. Off, they are computed only for the voice-quality tier.">measure in the window and tables (slower)</label><input type="checkbox" id="pVoice">
+      <div class="sub2" data-vq>Harmonicity (cc), for HNR</div>
+      <label for="pHnrStep">time step (s)</label><input id="pHnrStep" class="num" value="0.01" data-vq>
+      <label for="pHnrFloor">minimum pitch (Hz)</label><input id="pHnrFloor" class="num" value="75" data-vq>
+      <label for="pHnrSil">silence threshold</label><input id="pHnrSil" class="num" value="0.1" data-vq>
+      <label for="pHnrPer">periods per window</label><input id="pHnrPer" class="num" value="1.0" data-vq>
+      <div class="sub2" data-vq>PowerCepstrogram, for CPPS</div>
+      <label for="pCepFloor">pitch floor (Hz)</label><input id="pCepFloor" class="num" value="60" data-vq>
+      <label for="pCepStep">time step (s)</label><input id="pCepStep" class="num" value="0.002" data-vq>
+      <label for="pCepMax">max frequency (Hz)</label><input id="pCepMax" class="num" value="5000" data-vq>
+      <label for="pCepPre">pre-emphasis from (Hz)</label><input id="pCepPre" class="num" value="50" data-vq>
+      <label for="pCppsTime">smoothing: time window (s)</label><input id="pCppsTime" class="num" value="0.02" data-vq>
+      <label for="pCppsQuef">smoothing: quefrency window (s)</label><input id="pCppsQuef" class="num" value="0.0005" data-vq>
+      <label for="pCppsLo">peak search from (Hz)</label><input id="pCppsLo" class="num" value="60" data-vq>
+      <label for="pCppsHi">peak search to (Hz)</label><input id="pCppsHi" class="num" value="330" data-vq>
+      <label for="pCppsTol">tolerance (0–1)</label><input id="pCppsTol" class="num" value="0.05" data-vq>
+      <label for="pCppsInterp">interpolation</label>
+      <select id="pCppsInterp" class="num" data-vq><option>Parabolic</option><option>Cubic</option><option>Sinc70</option><option>Sinc700</option><option>None</option></select>
+      <label for="pCppsTrLo">trend line from (s)</label><input id="pCppsTrLo" class="num" value="0.001" data-vq>
+      <label for="pCppsTrHi">trend line to (s, 0 = end)</label><input id="pCppsTrHi" class="num" value="0.0" data-vq>
+      <label for="pCppsLine">trend line type</label>
+      <select id="pCppsLine" class="num" data-vq><option>Straight</option><option>Exponential decay</option></select>
+      <label for="pCppsFit" title="Praat's own default is Robust, which took some 25 times longer here; least squares is the regression line Hillenbrand used">fit method</label>
+      <select id="pCppsFit" class="num" data-vq><option>Least squares</option><option>Robust</option><option>Robust slow</option></select>
+      <div class="sub2" data-vq>Spectrogram, for H1–H2 (time step as above)</div>
+      <label for="pH12Win">window length (s)</label><input id="pH12Win" class="num" value="0.025" data-vq>
+      <label for="pH12Max">max frequency (Hz)</label><input id="pH12Max" class="num" value="1500" data-vq>
+      <label for="pH12FStep">frequency step (Hz)</label><input id="pH12FStep" class="num" value="5" data-vq>
+      <label for="pH12Tol" title="Not a Praat argument: H1 is the strongest bin within this share of f0 around f0, H2 the same around 2·f0">harmonic search (± % of f0)</label><input id="pH12Tol" class="num" value="10" data-vq>
+
+      <div class="head" title="Each voiced frame is labelled by the rules below, then runs are joined into intervals. Nothing here was trained on anything.">Voice-quality tier · a threshold heuristic, not a model</div>
+      <label for="vqHnr">noisy: HNR below (dB)</label><input id="vqHnr" class="num" value="10" data-vqt>
+      <label for="vqCpps">noisy: CPPS below (dB)</label><input id="vqCpps" class="num" value="5" data-vqt>
+      <label for="vqCreak">creaky: noisy, H1–H2 below (dB)</label><input id="vqCreak" class="num" value="0" data-vqt>
+      <label for="vqBreath">breathy: HNR low, H1–H2 above (dB)</label><input id="vqBreath" class="num" value="10" data-vqt>
+      <label for="vqMin">shortest interval (s)</label><input id="vqMin" class="num" value="0.04" data-vqt>
     </div>
     <pre class="cmd" id="cmdEcho"></pre>
   </div>
@@ -909,10 +952,10 @@
     <fieldset>
       <legend>Measurements</legend>
       <div class="dlgrow"><button id="mTracks">Save tracks (CSV)</button>
-        <span class="hint">f0, F1–F3 and intensity frame by frame over the window on screen, with the Praat arguments in the Analysis pane.</span></div>
+        <span class="hint">f0, F1–F3 and intensity frame by frame over the window on screen (and HNR, CPPS and H1–H2 when voice quality is measured), with the Praat arguments in the Analysis pane.</span></div>
       <div class="dlgrow"><button id="mIntervals">Save intervals (CSV)</button>
         <select id="mTier"></select>
-        <span class="hint">One row per labelled interval of the tier, over the whole file: duration, mean f0, F1–F3 (mean and at the midpoint), mean intensity, and the speaker when there is a speaker tier.</span></div>
+        <span class="hint">One row per labelled interval of the tier, over the whole file: duration, mean f0, F1–F3 (mean and at the midpoint), mean intensity, mean HNR, CPPS and H1–H2 when voice quality is measured, and the speaker when there is a speaker tier.</span></div>
     </fieldset>
   </div>
 </div>
@@ -1358,13 +1401,15 @@ async function dumpMatrix(obj, cmd, made, ...args) {
   return parseMatrix(new TextDecoder().decode(bytes));
 }
 
-/* Sample a matrix row at an absolute time, given the window it was cut from. */
-function sampleAt(m, t, t0) {
+/* Sample a matrix row at an absolute time, given the window it was cut from.
+   A value counts when `ok` says so: positive for f0, formants and intensity,
+   where 0 means "none"; anyDb for the voice-quality tracks. */
+function sampleAt(m, t, t0, ok = v => v > 0) {
   if (!m || !m.rows[0]) return NaN;
   const i = Math.round((t - t0 - m.x1) / m.dx);
   if (i < 0 || i >= m.nx) return NaN;
   const v = m.rows[0][i];
-  return v > 0 ? v : NaN;
+  return ok(v) ? v : NaN;
 }
 
 /* ------------------------------------------------------------ file load */
@@ -1546,16 +1591,48 @@ function params() {
     pitchCeil: num('pPitchCeil', 600),
     fmtStep: num('pFmtStep', 0), fmtN: num('pFmtN', 5), fmtCeil: num('pFmtCeil', 5500),
     fmtWin: num('pFmtWin', 0.025), fmtPre: num('pFmtPre', 50),
+    voice: $('pVoice').checked, vq: voiceParams(),
+  };
+}
+/* Voice quality: HNR, CPPS and H1–H2, with Praat's own defaults but one.
+   The CPPS trend line is fitted by least squares, not Praat's default
+   Robust: Robust took 11 s for 5 s of speech in the wasm (least squares
+   0.45 s) and reads about 1.5 dB higher on the demo clips, so values from
+   the two are not comparable and the fit method belongs in any report.
+   Least squares is the regression line of Hillenbrand's original CPPS. */
+function voiceParams() {
+  return {
+    hnrStep: num('pHnrStep', 0.01), hnrFloor: num('pHnrFloor', 75),
+    hnrSil: num('pHnrSil', 0.1), hnrPer: num('pHnrPer', 1),
+    cepFloor: num('pCepFloor', 60), cepStep: num('pCepStep', 0.002),
+    cepMax: num('pCepMax', 5000), cepPre: num('pCepPre', 50),
+    cppsTime: num('pCppsTime', 0.02), cppsQuef: num('pCppsQuef', 0.0005),
+    cppsLo: num('pCppsLo', 60), cppsHi: num('pCppsHi', 330), cppsTol: num('pCppsTol', 0.05),
+    cppsInterp: $('pCppsInterp').value, cppsTrLo: num('pCppsTrLo', 0.001), cppsTrHi: num('pCppsTrHi', 0),
+    cppsLine: $('pCppsLine').value, cppsFit: $('pCppsFit').value,
+    h12Win: num('pH12Win', 0.025), h12Max: num('pH12Max', 1500), h12FStep: num('pH12FStep', 5),
+    h12Tol: num('pH12Tol', 10),
   };
 }
 
-function commandList(p, t0, t1) {
+function commandList(p, t0, t1, voice = true) {
   return [
     `Extract part... ${f3(t0)} ${f3(t1)} rectangular 1 no`,
     `To Spectrogram... ${p.specWin} ${p.maxHz} ${p.specStep} ${p.specFStep} ${p.shape}`,
     `To Pitch... ${p.pitchStep} ${p.pitchFloor} ${p.pitchCeil}`,
     `To Formant (burg)... ${p.fmtStep} ${p.fmtN} ${p.fmtCeil} ${p.fmtWin} ${p.fmtPre}`,
     `To Intensity... ${p.pitchFloor} ${p.pitchStep} yes`,
+    ...(voice ? voiceCommands(p.vq) : []),
+  ];
+}
+function voiceCommands(v) {
+  return [
+    `To Harmonicity (cc)... ${v.hnrStep} ${v.hnrFloor} ${v.hnrSil} ${v.hnrPer}`,
+    `To PowerCepstrogram... ${v.cepFloor} ${v.cepStep} ${v.cepMax} ${v.cepPre}`,
+    `Smooth... ${v.cppsTime} ${v.cppsQuef}`,
+    `To Table (cepstral peak prominences)... no yes 6 3 no 6 ${v.cppsLo} ${v.cppsHi} ${v.cppsTol} ` +
+      `${v.cppsInterp} ${v.cppsTrLo} ${v.cppsTrHi} "${v.cppsLine}" "${v.cppsFit}"`,
+    `To Spectrogram... ${v.h12Win} ${v.h12Max} ${v.hnrStep} ${v.h12FStep} Gaussian`,
   ];
 }
 
@@ -1567,6 +1644,7 @@ for (const id of ['pSpecWin','pMaxHz','pSpecStep','pSpecFStep','pSpecShape','pDy
                   'pPitchStep','pPitchFloor','pPitchCeil','pFmtStep','pFmtN','pFmtCeil',
                   'pFmtWin','pFmtPre'])
   $(id).addEventListener('change', echoCommands);
+for (const el of document.querySelectorAll('.params [data-vq]')) el.addEventListener('change', echoCommands);
 echoCommands();
 
 let intensityWorks = true;   // set false the first time Praat refuses the command
@@ -1579,12 +1657,15 @@ let intensityWorks = true;   // set false the first time Praat refuses the comma
 /* Analyses take turns: every matrix leaves Praat through the same file, so a
    table export and a zoom running at once would read each other's numbers. */
 let praatTurn = Promise.resolve();
-function analyseSpan(t0, t1, p) {
-  const run = praatTurn.then(() => analyseSpanNow(t0, t1, p));
+/* `voice` adds HNR, CPPS and H1–H2 (about three times the cost of the rest);
+   `lean` leaves out the spectrogram, formants and intensity, for the
+   voice-quality tier, which needs only pitch and those three. */
+function analyseSpan(t0, t1, p, { voice = p.voice, lean = false } = {}) {
+  const run = praatTurn.then(() => analyseSpanNow(t0, t1, p, voice, lean));
   praatTurn = run.catch(() => {});
   return run;
 }
-async function analyseSpanNow(t0, t1, p) {
+async function analyseSpanNow(t0, t1, p, voice, lean) {
   const made = [];
   const keep = o => (made.push(o), o);
   try {
@@ -1593,12 +1674,14 @@ async function analyseSpanNow(t0, t1, p) {
        Praat itself only ever analyses the visible window for the same reason. */
     const part = keep(await S.praat.call(S.sound, 'Extract part...', t0, t1, 'rectangular', 1, 'no'));
 
+    const pitchObj = keep(await S.praat.call(part, 'To Pitch...', p.pitchStep, p.pitchFloor, p.pitchCeil));
+    const pitch = await dumpMatrix(pitchObj, 'To Matrix', made);
+    const vq = voice ? await voiceSpan(part, pitch, p.vq, keep, made) : null;
+    if (lean) return { pitch, vq, formants: [], spec: null, intensity: null, t0, t1, p, lean };
+
     const specObj = keep(await S.praat.call(part, 'To Spectrogram...',
       p.specWin, p.maxHz, p.specStep, p.specFStep, p.shape));
     const spec = await dumpMatrix(specObj, 'To Matrix', made);
-
-    const pitchObj = keep(await S.praat.call(part, 'To Pitch...', p.pitchStep, p.pitchFloor, p.pitchCeil));
-    const pitch = await dumpMatrix(pitchObj, 'To Matrix', made);
 
     const formObj = keep(await S.praat.call(part, 'To Formant (burg)...',
       p.fmtStep, p.fmtN, p.fmtCeil, p.fmtWin, p.fmtPre));
@@ -1624,10 +1707,78 @@ async function analyseSpanNow(t0, t1, p) {
         }
       }
     }
-    return { spec, pitch, formants, intensity, t0, t1, p };
+    return { spec, pitch, formants, intensity, vq, t0, t1, p };
   } finally {
     for (const o of made) { try { await S.praat.call(o, 'Remove'); } catch {} }
   }
+}
+
+/* Voice quality of one extracted part, as three tracks on matrices shaped
+   like the others (rows[0] over time), so sampleAt and framesIn read them.
+   Unlike f0 these can be negative, so they are read with `anyDb`.
+
+   HNR: Praat's harmonicity, cross-correlation method; -200 marks the frames
+   it found unvoiced, and those become NaN here.
+
+   CPPS: Praat's PowerCepstrogram, smoothed over time and quefrency
+   (Hillenbrand's CPPS), then the cepstral peak prominence of every frame as a
+   table. The mean of that column is exactly what "Get CPPS..." returns for
+   the same arguments (checked: 6.69 dB both ways on 5 s of the German demo
+   clip), so the per-frame values and per-interval means are Praat's numbers.
+
+   H1–H2: the amplitudes of the first two harmonics, from a narrow-band
+   spectrogram (a 25 ms Gaussian window, which Praat makes 50 ms long, so a
+   -3 dB bandwidth of about 52 Hz) centred on each frame: the strongest bin
+   within ± h12Tol % of the f0 Praat tracked there, and the same around 2·f0.
+   Uncorrected: H1*–H2* (Iseli and Alwan's correction for F1 and B1) would
+   need formant bandwidths at every frame, and a wrong F1 near H2 moves the
+   correction by more than the effect being measured, so it is left out. */
+const anyDb = v => isFinite(v) && v > -150;
+async function voiceSpan(part, pitch, v, keep, made) {
+  const hnrObj = keep(await S.praat.call(part, 'To Harmonicity (cc)...', v.hnrStep, v.hnrFloor, v.hnrSil, v.hnrPer));
+  let hnr;
+  try { hnr = await dumpMatrix(hnrObj, 'To Matrix', made); }
+  catch { hnr = await dumpMatrix(hnrObj, 'Down to Matrix', made); }
+
+  const cep = keep(await S.praat.call(part, 'To PowerCepstrogram...', v.cepFloor, v.cepStep, v.cepMax, v.cepPre));
+  const smooth = keep(await S.praat.call(cep, 'Smooth...', v.cppsTime, v.cppsQuef));
+  const tab = keep(await S.praat.call(smooth, 'To Table (cepstral peak prominences)...',
+    'no', 'yes', 6, 3, 'no', 6, v.cppsLo, v.cppsHi, v.cppsTol, v.cppsInterp,
+    v.cppsTrLo, v.cppsTrHi, v.cppsLine, v.cppsFit));
+  await S.praat.call(tab, 'Save as tab-separated file...', '/tmp.tsv');
+  const cpps = trackFromTable(new TextDecoder().decode(await S.praat.getFile('/tmp.tsv')));
+
+  const nb = keep(await S.praat.call(part, 'To Spectrogram...', v.h12Win, v.h12Max, v.hnrStep, v.h12FStep, 'Gaussian'));
+  const h1h2 = harmonicDiff(await dumpMatrix(nb, 'To Matrix', made), pitch, v.h12Tol / 100);
+  return { hnr, cpps, h1h2 };
+}
+
+/* A two-column Praat table (time, value) as a one-row matrix. */
+function trackFromTable(text) {
+  const lines = text.trim().split('\n').slice(1).map(l => l.split('\t').map(Number));
+  const nx = lines.length, row = new Float64Array(nx);
+  lines.forEach((l, i) => { row[i] = l[1]; });   // "--undefined--" reads as NaN
+  const x1 = nx ? lines[0][0] : 0, dx = nx > 1 ? (lines[nx - 1][0] - x1) / (nx - 1) : 1;
+  return { nx, dx, x1, rows: [row] };
+}
+
+/* H1–H2 in dB at every frame of the narrow-band spectrogram where pitch has
+   an f0; NaN elsewhere, or where 2·f0 is above the spectrogram's top. */
+function harmonicDiff(sp, pitch, tol) {
+  const row = new Float64Array(sp.nx).fill(NaN);
+  const peak = (i, f) => {
+    const lo = Math.max(0, Math.ceil((f * (1 - tol) - sp.y1) / sp.dy));
+    const hi = Math.floor((f * (1 + tol) - sp.y1) / sp.dy);
+    if (hi >= sp.ny || hi < lo) return NaN;
+    let best = 0;
+    for (let r = lo; r <= hi; r++) best = Math.max(best, sp.rows[r][i]);
+    return best > 0 ? 10 * Math.log10(best) : NaN;
+  };
+  for (let i = 0; i < sp.nx; i++) {
+    const f0 = sampleAt(pitch, sp.x1 + i * sp.dx, 0);
+    if (f0 > 0) row[i] = peak(i, f0) - peak(i, 2 * f0);
+  }
+  return { nx: sp.nx, dx: sp.dx, x1: sp.x1, rows: [row] };
 }
 
 async function analyse() {
@@ -1658,6 +1809,9 @@ $('reanalyse').addEventListener('click', analyse);
 for (const el of document.querySelectorAll('.params input, .params select'))
   el.addEventListener('change', () => {
     if (el.id === 'pDyn') { drawAll(); return; }
+    // The tier's thresholds are read when the tier is made; voice arguments
+    // matter to the window only while voice quality is measured there.
+    if (el.dataset.vqt != null || (el.dataset.vq != null && !$('pVoice').checked)) return;
     clearTimeout(analyseTimer); analyseTimer = setTimeout(analyse, 150);
   });
 
@@ -2395,6 +2549,8 @@ function probe(t, cursorHz) {
     ['rF1', 'rF2', 'rF3'].forEach((id, i) => { $(id).textContent = hz(sampleAt(A.formants[i], t, A.t0)); });
     const iv = A.intensity ? sampleAt(A.intensity, t, A.t0) : NaN;
     $('rInt').textContent = isFinite(iv) ? iv.toFixed(1) + ' dB' : '—';
+    const db = m => { const v = A.vq ? sampleAt(m, t, A.t0, anyDb) : NaN; return isFinite(v) ? v.toFixed(1) + ' dB' : '—'; };
+    $('rHnr').textContent = db(A.vq?.hnr); $('rCpps').textContent = db(A.vq?.cpps); $('rH12').textContent = db(A.vq?.h1h2);
   }
   const lab = labelAt(t);
   $('rLab').textContent = lab;
@@ -3932,7 +4088,7 @@ async function drawFigure(o, make) {
    reproduced and its caption written from it. */
 function figureCaption() {
   const [t0, t1] = S.win, p = params();
-  const cmds = commandList(p, t0, t1).filter(c => !/^Extract part/.test(c));
+  const cmds = commandList(p, t0, t1, p.voice).filter(c => !/^Extract part/.test(c));
   const models = TKEYS.map(k => S.tracks[k].source && `${tierOf(k).label}: ${S.tracks[k].source}`).filter(Boolean);
   const parts = [`${S.file?.name || S.name}, ${f3(t0)}–${f3(t1)} s.`, 'Praat:', ...cmds.map((c, i) => c + (i < cmds.length - 1 ? ';' : '.')),
                  ...(models.length ? ['Tiers:', models.join('; ') + '.'] : [])];
@@ -3974,7 +4130,7 @@ async function exportSvg() {
 
 /* ------------------------------------------------------- measurements */
 /* Values of one matrix row over [a, b], from an analysis of [A.t0, A.t1]. */
-function framesIn(m, A, a, b) {
+function framesIn(m, A, a, b, ok = v => v > 0) {
   const out = [];
   if (!m || !m.rows[0]) return out;
   for (let i = 0; i < m.nx; i++) {
@@ -3982,7 +4138,7 @@ function framesIn(m, A, a, b) {
     if (t < a) continue;
     if (t > b) break;
     const v = m.rows[0][i];
-    if (v > 0) out.push(v);
+    if (ok(v)) out.push(v);
   }
   return out;
 }
@@ -4002,34 +4158,51 @@ function measureFrom(A, a, b) {
     F2_mid_Hz: sampleAt(A.formants[1], mid, A.t0),
     F3_mid_Hz: sampleAt(A.formants[2], mid, A.t0),
     intensity_mean_dB: A.intensity ? mean(framesIn(A.intensity, A, a, b)) : NaN,
+    // Means over the frames that have a value: HNR's voiced frames, every
+    // CPPS frame, and H1–H2 where there is an f0.
+    ...(A.vq ? { HNR_mean_dB: mean(framesIn(A.vq.hnr, A, a, b, anyDb)),
+                 CPPS_mean_dB: mean(framesIn(A.vq.cpps, A, a, b, anyDb)),
+                 H1H2_mean_dB: mean(framesIn(A.vq.h1h2, A, a, b, anyDb)) } : {}),
   };
 }
-const MEAS_COLS = ['duration_ms', 'f0_mean_Hz', 'F1_mean_Hz', 'F2_mean_Hz', 'F3_mean_Hz',
-                   'F1_mid_Hz', 'F2_mid_Hz', 'F3_mid_Hz', 'intensity_mean_dB'];
+/* The voice-quality columns are there when voice quality is measured
+   (Analysis pane), so a table never carries columns that are always empty. */
+const VQ_COLS = ['HNR_mean_dB', 'CPPS_mean_dB', 'H1H2_mean_dB'];
+const measCols = () => ['duration_ms', 'f0_mean_Hz', 'F1_mean_Hz', 'F2_mean_Hz', 'F3_mean_Hz',
+                        'F1_mid_Hz', 'F2_mid_Hz', 'F3_mid_Hz', 'intensity_mean_dB',
+                        ...($('pVoice').checked ? VQ_COLS : [])];
 const fmtNum = (v, d = 1) => isFinite(v) ? v.toFixed(d) : '';
+const fmtMeas = (m, c) => fmtNum(m[c], /_dB$/.test(c) ? 2 : 1);
 const csvCell = v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
 
 /* The analysis in use if it covers [a, b] with the current arguments, or a
-   fresh one of just that stretch (with a margin, so the edge frames exist). */
+   fresh one of just that stretch (with a margin, so the edge frames exist).
+   Voice arguments only count while voice quality is measured. */
+const argsKey = p => JSON.stringify({ ...p, vq: p.voice ? p.vq : null });
 async function analysisFor(a, b) {
   const p = params(), A = S.analysis;
-  if (A && A.t0 <= a && b <= A.t1 && JSON.stringify(A.p) === JSON.stringify(p)) return A;
+  if (A && !A.lean && A.t0 <= a && b <= A.t1 && argsKey(A.p) === argsKey(p)) return A;
   return analyseSpan(Math.max(0, a - 0.05), Math.min(S.dur, b + 0.05), p);
 }
 
 async function measureOne(a, b) { return measureFrom(await analysisFor(a, b), a, b); }
 
-/* f0, F1-F3 and intensity frame by frame over the window, on pitch's frames. */
+/* f0, F1-F3 and intensity frame by frame over the window, on pitch's frames;
+   HNR, CPPS and H1–H2 too when voice quality is measured, each read at its
+   own frame nearest the pitch frame (CPPS has five frames to pitch's one at
+   Praat's defaults, already smoothed over 20 ms). */
 function tracksCsv() {
   const A = S.analysis;
   if (!A) throw new Error('nothing analysed yet');
-  const rows = ['time_s,f0_Hz,F1_Hz,F2_Hz,F3_Hz,intensity_dB'];
+  const vq = A.vq;
+  const rows = ['time_s,f0_Hz,F1_Hz,F2_Hz,F3_Hz,intensity_dB' + (vq ? ',HNR_dB,CPPS_dB,H1H2_dB' : '')];
   const m = A.pitch;
   for (let i = 0; i < m.nx; i++) {
     const t = A.t0 + m.x1 + i * m.dx;
     const v = m.rows[0][i];
     rows.push([t.toFixed(4), fmtNum(v > 0 ? v : NaN), ...[0, 1, 2].map(k => fmtNum(sampleAt(A.formants[k], t, A.t0))),
-               fmtNum(A.intensity ? sampleAt(A.intensity, t, A.t0) : NaN, 2)].join(','));
+               fmtNum(A.intensity ? sampleAt(A.intensity, t, A.t0) : NaN, 2),
+               ...(vq ? [vq.hnr, vq.cpps, vq.h1h2].map(x => fmtNum(sampleAt(x, t, A.t0, anyDb), 2)) : [])].join(','));
   }
   return rows.join('\n') + '\n';
 }
@@ -4042,7 +4215,8 @@ async function intervalsCsv(key) {
   const items = (track?.items || []).filter(it => (it.text || '').trim());
   if (!items.length) throw new Error('no labelled intervals on that tier');
   const spk = S.tracks.speaker.items.length > 0 && key !== 'speaker';
-  const rows = [['tier', 'label', 'start_s', 'end_s', ...(spk ? ['speaker'] : []), ...MEAS_COLS].join(',')];
+  const cols = measCols();
+  const rows = [['tier', 'label', 'start_s', 'end_s', ...(spk ? ['speaker'] : []), ...cols].join(',')];
   const label = lanes().find(l => l.key === key)?.label || key;
   let i = 0, done = 0;
   while (i < items.length) {
@@ -4054,7 +4228,7 @@ async function intervalsCsv(key) {
       const it = items[k], m = measureFrom(A, it.start, it.end);
       rows.push([csvCell(label), csvCell(it.text), it.start.toFixed(4), it.end.toFixed(4),
                  ...(spk ? [csvCell(speakerFor(it.start, it.end)?.name || '')] : []),
-                 ...MEAS_COLS.map(c => fmtNum(m[c], c === 'intensity_mean_dB' ? 2 : 1))].join(','));
+                 ...cols.map(c => fmtMeas(m, c))].join(','));
     }
     done = j + 1; i = j + 1;
     status(`measuring: ${done} of ${items.length} intervals`);
@@ -4146,9 +4320,9 @@ const timesRow = (a, b) => `${a.toFixed(3)}\t${b.toFixed(3)}\t${((b - a) * 1000)
 async function copyMeasurements(a, b, label) {
   try {
     status('measuring…');
-    const m = await measureOne(a, b);
-    copyText(`label\tstart_s\tend_s\t${MEAS_COLS.join('\t')}\n` +
-             `${label ?? ''}\t${a.toFixed(4)}\t${b.toFixed(4)}\t${MEAS_COLS.map(c => fmtNum(m[c], c === 'intensity_mean_dB' ? 2 : 1)).join('\t')}`,
+    const m = await measureOne(a, b), cols = measCols();
+    copyText(`label\tstart_s\tend_s\t${cols.join('\t')}\n` +
+             `${label ?? ''}\t${a.toFixed(4)}\t${b.toFixed(4)}\t${cols.map(c => fmtMeas(m, c)).join('\t')}`,
              'the measurements (tab-separated, with a header)');
   } catch (e) { status('measuring failed: ' + e.message, true); }
 }
@@ -4949,8 +5123,109 @@ function addTier(e) {
       { label: `Copy of ${l.label}, boundaries only`,
         run: () => makeTier(`${l.label} notes`, plain(l.track.items).map(it => ({ ...it, text: '' }))) },
     ]) : [{ label: 'Copy of a tier — nothing to copy yet', off: true }]),
+    '-',
+    { label: 'Voice quality (creaky / breathy / modal) over the window — thresholds, not a model',
+      run: () => voiceTier(S.win[0], S.win[1]) },
+    { label: 'Voice quality over the whole file', run: () => voiceTier(0, S.dur) },
   ];
   openMenu(r.left, r.bottom + 2, items);
+}
+
+/* A tier of creaky, breathy and modal stretches. It is a threshold heuristic,
+   not a classifier: every voiced frame (one with an f0) is labelled by fixed
+   rules on its HNR, CPPS and H1–H2, with the thresholds on screen in the
+   Analysis pane, and runs of one label become intervals. The rules follow the
+   usual reading of these measures (Garellek and colleagues' work on H1–H2
+   and CPP among others): creaky voice is irregular, so its HNR and CPPS are
+   low, and its glottis is tightly closed, so H1 is weak against H2; breathy
+   voice is noisy too, but the glottis does not close, so H1 is strong.
+   Modal is every voiced frame that is neither. What it cannot see: creak
+   below the pitch floor has no f0 and stays unlabelled (lower the floor to
+   find it), and H1–H2 is uncorrected, so a vowel with F1 near H2 reads as
+   less breathy than it is. The labels are a first pass to listen through and
+   correct, like any recognised tier. */
+function vqThresholds() {
+  return { hnr: num('vqHnr', 10), cpps: num('vqCpps', 5), creak: num('vqCreak', 0),
+           breath: num('vqBreath', 10), min: Math.max(0, num('vqMin', 0.04)) };
+}
+function vqLabel(hnr, cpps, h12, th) {
+  if (hnr < th.hnr && cpps < th.cpps && h12 < th.creak) return 'creaky';
+  if (hnr < th.hnr && h12 > th.breath) return 'breathy';
+  return 'modal';
+}
+
+/* Frames of [a, b], labelled; '' where Praat found no f0. Analysed 15 s at a
+   time, with a margin so that every frame kept was computed from a whole
+   window rather than from the edge of a stretch. */
+async function vqFrames(a, b, th) {
+  const p = params(), out = [], step = 15, margin = 0.1;
+  for (let c0 = a; c0 < b; c0 += step) {
+    const c1 = Math.min(b, c0 + step);
+    status(`voice quality: ${f2(c0 - a)} of ${f2(b - a)} s …`);
+    const A = await analyseSpan(Math.max(0, c0 - margin), Math.min(S.dur, c1 + margin), p, { voice: true, lean: true });
+    const m = A.pitch, half = m.dx / 2;
+    for (let i = 0; i < m.nx; i++) {
+      const t = A.t0 + m.x1 + i * m.dx;
+      if (t < c0 || t >= c1) continue;
+      let text = '';
+      if (m.rows[0][i] > 0) {
+        const cpps = mean(framesIn(A.vq.cpps, A, t - half, t + half, anyDb));
+        text = vqLabel(sampleAt(A.vq.hnr, t, A.t0, anyDb), cpps, sampleAt(A.vq.h1h2, t, A.t0, anyDb), th);
+      }
+      out.push({ t, text, half });
+    }
+  }
+  return out;
+}
+
+/* Runs of one label, edge to edge (a boundary halfway between two frames),
+   then every run shorter than the minimum handed to a neighbour, shortest
+   first: a short voiced run takes the label of its longer voiced neighbour,
+   or becomes unlabelled if it has none; a short gap between two voiced runs
+   (a frame where the pitch track dropped out, as it does in creak) takes the
+   longer one's label. Each step joins two runs, so it ends. */
+function vqRuns(frames, minLen) {
+  let runs = [];
+  frames.forEach((f, i) => {
+    const start = i ? (frames[i - 1].t + f.t) / 2 : f.t - f.half;
+    const end = i < frames.length - 1 ? (f.t + frames[i + 1].t) / 2 : f.t + f.half;
+    const last = runs[runs.length - 1];
+    if (last && last.text === f.text) last.end = end;
+    else runs.push({ start, end, text: f.text });
+  });
+  const len = r => r.end - r.start;
+  for (;;) {
+    let k = -1;
+    runs.forEach((r, i) => {
+      if (len(r) >= minLen) return;
+      if (!r.text && !(runs[i - 1]?.text && runs[i + 1]?.text)) return;
+      if (k < 0 || len(r) < len(runs[k])) k = i;
+    });
+    if (k < 0) break;
+    const voiced = [runs[k - 1], runs[k + 1]].filter(r => r?.text);
+    runs[k].text = voiced.length ? voiced.sort((x, y) => len(y) - len(x))[0].text : '';
+    const joined = [];
+    for (const r of runs) {
+      const last = joined[joined.length - 1];
+      if (last && last.text === r.text) last.end = r.end;
+      else joined.push({ ...r });
+    }
+    runs = joined;
+  }
+  return runs.filter(r => r.text);
+}
+
+async function voiceTier(a, b) {
+  if (!S.sound) return status('open a recording first', true);
+  const th = vqThresholds();
+  try {
+    const items = tidy(vqRuns(await vqFrames(a, b, th), th.min), S.dur);
+    const n = l => items.filter(it => it.text === l).length;
+    makeTier('voice quality', items, '', false);
+    status(`voice quality, ${f2(a)}–${f2(b)} s: ${n('creaky')} creaky, ${n('breathy')} breathy, ${n('modal')} modal · ` +
+           `a threshold heuristic, not a model (HNR < ${th.hnr} dB, CPPS < ${th.cpps} dB, H1–H2 < ${th.creak} / > ${th.breath} dB; ` +
+           `Analysis pane) · listen before you cite it`);
+  } catch (e) { status('voice quality failed: ' + (e.message || e), true); }
 }
 /* The first marked label after the selection (or the cursor), wrapping round. */
 function nextInvalid(track) {
@@ -5336,6 +5611,9 @@ function importTextGrid(tg, filename) {
   const used = new Set(), extra = [];
   const builtin = name => {
     const n = name.toLowerCase();
+    // Lana's own voice-quality tier is a tier of its own, not the speaker
+    // tier that "voices?" would otherwise make it.
+    if (/^(voice quality|phonation)\b/.test(n)) return null;
     for (const [k, re] of [['word', /^(words?|orth\w*|transcri\w*|wort\w*)\b/],
                            ['phone', /^(phones?|phonemes?|segments?|ipa|phon\w*)\b/],
                            ['speaker', /^(speakers?|spk|turns?|voices?)\b/]])
