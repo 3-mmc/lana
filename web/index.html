@@ -399,6 +399,26 @@
   .nrow button{visibility:hidden}
   .nrow:hover button{visibility:visible}
   .nempty{padding:8px 9px;color:var(--dim2);font-size:11px}
+  /* to check, find similar: fixed heights, so a list that fills or empties
+     never moves what is below it */
+  #checkList,#searchList{height:150px;overflow:auto}
+  #checkPane>h2,#searchPane>h2{white-space:nowrap}
+  #checkCount{flex:none}
+  #searchCount{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .pane>h2 .h2lab{text-transform:none;letter-spacing:0;display:flex;gap:3px;align-items:center;white-space:nowrap}
+  #doubtAt{width:42px;padding:1px 4px;font-size:11px;text-align:right;flex:none}
+  .crow .cbar{flex:none;width:10px;height:3px;align-self:center;background:var(--warn)}
+  .crow .tx b{font-family:var(--mono);font-weight:600}
+  .srow{align-items:center}
+  .srow .sbar{flex:none;width:38px;height:4px;background:var(--line2);border-radius:2px;overflow:hidden}
+  .srow .sbar i{display:block;height:100%;background:var(--accent)}
+  .srow .sc{flex:none;font-size:11px;color:var(--dim)}
+  #searchPane .row input{flex:1;min-width:0;padding:1px 6px}
+  #altBar{display:flex;gap:4px;align-items:center;justify-content:flex-end}
+  #altBar span{color:var(--dim2);overflow:hidden;text-overflow:ellipsis;min-width:0}
+  #altBar button{flex:none;font-family:var(--mono)}
+  #altBar button b{color:var(--dim2);font-weight:400;margin-right:2px}
+  #altBar button.own{border-color:var(--warnline)}
   #noteEd{position:fixed;z-index:75;width:300px;padding:8px;display:grid;gap:6px;background:var(--raise);
           border:1px solid var(--line);border-radius:6px;box-shadow:0 8px 24px #0007}
   #noteEd .tags{display:flex;flex-wrap:wrap;gap:4px}
@@ -707,7 +727,8 @@
       <button class="tiny" id="tierRen" hidden>rename tier</button>
       <button class="tiny" id="tierDel" hidden>remove tier</button>
       <span class="sp"></span>
-      <span class="hint" title="Select a stretch on the waveform first to label only that stretch. Enter edits the selected interval, Tab moves to the next one.">double-click a tier to type a label · drag a boundary to move it</span>
+      <span class="hint" id="altBar" hidden title="The model's readings of the selected label, with its share for each: 1 keeps the label, 2–4 take another"></span>
+      <span class="hint" id="edHint" title="Select a stretch on the waveform first to label only that stretch. Enter edits the selected interval, Tab moves to the next one.">double-click a tier to type a label · drag a boundary to move it</span>
     </div>
     <div class="tierwrap"><canvas id="tiers"></canvas><input id="labEdit" hidden autocomplete="off" spellcheck="false"></div>
     <div class="row tight">
@@ -823,6 +844,32 @@
       <button class="tiny" id="noteAdd" title="A note at the playhead, the selection or the cursor (N)">+ note</button>
     </h2>
     <div id="notesList"></div>
+  </div>
+
+  <div class="pane" id="checkPane">
+    <h2>To check
+      <span class="sub" id="checkCount">—</span>
+      <span class="sp"></span>
+      <label class="h2lab" title="Mark labels the model was less sure of than this, with a bar along their foot that thickens as its confidence falls"><input type="checkbox" id="doubtOn"> mark</label>
+      <input id="doubtAt" class="tiny num" title="Confidence threshold, 0–1">
+      <button class="tiny" id="checkPrev" title="Previous label to check (,)">‹</button>
+      <button class="tiny" id="checkNext" title="Next label to check (.)">›</button>
+    </h2>
+    <div id="checkList"></div>
+  </div>
+
+  <div class="pane" id="searchPane" hidden>
+    <h2>Find similar
+      <span class="sub" id="searchCount">—</span>
+      <span class="sp"></span>
+      <button class="tiny" id="searchKeep" disabled title="Keep the stretches found as notes tagged “example”">keep as notes</button>
+    </h2>
+    <div class="row tight">
+      <button class="tiny" id="searchSel" title="Stretches whose phones are like those ZIPA hears in the selection">like the selection</button>
+      <input id="searchIpa" class="ipa" placeholder="or type IPA" autocomplete="off" spellcheck="false" title="Phones to look for, in IPA">
+      <button class="tiny" id="searchGo">find</button>
+    </div>
+    <div id="searchList"></div>
   </div>
 
   <div class="pane">
@@ -1060,6 +1107,7 @@ const CFG = {
   langWord: '', langPhone: '', size: 'medium', nameTiers: false,
   theme: 'graphite',
   follow: true, followPage: 5, rewind: true,   // the listening pass; see "playback"
+  doubtOn: true, doubtAt: 0.6,                 // labels the model was unsure of; see "doubt"
 };
 // The project's old name, kept so saved settings survive the rename. The demo
 // keeps its own, so trying it out never rewrites a working configuration.
@@ -1351,6 +1399,7 @@ const S = {
   lastReadout: {},
   extra: [],            // tiers added by hand or from a TextGrid: {key, label, items, ...}
   notes: [],            // {start, end, text, tag, tier}: see "notes"
+  warnings: [],         // {start, end, reason, tier, model, done}: a model's own warnings; see "doubt"
   activeLane: 'word',   // the tier the edit buttons and keys act on
   undo: [], redo: [],
   file: null,           // {name, size} of the loaded recording
@@ -1473,7 +1522,7 @@ $('file').addEventListener('change', async ev => {
   for (const job of Q.items) if (job.state === 'queued') cancelQueued(job, 'another recording was opened');
   renderQueue();
   for (const k of TKEYS) S.tracks[k].edited = false;
-  S.extra = []; S.notes = []; S.undo = []; S.redo = []; S.selectedItem = null;
+  S.extra = []; S.notes = []; S.warnings = []; S.undo = []; S.redo = []; S.selectedItem = null; TRI.cur = null;
   NOTES.current = null; renderNotes();
   if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
   S.file = { name: f.name, size: f.size };
@@ -2363,11 +2412,27 @@ function drawTiers() {
     g.font = lane.key === 'phone' ? '13px ' + mono
            : lane.key === 'speaker' || arpa ? '11px ' + mono
            : '12px ui-sans-serif';
+    const doubt = !RENDER && CFG.doubtOn && TRI_TIERS.includes(lane.key) && !busy;
     for (const it of t.items) {
       if (it.end < t0 || it.start > t1) continue;
       const a = Math.max(x0, xOf(it.start)), b = Math.min(F.x1, xOf(it.end));
       g.fillStyle = it === S.selectedItem ? alpha(tc, 0.32) : alpha(tc, 0.10);
       g.fillRect(a, ly + 1, Math.max(1, b - a), lh - 4);
+      /* Doubt: a warm wash and a bar along the foot, dashed and thin just
+         under the threshold, solid and thick far below it. Orange against
+         the tiers' blue holds for the common colour-vision deficiencies, and
+         the bar's weight and dashes carry it without colour at all. */
+      const d = doubt ? doubtOf(it) : 0;
+      if (d > 0) {
+        g.fillStyle = alpha(C.warn, 0.10 + 0.18 * d);
+        g.fillRect(a, ly + 1, Math.max(1, b - a), lh - 4);
+        const h = 3 + Math.round(4 * d), yb = ly + lh - 3 - h / 2;
+        g.save();
+        g.strokeStyle = alpha(C.warn, d < 0.4 ? 0.8 : 1); g.lineWidth = h;
+        g.setLineDash(d < 0.4 ? [4, 2] : []);
+        g.beginPath(); g.moveTo(a + 1, yb); g.lineTo(Math.max(a + 2, b - 1), yb); g.stroke();
+        g.restore();
+      }
       g.strokeStyle = C.boundary;
       g.beginPath(); g.moveTo(a + .5, ly + 1); g.lineTo(a + .5, ly + lh - 3); g.stroke();
       if (b - a > 7) {
@@ -2416,6 +2481,7 @@ function drawTiers() {
   shadeSelection(F, t0, t1);
   drawCursor(F, t0, t1);
   drawTimeAxis(F, t0, t1);
+  if (!RENDER) showAlts();
 }
 
 function anyBusy() {
@@ -2527,10 +2593,12 @@ $('spec').addEventListener('pointerdown', e => {
   if (S.notes.length && noteAtPin(e)) return;
   probe(xToTime(e, S.win[0], S.win[1])); drawAll();
 });
-function labelAt(t) {
+function labelAt(t, withScores = false) {
   const w = S.tracks.word.items.find(it => it.start <= t && t <= it.end);
   const p = S.tracks.phone.items.find(it => it.start <= t && t <= it.end);
-  const lab = [p && p.text, w && w.text].filter(Boolean).join(' / ');
+  // With the model's readings and their shares, where it gave them.
+  const scored = it => it && (withScores && it.conf != null ? (it === p ? candLine(it) : candText([it.text, it.conf])) : it.text);
+  const lab = [scored(p), scored(w)].filter(Boolean).join(' / ');
   // The voice goes in front of the labels rather than into a column of its
   // own, so the readout row does not carry a permanently empty cell for
   // everyone who never diarizes anything.
@@ -2552,7 +2620,7 @@ function probe(t, cursorHz) {
     const db = m => { const v = A.vq ? sampleAt(m, t, A.t0, anyDb) : NaN; return isFinite(v) ? v.toFixed(1) + ' dB' : '—'; };
     $('rHnr').textContent = db(A.vq?.hnr); $('rCpps').textContent = db(A.vq?.cpps); $('rH12').textContent = db(A.vq?.h1h2);
   }
-  const lab = labelAt(t);
+  const lab = labelAt(t, true);
   $('rLab').textContent = lab;
   $('rLab').title = lab;
 }
@@ -2996,8 +3064,10 @@ function fillModelSelects() {
 function langStyle(model) {
   if (!model) return 'none';
   if (/^mms-/.test(model)) return 'fixed';
-  if (/^(zipa|omnilingual)|^(speakers|diarize)$/.test(model)) return 'none';
-  if (model === 'mms' || model === 'owsm') return 'iso3';
+  if (/^zipa|^(speakers|diarize)$/.test(model)) return 'none';
+  // Omnilingual is told the language so that Lana can hold it to the
+  // language's alphabet; it reads the language itself either way.
+  if (model === 'mms' || model === 'owsm' || /^omnilingual/.test(model)) return 'iso3';
   if (/whisper/i.test(model) || model === 'ipa' || model === 'ipa-buckeye') return 'whisper';
   return 'iso1';
 }
@@ -3218,6 +3288,20 @@ $('nameTiers').addEventListener('change', () => { CFG.nameTiers = $('nameTiers')
 /* ---------------------------------------------------------- the results */
 const MIN_IV = 0.004;   // Praat rejects zero-width intervals outright
 
+/* What a model thought of a label travels with the interval: `conf`, how sure
+   it was of this symbol rather than another (0–1), and `alts`, the others it
+   weighed, as [label, share], most likely first. `rv` marks a label a person
+   has decided on, and `why` one that re-timing flagged. A TextGrid has no
+   room for any of it; Lana's own annotation file and autosave keep it. */
+const DOUBT_KEYS = ['conf', 'alts', 'rv', 'why'];
+const withDoubt = (o, it) => { for (const k of DOUBT_KEYS) if (it[k] != null) o[k] = it[k]; return o; };
+function doubtFrom(o, conf, alts) {
+  if (conf != null && isFinite(+conf)) o.conf = +conf;
+  const a = (alts || []).filter(x => Array.isArray(x) && x[0] != null && isFinite(+x[1])).map(x => [String(x[0]), +x[1]]);
+  if (a.length) o.alts = a;
+  return o;
+}
+
 /* Force a list of intervals to be sorted, non-overlapping, strictly widening
    and inside [0, dur]. Nothing upstream guarantees this: a phone's CTC spike is
    an absolute time that can land a few ms past the end of the word it was
@@ -3230,7 +3314,7 @@ function tidy(items, dur) {
     let st = Math.min(Math.max(it.start, prev), Math.max(0, dur - MIN_IV));
     let en = Math.min(Math.max(it.end, st + MIN_IV), dur);
     if (en - st < MIN_IV / 2) continue;
-    out.push({ start: st, end: en, text: it.text });
+    out.push(withDoubt({ start: st, end: en, text: it.text }, it));
     prev = en;
   }
   return out;
@@ -3247,7 +3331,7 @@ function itemsFrom(cues, kind) {
       if (c.speaker != null)
         out.push({ start: +c.start, end: +c.end, text: spkName(c.speaker) });
     } else if (kind === 'word') {
-      if (ws.length) for (const w of ws) out.push({ start: +w.start, end: +w.end, text: w.text || '' });
+      if (ws.length) for (const w of ws) out.push(doubtFrom({ start: +w.start, end: +w.end, text: w.text || '' }, w.conf, w.alts));
       else {
         const txt = (c.plain ?? c.text ?? '').trim();
         if (txt) { out.push({ start: +c.start, end: +c.end, text: txt }); cueLevel = true; }
@@ -3259,7 +3343,7 @@ function itemsFrom(cues, kind) {
           // Fall back to an even split only when the model gave no phone times.
           const st = pt[i] ?? (+w.start + (+w.end - +w.start) * i / Math.max(1, ps.length));
           const en = pt[i + 1] ?? Math.max(+w.end, st + MIN_IV);
-          out.push({ start: st, end: en, text: ph });
+          out.push(doubtFrom({ start: st, end: en, text: ph }, w.phone_conf?.[i], w.phone_alts?.[i]));
         });
       }
     }
@@ -3345,7 +3429,7 @@ function assignTrack(key, cues, source, state) {
   else if (cueLevel)
     t.note = 'cue-level intervals: the model timed segments, not words';
   stampSpeakers();
-  renderPlan(); renderSegments(); drawTiers(); updateTierInfo(); renderTranscript();
+  renderPlan(); renderSegments(); drawTiers(); updateTierInfo(); renderTranscript(); renderChecks();
   if (state === 'done') PROJ.dirty();
 }
 
@@ -3586,7 +3670,7 @@ function mergeSpan(job, cues) {
     if (!/\(selection\)/.test(t.source || '')) t.source = (t.source ? t.source + ' + ' : '') + job.model + ' (selection)';
   }
   stampSpeakers();
-  renderPlan(); renderSegments(); drawTiers(); updateTierInfo(); renderTranscript();
+  renderPlan(); renderSegments(); drawTiers(); updateTierInfo(); renderTranscript(); renderChecks();
   PROJ.dirty();
 }
 /* What can be run on the selection: each tier with a model, or all of them. */
@@ -3735,6 +3819,7 @@ async function runJob(job) {
     // An excerpt's hash would re-cluster the excerpt onto the whole tier: none.
     if (job.concurrent)
       S.tracks.speaker.cached = body.hash && !job.span ? { hash: body.hash, file: fileKey() } : null;
+    if (!job.concurrent) takeWarnings(job, body.warnings);
     if (job.span) mergeSpan(job, cues);
     else applyCues(cues, job.model, 'done', job.claims);
     if (!job.span && !cues.length && (body.text || '').trim()) {
@@ -3746,6 +3831,8 @@ async function runJob(job) {
     job.note = `${f2((performance.now() - t0) / 1000)} s`;
     status(`${job.model} finished${job.span ? ' on ' + f2(job.span[0]) + '–' + f2(job.span[1]) + ' s' : ''} in ${f2((performance.now() - t0) / 1000)} s` +
            (body.language ? ` · language ${body.language}` : '') +
+           (body.alphabet ? ` · held to the ${LANG.name(body.alphabet)} alphabet` : '') +
+           (S.warnings.some(w => w.model === job.model && !w.done) ? ` · ${S.warnings.filter(w => w.model === job.model && !w.done).length} warning(s), listed under To check` : '') +
            (body.speakers != null ? ` · ${body.speakers} speaker${body.speakers === 1 ? '' : 's'}` : ''));
   } catch (e) {
     const cancelled = /cancel|abort|stopped/i.test(e.message) || e.name === 'AbortError';
@@ -4336,8 +4423,10 @@ $('tiers').addEventListener('contextmenu', e => {
   const lane = laneAtY(e.clientY), t = timeAtX(e.clientX), track = lane.track;
   const fixed = TIERS.find(T => T.key === lane.key), extra = S.extra.find(x => x.key === lane.key);
   if (lane.key !== S.activeLane) setActiveLane(lane.key, false);
+  const priorSel = S.sel;
   const tierItems = [
     ...(fixed && S.tracks[lane.key].model ? [{ label: `Run ${S.tracks[lane.key].model} on this tier`, run: () => enqueue(lane.key) }] : []),
+    ...(fixed && TRI_TIERS.includes(lane.key) ? [{ label: 'Next label to check', key: '.', off: !checkList().length, run: () => stepCheck(1) }] : []),
     ...(extra ? [{ label: 'Rename tier…', run: renameTier }, { label: 'Remove tier', run: removeTier }] : []),
     ...(ARPA.setOf(extra) ? [{ label: 'Next label that is not ARPABET', off: track.items.every(it => ARPA.valid(it.text, ARPA.setOf(extra))),
                                          run: () => nextInvalid(track) }] : []),
@@ -4346,7 +4435,7 @@ $('tiers').addEventListener('contextmenu', e => {
       run: () => copyText('start\tend\tduration_ms\tlabel\n' + track.items.map(it => `${timesRow(it.start, it.end)}\t${it.text || ''}`).join('\n'), `the ${lane.label} tier`) },
     { label: 'Measure every interval (CSV)…', off: !track.items.some(it => (it.text || '').trim()), run: () => saveIntervals(lane.key) },
   ];
-  if (e.clientX - r.left < PAD.l) return openMenu(e.clientX, e.clientY, tierItems);
+  if (e.clientX - r.left < PAD.l) return openMenu(e.clientX, e.clientY, [...retimeItems(lane.key, S.sel), ...tierItems]);
   const busy = busyTrack(track);
   const it = track.items.find(x => x.start <= t && t <= x.end);
   if (!it) {
@@ -4357,7 +4446,10 @@ $('tiers').addEventListener('contextmenu', e => {
       { label: 'Figure / measurements…', run: openPaperDialog },
     ]);
   }
-  selectSpan(it.start, it.end, it); probe(t);
+  // Inside a wider selection the interval is picked and the stretch kept.
+  if (priorSel && priorSel[0] <= t && t <= priorSel[1] && priorSel[1] - priorSel[0] > it.end - it.start + 1e-6) { S.selectedItem = it; drawAll(); }
+  else selectSpan(it.start, it.end, it);
+  probe(t);
   const items = track.items, idx = items.indexOf(it);
   openMenu(e.clientX, e.clientY, [
     { label: 'Play', key: 'Space', run: () => play(it.start, it.end) },
@@ -4368,6 +4460,11 @@ $('tiers').addEventListener('contextmenu', e => {
     { label: 'Merge with next', key: 'M', off: busy || idx === items.length - 1, run: () => { S.selectedItem = it; mergeNext(); } },
     { label: 'Merge with previous', off: busy || idx === 0, run: () => { S.selectedItem = items[idx - 1]; mergeNext(); } },
     { label: 'Delete interval', key: 'Del', off: busy, run: () => { S.selectedItem = it; deleteSelected(); } },
+    ...(candidates(it).length > 1 ? ['-', ...candidates(it).slice(1, 4).map((c, i) => (
+      { label: `Use the model's reading ${candText(c)}`, key: String(i + 2), off: busy,
+        run: () => { S.selectedItem = it; setActiveLane(lane.key, false); pickCandidate(i + 1); } }))] : []),
+    ...(doubtOf(it) > 0 ? [{ label: 'Mark as checked', key: '1', run: () => markChecked({ key: lane.key, it }) }] : []),
+    ...(retimeItems(lane.key, retimeSpan(lane.key, t, it, priorSel)).length ? ['-', ...retimeItems(lane.key, retimeSpan(lane.key, t, it, priorSel))] : []),
     '-',
     ...(flagOf(lane.key, it)
       ? [{ label: 'Edit flag…', key: 'F', run: () => openNoteEditor(flagOf(lane.key, it), false, e.clientX, e.clientY) },
@@ -4402,6 +4499,9 @@ for (const id of ['wave', 'intens', 'spec']) {
       { label: 'Zoom to selection', key: 'Z', off: !S.sel, run: () => setWindow(S.sel[0], S.sel[1]) },
       ...(S.sel ? [{ label: 'Recognise the selection…', off: !TKEYS.some(k => S.tracks[k].model),
                      run: () => openMenu(e.clientX, e.clientY, recogniseSelectionItems()) }] : []),
+      ...(S.sel && localTools() ? [{ label: 'Find similar stretches', run: () => findSimilar(S.sel, '') }] : []),
+      ...(S.sel && localTools() && TRI_TIERS.includes(S.activeLane) && S.tracks[S.activeLane].items.length
+        ? [{ label: `Re-time the ${tierOf(S.activeLane).label} from the sound`, key: 'R', run: () => retime(S.activeLane, S.sel) }] : []),
       { label: 'Zoom out', run: () => $('zoomOut').click() },
       { label: 'Show the whole file', run: () => setWindow(0, S.dur) },
       '-',
@@ -4805,7 +4905,9 @@ function cuesFromItems() {
 }
 
 /* ----------------------------------------------------------- undo / redo */
-const plain = items => items.map(({ start, end, text }) => ({ start, end, text }));
+const plain = items => items.map(it => withDoubt({ start: it.start, end: it.end, text: it.text }, it));
+// Without what the model thought of each label: a copy is a hand tier.
+const bare = items => items.map(({ start, end, text }) => ({ start, end, text }));
 function snap() {
   const tracks = {};
   for (const k of TKEYS) {
@@ -4816,12 +4918,13 @@ function snap() {
   }
   return { tracks, transcript: S.transcript,
            extra: S.extra.map(x => ({ ...x, items: plain(x.items) })),
-           notes: S.notes.map(n => ({ ...n })) };
+           notes: S.notes.map(n => ({ ...n })), warnings: S.warnings.map(w => ({ ...w })) };
 }
 function applySnap(sn) {
   for (const k of TKEYS) Object.assign(S.tracks[k], sn.tracks[k], { items: plain(sn.tracks[k].items) });
   S.extra = sn.extra.map(x => ({ ...x, items: plain(x.items) }));
   S.notes = (sn.notes || []).map(n => ({ ...n }));
+  S.warnings = (sn.warnings || []).map(w => ({ ...w }));
   S.transcript = sn.transcript;
   S.selectedItem = null;
   if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
@@ -4868,7 +4971,7 @@ function edit(keys, fn) {
 }
 function afterEdit() {
   stampSpeakers();
-  renderPlan(); renderSegments(); updateTierInfo(); renderTranscript(); renderNotes(); drawAll();
+  renderPlan(); renderSegments(); updateTierInfo(); renderTranscript(); renderNotes(); renderChecks(); drawAll();
   PROJ.dirty();
 }
 
@@ -4943,6 +5046,9 @@ $('tiers').addEventListener('pointerdown', e => {
   closeLabelEditor(true);
   const lane = laneAtY(e.clientY), t = timeAtX(e.clientX);
   if (lane.key !== S.activeLane) setActiveLane(lane.key, false);
+  // A right click leaves the selection to the menu, which keeps a stretch
+  // selected across several intervals (to re-time it, say).
+  if (e.button === 2) return;
   const b = !busyTrack(lane.track) && boundaryNear(lane.track, t);
   if (b) {
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -4957,9 +5063,13 @@ $('tiers').addEventListener('pointerdown', e => {
 $('tiers').addEventListener('pointermove', e => {
   if (!bdrag) {
     if (!S.audio) return;
-    const lane = laneAtY(e.clientY);
+    const lane = laneAtY(e.clientY), t = timeAtX(e.clientX);
     e.currentTarget.style.cursor =
-      !busyTrack(lane.track) && boundaryNear(lane.track, timeAtX(e.clientX)) ? 'col-resize' : 'pointer';
+      !busyTrack(lane.track) && boundaryNear(lane.track, t) ? 'col-resize' : 'pointer';
+    // The model's readings of the label under the pointer, as a tooltip.
+    const it = lane.track.items.find(x => x.start <= t && t <= x.end);
+    const tip = it && it.conf != null ? candLine(it) + (it.rv ? ' · checked' : '') : '';
+    if (e.currentTarget.title !== tip) e.currentTarget.title = tip;
     return;
   }
   const { b } = bdrag;
@@ -5042,7 +5152,7 @@ function closeLabelEditor(commit) {
   if (commit && ARPA.setOf(trackOf(key))) value = ARPA.normalise(value, ARPA.setOf(trackOf(key)));
   if (commit && value !== (it.text || '')) {
     if (isNew) { it.text = value; afterEdit(); }        // the creation is already one undo step
-    else edit([key], () => { it.text = value; });
+    else edit([key], () => decideLabel(it, value));
   } else if (!commit && isNew) {
     // Escape on an interval that only existed to be labelled takes it back.
     S.undo.length && applySnap(S.undo.pop());
@@ -5087,7 +5197,7 @@ function mergeNext() {
   // On the speaker tier the left label stands.
   const sep = S.activeLane === 'phone' ? '' : ' ';
   edit([S.activeLane], () => {
-    if (S.activeLane !== 'speaker') it.text = [it.text, next.text].filter(Boolean).join(sep);
+    if (S.activeLane !== 'speaker') decideLabel(it, [it.text, next.text].filter(Boolean).join(sep));
     it.end = next.end;
     items.splice(items.indexOf(next), 1);
   });
@@ -5119,9 +5229,9 @@ function addTier(e) {
     ]) : [{ label: 'ARPABET from phones — fill the phone tier first', off: true }]),
     '-',
     ...(filled.length ? filled.flatMap(l => [
-      { label: `Copy of ${l.label}`, run: () => makeTier(`${l.label} copy`, plain(l.track.items), l.track.format || '') },
+      { label: `Copy of ${l.label}`, run: () => makeTier(`${l.label} copy`, bare(l.track.items), l.track.format || '') },
       { label: `Copy of ${l.label}, boundaries only`,
-        run: () => makeTier(`${l.label} notes`, plain(l.track.items).map(it => ({ ...it, text: '' }))) },
+        run: () => makeTier(`${l.label} notes`, bare(l.track.items).map(it => ({ ...it, text: '' }))) },
     ]) : [{ label: 'Copy of a tier — nothing to copy yet', off: true }]),
     '-',
     { label: 'Voice quality (creaky / breathy / modal) over the window — thresholds, not a model',
@@ -5307,7 +5417,19 @@ addEventListener('keydown', e => {
   else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); noteHere(); }
   else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); flagSelected(); }
   else if (e.key === '[' || e.key === ']') { e.preventDefault(); stepNote(e.key === ']' ? 1 : -1); }
+  else if (e.key === ',' || e.key === '.') { e.preventDefault(); stepCheck(e.key === '.' ? 1 : -1); }
+  else if (e.key >= '1' && e.key <= '4' && (candidates(selectedOnActive()).length || TRI.cur?.warn)) { e.preventDefault(); pickCandidate(+e.key - 1); }
+  else if ((e.key === 'r' || e.key === 'R') && localTools()) { e.preventDefault(); retimeSelection(); }
 });
+/* R: re-time the selection on the active tier, or the word a selected phone
+   belongs to. */
+function retimeSelection() {
+  const key = S.activeLane, it = selectedOnActive();
+  if (!TRI_TIERS.includes(key)) return status('re-timing works on the word and phone tiers: click one of them first', true);
+  const t = S.sel ? (S.sel[0] + S.sel[1]) / 2 : it ? (it.start + it.end) / 2 : S.cursor;
+  if (t == null) return status('select a stretch of the tier to re-time', true);
+  retime(key, retimeSpan(key, t, it));
+}
 
 /* ---------------------------------------------------------------- notes */
 /* What a listener leaves for later: a bookmark at a moment, a comment on a
@@ -5554,6 +5676,376 @@ $('noteAdd').addEventListener('mousedown', e => e.preventDefault());
 $('noteAdd').addEventListener('click', () => noteHere());
 renderNotes();
 
+/* ---------------------------------------------------------------- doubt */
+/* A recogniser's labels are not equally good, and the model knows which ones
+   it hesitated over. Each label from a built-in model carries its confidence
+   (conf) and the readings it weighed against it (alts): see doubtFrom. Below
+   a threshold the label is marked on its tier, with a bar along its foot that
+   thickens and closes up as the confidence falls, so the marking does not
+   rest on colour alone. The runner-ups are one key away: 1 keeps the label
+   (and marks it checked), 2 to 4 take the model's second to fourth reading.
+   A label a person has typed or chosen counts as decided and is not marked
+   again; re-timing (below) can flag it once more if the model does not hear
+   the correction where it stands. */
+const doubtAt = () => { const v = +CFG.doubtAt; return isFinite(v) && v > 0 && v <= 1 ? v : 0.6; };
+/* How doubtful a label is, from 0 (not, or already decided) to 1. */
+function doubtOf(it) {
+  if (!it || it.rv) return 0;
+  if (it.why === 'guess') return 0.5;
+  if (it.conf == null || it.conf >= doubtAt()) return 0;
+  return Math.max(0.02, 1 - it.conf / doubtAt());
+}
+/* The label and the model's other readings, as [label, share], best first. */
+const candidates = it => it && it.conf != null ? [[it.text || '', it.conf], ...(it.alts || [])] : [];
+const candText = c => `${c[0] || '∅'} ${(+c[1]).toFixed(2)}`;
+const candLine = it => candidates(it).map(candText).join(' · ');
+/* A person has settled this label. If it is one of the model's readings, the
+   model's share for it stays with it and the old label joins the runner-ups;
+   any other text has no score from the model, so the scores go. */
+function decideLabel(it, text) {
+  if (text !== (it.text || '')) {
+    const cands = candidates(it), hit = cands.find(c => c[0] === text);
+    if (hit) {
+      it.conf = hit[1];
+      const rest = cands.filter(c => c !== hit);
+      if (rest.length) it.alts = rest; else delete it.alts;
+    } else { delete it.conf; delete it.alts; }
+    it.text = text;
+  }
+  it.rv = true;
+  delete it.why;
+}
+
+/* ---------------------------------------------------------- the triage pass
+   One list of what is worth a look: labels below the threshold, labels that
+   re-timing flagged, and the problems a model reported itself (a Whisper
+   piece dropped because it looped). Checked labels leave the list. Comma and
+   full stop step through it, like [ and ] through the notes. */
+const TRI = { cur: null };
+const TRI_TIERS = ['word', 'phone'];
+const triOrder = (a, b) => a.start - b.start || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0) || (a.warn ? 1 : 0) - (b.warn ? 1 : 0);
+function checkList() {
+  const out = [];
+  for (const k of TRI_TIERS) {
+    const t = S.tracks[k];
+    if (busyTrack(t)) continue;
+    for (const it of t.items) {
+      const d = doubtOf(it);
+      if (d > 0) out.push({ key: k, it, start: it.start, end: it.end, d });
+    }
+  }
+  for (const w of S.warnings) if (!w.done) out.push({ key: w.tier || 'word', warn: w, start: w.start, end: w.end, d: 1 });
+  return out.sort(triOrder);
+}
+function checkReason(e) {
+  if (e.warn) return `${e.warn.model ? e.warn.model + ': ' : ''}${e.warn.reason}`;
+  const it = e.it;
+  if (it.why === 'guess') return 're-timed: no symbol the model knows, spread evenly';
+  if (it.why === 'retime') return `re-timed ${(+it.conf).toFixed(2)} · not heard here`;
+  return candLine(it);
+}
+const sameEntry = (e, c) => !!c && (e.warn ? e.warn === c.warn : e.it === c.it);
+function renderChecks() {
+  const list = checkList(), el = $('checkList');
+  $('checkCount').textContent = list.length ? String(list.length) : 'none';
+  const CAP = 400;
+  el.innerHTML = list.length ? list.slice(0, CAP).map((e, i) => {
+    const lab = e.warn ? '' : (e.it.text || '∅');
+    return `<div class="nrow crow${sameEntry(e, TRI.cur) ? ' sel' : ''}" data-i="${i}" title="${esc(checkReason(e))}">
+      <i class="cbar" style="opacity:${(0.45 + 0.55 * e.d).toFixed(2)}"></i><span class="t">${f3(e.start)}</span>
+      <span class="tx">${e.warn ? '' : `<b>${esc(lab)}</b> `}<i>${esc(tierOf(e.key)?.label || e.key)} · ${esc(checkReason(e))}</i></span>
+      <button class="tiny" data-ck title="Checked: take it off the list (1)">✓</button></div>`;
+  }).join('') + (list.length > CAP ? `<div class="nempty">and ${list.length - CAP} more after these</div>` : '')
+    : `<div class="nempty">${S.tracks.word.items.length || S.tracks.phone.items.length
+        ? `Nothing below ${doubtAt().toFixed(2)} and no warnings. Labels from the built-in models carry the model's confidence; others carry none.`
+        : 'Labels the recogniser was unsure of are listed here, with its other readings. Comma and full stop step through them.'}</div>`;
+  renderChecks.list = list;
+}
+function goToCheck(e) {
+  TRI.cur = e;
+  // Close enough to read a phone's label: no wider than 3 s.
+  const span = Math.min(S.win[1] - S.win[0], 3);
+  if (e.end - e.start > span * 0.9) zoomTo(e.start, e.end);
+  else if (span < S.win[1] - S.win[0] - 1e-6) { const c = (e.start + e.end) / 2; setWindow(c - span / 2, c + span / 2, false); }
+  else if (e.start < S.win[0] || e.end > S.win[1]) { const c = (e.start + e.end) / 2; setWindow(c - span / 2, c + span / 2, false); }
+  S.cursor = e.start;
+  if (e.it) { setActiveLane(e.key, false); S.selectedItem = e.it; }
+  else S.selectedItem = null;
+  S.sel = [e.start, Math.max(e.end, e.start + MIN_IV)];
+  probe((e.start + e.end) / 2); renderChecks(); renderSegments(); drawAll();
+  $('checkList').querySelector('.crow.sel')?.scrollIntoView({ block: 'nearest' });
+  const list = renderChecks.list, n = list.findIndex(x => sameEntry(x, e)) + 1;
+  status(`${n} of ${list.length} to check · ${checkReason(e)} · ` +
+         (e.it ? (e.it.alts ? '1 keeps it, 2–4 take a runner-up, Enter edits' : '1 keeps it, Enter edits') : '1 marks it checked'));
+}
+function stepCheck(dir) {
+  const list = checkList();
+  if (!list.length) { TRI.cur = null; renderChecks(); return status('nothing left to check'); }
+  const from = TRI.cur || { start: S.cursor ?? (dir > 0 ? -1 : Infinity), key: dir > 0 ? '' : '~' };
+  const e = dir > 0 ? list.find(x => triOrder(x, from) > 0 && !sameEntry(x, TRI.cur)) || list[0]
+                    : list.slice().reverse().find(x => triOrder(x, from) < 0 && !sameEntry(x, TRI.cur)) || list[list.length - 1];
+  goToCheck(e);
+}
+/* Mark one entry checked: a label is decided as it stands, a warning is done. */
+function markChecked(e) {
+  if (e.warn) edit([], () => { e.warn.done = true; });
+  else if (e.it) edit([e.key], () => decideLabel(e.it, e.it.text || ''));
+}
+/* 1–4: keep the selected label, or take one of the model's other readings. */
+function pickCandidate(n) {
+  const cur = TRI.cur, it = selectedOnActive();
+  if (cur?.warn && !it && n === 0) { markChecked(cur); return stepCheck(1); }
+  const c = candidates(it)[n];
+  if (!it || !c) return status(it && it.conf != null ? `the model had no reading ${n + 1} for this label` : 'this label has no score from the model', true);
+  const was = it.text || '∅', key = S.activeLane, wasCur = cur?.it === it;
+  edit([key], () => decideLabel(it, c[0]));
+  S.selectedItem = it; S.sel = [it.start, it.end];
+  if (wasCur) { TRI.cur = { ...cur, start: it.start }; stepCheck(1); }
+  else drawAll();
+  status((n === 0 ? `kept “${was}” · checked` : `“${was}” → “${c[0] || '∅'}”`) + ' · Ctrl+Z undoes it' +
+         (wasCur && TRI.cur && TRI.cur.it !== it ? ' · on to the next' : ''));
+}
+/* The runner-ups of the selected label, in the tier toolbar, where the hint
+   is otherwise: one line, so choosing one never moves the tiers. */
+function showAlts() {
+  const it = selectedOnActive(), w = !it && TRI.cur?.warn && S.warnings.includes(TRI.cur.warn) ? TRI.cur.warn : null;
+  const cands = candidates(it);
+  const sig = it ? `${S.activeLane}|${it.text}|${it.rv}|${cands.map(c => c.join()).join(';')}` : w ? 'w' + w.start : '';
+  if (sig === showAlts.sig) return;
+  showAlts.sig = sig;
+  const bar = $('altBar');
+  if (cands.length) {
+    bar.innerHTML = `<span>${it.rv ? 'checked · model:' : 'model:'}</span>` + cands.slice(0, 4).map((c, i) =>
+      `<button class="tiny${i ? '' : ' own'}" data-alt="${i}" title="${i ? 'Use this reading instead' : 'Keep this label, marked as checked'} (${i + 1})"><b>${i + 1}</b> ${esc(candText(c))}</button>`).join('');
+  } else if (w) {
+    bar.innerHTML = `<span>${esc(w.reason)}</span><button class="tiny own" data-alt="0" title="Checked: take it off the list (1)"><b>1</b> ✓ checked</button>`;
+  } else bar.innerHTML = '';
+  bar.hidden = !bar.innerHTML;
+  $('edHint').hidden = !bar.hidden;
+}
+$('altBar').addEventListener('mousedown', e => e.preventDefault());
+$('altBar').addEventListener('click', e => {
+  const b = e.target.closest('button[data-alt]');
+  if (b) pickCandidate(+b.dataset.alt);
+});
+$('checkList').addEventListener('click', e => {
+  const row = e.target.closest('.crow[data-i]'), entry = row && renderChecks.list?.[+row.dataset.i];
+  if (!entry) return;
+  if (e.target.closest('button[data-ck]')) { markChecked(entry); return; }
+  goToCheck(entry);
+  play(entry.start, entry.end);
+});
+$('checkPrev').addEventListener('click', () => stepCheck(-1));
+$('checkNext').addEventListener('click', () => stepCheck(1));
+$('doubtOn').checked = !!CFG.doubtOn;
+$('doubtAt').value = doubtAt().toFixed(2);
+$('doubtOn').addEventListener('change', () => { CFG.doubtOn = $('doubtOn').checked; saveCfg(); drawTiers(); });
+$('doubtAt').addEventListener('change', () => {
+  const v = parseFloat($('doubtAt').value);
+  if (isFinite(v) && v > 0 && v <= 1) CFG.doubtAt = v;
+  $('doubtAt').value = doubtAt().toFixed(2);
+  saveCfg(); renderChecks(); showAlts.sig = null; drawTiers();
+});
+
+/* A model's own warnings about a run: Whisper reports the pieces it dropped
+   because the text looped. A run replaces the warnings of the tiers it fills
+   (of the stretch it read, for a run on a selection). */
+function takeWarnings(job, list) {
+  const d = job.span ? job.span[0] : 0, tier = job.claims.includes('word') ? 'word' : job.claims[0];
+  const inSpan = w => !job.span || (w.end > job.span[0] && w.start < job.span[1]);
+  S.warnings = S.warnings.filter(w => !(job.claims.includes(w.tier) && inSpan(w)));
+  for (const w of Array.isArray(list) ? list : [])
+    if (w && isFinite(+w.start))
+      S.warnings.push({ start: +w.start + d, end: (isFinite(+w.end) ? +w.end : +w.start) + d,
+                        reason: String(w.reason || 'the model reported a problem here'), tier, model: job.model });
+  S.warnings.sort((a, b) => a.start - b.start);
+}
+
+/* ------------------------------------------- re-timing and search by example
+   Both run in the desktop app only, on its built-in CTC models: ZIPA for
+   phones, Omnilingual or MMS for words (POST /api/local/align and /search).
+   The browser version has no such route, and hides the commands. */
+const localTools = () => !!DESK.caps && NET.mode === 'broker';
+const builtinIds = () => NET.models.filter(m => NET.prov(m.provider)?.kind === 'builtin').map(m => m.id);
+/* The model to place a tier's labels with: the one that filled the tier if it
+   can, else an installed one (for words, MMS in the recording's language
+   before Omnilingual). */
+function ctcModel(key) {
+  const ids = builtinIds(), t = S.tracks[key];
+  const fits = id => ids.includes(id) && (key === 'phone' ? /^zipa-/.test(id) : /^(omnilingual-|mms-)/.test(id));
+  const own = [t?.source, t?.model].map(s => (s || '').split(/[\s+(]/)[0]).find(fits);
+  if (own) return own;
+  if (key === 'phone') return ids.find(id => /^zipa-/.test(id)) || null;
+  const c = CFG.language, mms = c && ids.find(id => id === 'mms-' + c || id.startsWith('mms-' + c + '-'));
+  return mms || ids.find(id => /^omnilingual-/.test(id)) || null;
+}
+const needModel = key => key === 'phone'
+  ? 'needs a ZIPA model: add ZIPA small under ⚙ Recognisers → Phones'
+  : 'needs Omnilingual or an MMS language: add one under ⚙ Recognisers → Words';
+async function localCall(route, fd) {
+  const r = await fetch(apiUrl('/local/' + route), { method: 'POST', body: fd });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.error || `error ${r.status}`);
+  return body;
+}
+
+/* Re-time from the sound: the labels of a stretch, as they now read, placed
+   again by forced alignment over the stretch, each with the model's
+   confidence in it. The stretch's outer boundaries stay where they are unless
+   asked otherwise; the ones inside it move. A label the model does not hear
+   there comes out with a low confidence and is listed under To check. */
+async function retime(key, span, outer = false) {
+  if (!localTools()) return status('re-timing runs in the desktop app, on its built-in models', true);
+  if (!S.audio) return status('open a recording first', true);
+  if (!TRI_TIERS.includes(key)) return status('re-timing works on the word and phone tiers: click one of them first', true);
+  const t = S.tracks[key];
+  if (busyTrack(t)) return status(`${tierOf(key).label}: wait for the model to finish`, true);
+  if (!span) return status('select a stretch of the tier to re-time', true);
+  // The intervals whose middle is in the stretch.
+  const items = t.items.filter(it => (it.start + it.end) / 2 >= span[0] && (it.start + it.end) / 2 <= span[1]);
+  if (!items.length) return status(`no ${tierOf(key).label} in the selection`, true);
+  const model = ctcModel(key);
+  if (!model) return status(`Re-timing ${tierOf(key).label} ${needModel(key)}.`, true);
+  const a = items[0].start, b = items[items.length - 1].end;
+  const fd = new FormData();
+  fd.append('file', await wav16k(), S.name + '.wav');
+  fd.append('model', model); fd.append('start', String(a)); fd.append('end', String(b));
+  fd.append('labels', JSON.stringify(items.map(it => it.text || '')));
+  status(`re-timing ${items.length} ${tierOf(key).label} with ${model}…`);
+  let body;
+  try { body = await localCall('align', fd); }
+  catch (e) { return status('re-timing failed: ' + e.message, true); }
+  const iv = body.intervals || [];
+  if (iv.length !== items.length) return status('re-timing failed: the reply does not match the labels', true);
+  if (items.some(it => !t.items.includes(it))) return status('the tier changed while it was being re-timed; select the stretch and try again', true);
+  const thr = doubtAt();
+  let moved = 0, flagged = 0;
+  edit([key], () => {
+    items.forEach((it, i) => {
+      const r = iv[i];
+      const s = i === 0 && !outer ? a : +r.start, e = i === items.length - 1 && !outer ? b : +r.end;
+      if (isFinite(s) && isFinite(e) && e - s >= MIN_IV) {
+        if (Math.abs(s - it.start) > 1e-3 || Math.abs(e - it.end) > 1e-3) moved++;
+        it.start = s; it.end = e;
+      }
+      delete it.alts;
+      if (r.conf == null) {
+        delete it.conf;
+        // An empty interval has nothing to hear; a label the model has no symbol for was only spread.
+        if ((it.text || '').trim()) { it.why = 'guess'; delete it.rv; flagged++; } else delete it.why;
+      }
+      else {
+        it.conf = +r.conf;
+        if (it.conf < thr) { it.why = 'retime'; delete it.rv; flagged++; }
+        else delete it.why;
+      }
+    });
+    t.items = tidy(t.items, S.dur);
+  });
+  S.selectedItem = null; S.sel = [a, b];
+  drawAll();
+  status(`re-timed ${items.length} ${tierOf(key).label} with ${model}: ${moved} moved` +
+         (flagged ? ` · ${flagged} the model does not hear there, listed under To check` : ' · the model hears every label') +
+         ' · Ctrl+Z undoes it', flagged > 0);
+}
+/* The stretch a re-time from a tier's menu works on: the selection if the
+   click is inside it, else for a phone the word it belongs to, else the
+   interval itself (which then only gains a score). */
+function retimeSpan(key, t, it, sel = S.sel) {
+  if (sel && sel[0] <= t && t <= sel[1] && sel[1] - sel[0] > (it ? it.end - it.start : 0) + 1e-6) return sel;
+  if (key === 'phone') {
+    const w = S.tracks.word.items.find(x => x.start <= t && t <= x.end);
+    if (w) return [w.start, w.end];
+  }
+  return it ? [it.start, it.end] : sel;
+}
+function retimeItems(key, span) {
+  if (!localTools() || !TRI_TIERS.includes(key) || !S.tracks[key].items.length) return [];
+  const off = !span || busyTrack(S.tracks[key]);
+  return [{ label: 'Re-time from the sound', off, key: 'R', run: () => retime(key, span) },
+          { label: 'Re-time, outer boundaries too', off, run: () => retime(key, span, true) }];
+}
+
+/* Search by example: the stretches of the recording whose phones, as ZIPA
+   hears them, are most like the selection's (or like phones typed in IPA).
+   The first search on a recording has ZIPA read all of it, unless a ZIPA
+   pass just did; later ones are immediate. Hits can be kept as notes tagged
+   "example", which [ and ] then step through. */
+const SEARCH = { hits: [], query: [], model: '', busy: false };
+async function findSimilar(span, typed) {
+  if (!localTools()) return status('search by example runs in the desktop app, on ZIPA', true);
+  if (!S.audio) return status('open a recording first', true);
+  if (SEARCH.busy) return;
+  typed = (typed || '').trim();
+  if (!typed && !span) return status('select a stretch, or type the phones to look for', true);
+  const model = ctcModel('phone');
+  if (!model) return status(`Search by example ${needModel('phone')}.`, true);
+  const fd = new FormData();
+  fd.append('file', await wav16k(), S.name + '.wav');
+  fd.append('model', model); fd.append('max', '30');
+  if (typed) fd.append('phones', typed);
+  else { fd.append('start', String(span[0])); fd.append('end', String(span[1])); }
+  SEARCH.busy = true; $('searchGo').disabled = $('searchSel').disabled = true;
+  $('searchCount').textContent = 'searching…';
+  status(`searching with ${model} · the first search on a recording reads all of it (about 8× real time)…`);
+  try {
+    const body = await localCall('search', fd);
+    Object.assign(SEARCH, { hits: body.hits || [], query: body.query || [], model });
+    renderSearch();
+    const n = SEARCH.hits.filter(h => !h.selection).length;
+    status(`${n} stretch${n === 1 ? '' : 'es'} like /${SEARCH.query.join('')}/ · click one to hear it`);
+  } catch (e) {
+    $('searchCount').textContent = '—';
+    status('search failed: ' + e.message, true);
+  } finally { SEARCH.busy = false; $('searchGo').disabled = $('searchSel').disabled = false; }
+}
+const phonesIn = (a, b) => S.tracks.phone.items.filter(it => (it.start + it.end) / 2 >= a && (it.start + it.end) / 2 <= b).map(it => it.text).join(' ');
+function renderSearch() {
+  const hits = SEARCH.hits;
+  $('searchCount').textContent = SEARCH.query.length ? `/${SEARCH.query.join('')}/ · ${hits.length}` : '—';
+  $('searchKeep').disabled = !hits.some(h => !h.selection);
+  $('searchList').innerHTML = hits.length ? hits.map((h, i) => {
+    const words = S.tracks.word.items.filter(w => w.end > h.start && w.start < h.end).map(w => w.text).join(' ');
+    return `<div class="nrow srow" data-i="${i}" title="${h.selection ? 'the selection itself' : 'score: how close ZIPA’s best reading here is to the query (1 = the same phones)'}">
+      <span class="t">${f3(h.start)}</span><i class="sbar"><i style="width:${Math.round(100 * Math.max(0, Math.min(1, h.score)))}%"></i></i>
+      <span class="sc num">${(+h.score).toFixed(2)}</span>
+      <span class="tx">${esc(phonesIn(h.start, h.end) || '')}${words ? ` <i>· ${esc(words)}</i>` : ''}${h.selection ? ' <i>· the selection</i>' : ''}</span></div>`;
+  }).join('') : `<div class="nempty">${SEARCH.query.length ? 'Nothing like it was found.'
+      : 'Select a stretch and press “like the selection”, or type IPA (diː, say) and press Find. Needs ZIPA.'}</div>`;
+}
+function keepHits() {
+  const hits = SEARCH.hits.filter(h => !h.selection);
+  if (!hits.length) return;
+  const q = SEARCH.query.join('');
+  edit([], () => {
+    for (const h of hits) S.notes.push({ start: h.start, end: h.end, text: `like /${q}/ · ${(+h.score).toFixed(2)}`, tag: 'example', tier: null });
+    S.notes.sort((a, b) => a.start - b.start);
+  });
+  $('noteFilter').value = 'example'; renderNotes();
+  status(`${hits.length} stretches kept as notes tagged “example” · [ and ] step through them`);
+}
+$('searchList').addEventListener('click', e => {
+  const row = e.target.closest('.srow[data-i]'), h = row && SEARCH.hits[+row.dataset.i];
+  if (!h) return;
+  const span = S.win[1] - S.win[0];
+  if (h.start < S.win[0] || h.end > S.win[1]) { const c = (h.start + h.end) / 2; setWindow(c - span / 2, c + span / 2, false); }
+  S.sel = [h.start, h.end]; S.selectedItem = null; probe(h.start);
+  for (const r of $('searchList').children) r.classList.toggle('sel', r === row);
+  drawAll(); play(h.start, h.end);
+});
+$('searchGo').addEventListener('click', () => {
+  const v = $('searchIpa').value.trim();
+  v ? findSimilar(null, v) : findSimilar(S.sel, '');
+});
+$('searchSel').addEventListener('click', () => findSimilar(S.sel, ''));
+$('searchIpa').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); $('searchGo').click(); }
+  e.stopPropagation();
+});
+$('searchKeep').addEventListener('click', keepHits);
+renderSearch();
+renderChecks();
+
 /* --------------------------------------------------- opening a TextGrid */
 /* Praat's long and short text formats are the same sequence of values with
    different decoration, so one tokeniser reads both: quoted strings, numbers
@@ -5644,6 +6136,7 @@ function importTextGrid(tg, filename) {
        name in front of their text, since a note has no tier of its own. */
     S.notes = tidyNotes(points.flatMap(p => p.items.map(({ t, mark }) =>
       parseNoteMark(t, /^notes?$/i.test(p.name.trim()) ? mark : `${p.name}: ${mark}`))));
+    S.warnings = [];
     S.transcript = [];
   });
   // edit() appended "+ hand"; an opened file has not been touched yet.
@@ -5671,6 +6164,7 @@ function annotationData() {
     extra: S.extra.map(x => ({ key: x.key, label: x.label, source: x.source, format: x.format || undefined, color: x.color,
                                items: plain(x.items) })),
     notes: S.notes.map(({ start, end, text, tag, tier }) => ({ start, end, text, tag, ...(tier ? { tier } : {}) })),
+    ...(S.warnings.length ? { warnings: S.warnings } : {}),
     transcript: S.transcript,
   };
 }
@@ -5693,6 +6187,7 @@ function applyAnnotation(d) {
   }
   S.extra = extra;
   S.notes = tidyNotes(d.notes);
+  S.warnings = (d.warnings || []).filter(w => w && isFinite(w.start)).map(w => ({ ...w }));
   S.transcript = d.transcript || [];
   S.selectedItem = null;
   if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
@@ -5789,6 +6284,9 @@ window.lanaMenu = id => {
     'add-tier': () => addTier(),
     'add-note': needAudio(() => noteHere()), 'flag': needAudio(() => flagSelected()),
     'next-note': needAudio(() => stepNote(1)), 'prev-note': needAudio(() => stepNote(-1)),
+    'next-check': needAudio(() => stepCheck(1)), 'prev-check': needAudio(() => stepCheck(-1)),
+    'retime': needAudio(retimeSelection),
+    'find-similar': needAudio(() => findSimilar(S.sel, $('searchIpa').value)),
     'toggle-follow': () => $('followOn').click(),
     'play': needAudio(togglePlay), 'stop-playback': stopPlayback,
     'zoom-sel': needAudio(zoomSel), 'zoom-in': needAudio(() => $('zoomIn').click()),
@@ -5907,7 +6405,7 @@ const PROJ = {
     if (!d || !(d.tiers || []).some(t => (t.items || []).length) && !(d.extra || []).length && !(d.notes || []).length) return false;
     try { applyAnnotation(d); } catch { return false; }
     stampSpeakers();
-    renderPlan(); renderSegments(); updateTierInfo(); renderTranscript(); renderNotes(); drawAll();
+    renderPlan(); renderSegments(); updateTierInfo(); renderTranscript(); renderNotes(); renderChecks(); drawAll();
     const when = d.saved ? new Date(d.saved).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'earlier';
     PROJ.show(`restored your annotation from ${when}`, false, { label: 'start over', run: PROJ.startOver });
     return true;
@@ -5919,7 +6417,7 @@ const PROJ = {
         Object.assign(t, { items: [], cues: [], source: '', note: '', edited: false, cached: null,
                            state: t.model ? 'ready' : 'empty' });
       }
-      S.extra = []; S.notes = []; S.transcript = [];
+      S.extra = []; S.notes = []; S.warnings = []; S.transcript = [];
     });
     status('cleared — Undo brings the annotation back');
   },
@@ -5993,6 +6491,8 @@ const DESK = {
       DESK.caps = caps;
     } catch { return; }
     $('fsManage').hidden = false;
+    // Re-timing and search by example run on the app's own models.
+    $('searchPane').hidden = false;
     // In the app the "server-side providers" ARE the recognisers listed in
     // these settings, and every tier chooses among all of them: nothing to pick.
     $('fsBroker').hidden = true;
