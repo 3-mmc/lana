@@ -21,7 +21,7 @@ unsafe extern "system" {
 
 /// ONNX Runtime's environment, set up on first use. sherpa-onnx creates one
 /// too; the runtime keeps a single environment per process and counts users.
-fn environment() -> Result<&'static Environment, String> {
+pub(crate) fn environment() -> Result<&'static Environment, String> {
     static ENV: OnceLock<Result<Environment, String>> = OnceLock::new();
     ENV.get_or_init(|| {
         let api = unsafe {

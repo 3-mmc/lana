@@ -12,6 +12,7 @@ pub mod models;
 pub mod ctc;
 pub mod frames;
 pub mod align;
+pub mod pitch;
 pub mod mms;
 pub mod speakers;
 
