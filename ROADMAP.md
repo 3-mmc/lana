@@ -34,9 +34,15 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
 - [ ] **Parakeet TDT 0.6B v3** (25 European languages, sherpa-onnx transducer)
 - [ ] **Audio tagging** (sherpa-onnx AudioSet tagger): laughter, music, noise, coughs as a tier
 
+### Romanisation tiers (asked 2026-10-18)
+- [ ] Derived tiers like the ARPABET one, worked backwards from what the models write:
+      Han → pinyin (per-character readings; characters with several readings marked, the
+      alternatives one click away), pinyin → Wade-Giles, Zhuyin (bopomofo), Gwoyeu Romatzyh
+      and IPA by syllable table; POJ ↔ Tâi-lô for Min Nan (MMS `nan` writes POJ/Tâi-lô)
+
 ### Analysis aids
 - [ ] **Search by example**: select a stretch, find similar ones (DTW over ZIPA posteriors)
-- [ ] **Voice quality**: H1–H2, CPP, HNR from Praat, with an optional creaky/breathy/modal
+- [x] **Voice quality**: H1–H2, CPP, HNR from Praat, with an optional creaky/breathy/modal
       tier by thresholds the user sets
 - [ ] **Neural pitch** beside Praat's (PENN or RMVPE, licence to check), as a second f0 track
 

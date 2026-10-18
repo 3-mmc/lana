@@ -198,10 +198,25 @@ impl Ctc {
         };
         for t in 0..m.t {
             let row = m.row(t);
-            let mut k = BLANK;
+            // Whether a symbol is there at all is the model's call, made
+            // over every symbol it knows; which one, when it is held to an
+            // alphabet, is the likeliest allowed one. Choosing among the
+            // allowed symbols and the blank alone would turn every frame
+            // where it heard a letter of another script into a blank, and
+            // the words would lose most of their letters.
+            let mut top = BLANK;
             for (j, &lp) in row.iter().enumerate() {
-                if lp > row[k] && self.is_allowed(j) {
-                    k = j;
+                if lp > row[top] {
+                    top = j;
+                }
+            }
+            let mut k = top;
+            if top != BLANK && !self.is_allowed(top) {
+                k = BLANK;
+                for (j, &lp) in row.iter().enumerate() {
+                    if j != BLANK && self.is_allowed(j) && (k == BLANK || lp > row[k]) {
+                        k = j;
+                    }
                 }
             }
             match run {
@@ -494,5 +509,36 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Omnilingual on Common Voice clips, free and held to the language's
+    /// alphabet, written as a TSV for scoring (see the commit that added it):
+    /// HOLD_OUT=<file> cargo test --release -- --ignored hold_on_common_voice
+    #[test]
+    #[ignore]
+    fn hold_on_common_voice() {
+        use std::fmt::Write;
+        let base = Path::new("/mnt/d/Models/lana-eval");
+        let mut out = String::new();
+        for model in std::env::var("HOLD_MODELS").unwrap_or("omni300,omni1b".into()).split(',') {
+            let dir = base.join(model);
+            let mut rec = Ctc::load(Engine::Omnilingual, &dir.join("model.int8.onnx"), &dir.join("tokens.txt"), 6).unwrap();
+            for (lang, code) in [("dargwa", "dar"), ("ossetian", "oss")] {
+                let cv = base.join("cv").join(lang);
+                let clips = std::fs::read_dir(cv.join("cv-corpus-27.0-2026-09-11")).unwrap().next().unwrap().unwrap().path().join("clips");
+                for line in std::fs::read_to_string(cv.join("sample.tsv")).unwrap().lines() {
+                    let (file, truth) = line.split_once('\t').unwrap();
+                    let x = crate::local::audio::decode_16k_mono(std::fs::read(clips.join(file)).unwrap(), file).unwrap();
+                    let mut read = |rec: &Ctc| rec.recognise(&x, 16_000, None, |_, _| true).unwrap()
+                        .iter().map(|s| s.text.as_str()).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ");
+                    rec.allowed = None;
+                    let free = read(&rec);
+                    rec.hold_to(alphabet(code).unwrap());
+                    let held = read(&rec);
+                    writeln!(out, "{model}\t{code}\t{truth}\t{free}\t{held}").unwrap();
+                }
+            }
+        }
+        std::fs::write(std::env::var("HOLD_OUT").unwrap(), out).unwrap();
     }
 }

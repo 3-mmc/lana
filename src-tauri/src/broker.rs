@@ -20,7 +20,7 @@ use axum::{
 };
 use serde_json::{json, Map, Value};
 
-const MAX_UPLOAD: usize = 512 * 1024 * 1024;
+pub(crate) const MAX_UPLOAD: usize = 512 * 1024 * 1024;
 const ASR_TIMEOUT: Duration = Duration::from_secs(3600); // a film is an hour of GPU work
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
 /// Service name for API keys in the OS keychain; the account is the provider id.

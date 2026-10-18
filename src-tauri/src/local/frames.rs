@@ -54,6 +54,12 @@ impl Mat {
     pub fn row(&self, i: usize) -> &[f32] {
         &self.lp[i * self.v..(i + 1) * self.v]
     }
+
+    /// Frames `from..to`, clamped to what there is.
+    pub fn slice(&self, from: usize, to: usize) -> Mat {
+        let (from, to) = (from.min(self.t), to.min(self.t).max(from.min(self.t)));
+        Mat { t: to - from, v: self.v, lp: self.lp[from * self.v..to * self.v].to_vec() }
+    }
 }
 
 /// What a model takes as input.

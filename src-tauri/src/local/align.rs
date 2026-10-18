@@ -30,8 +30,10 @@ pub fn hash(bytes: &[u8]) -> String {
 }
 
 /// A label as the model's symbols, longest match first; characters the
-/// model has no symbol for are skipped (a stress mark, a tie bar). Tried as
-/// written, then in lower case.
+/// model has no symbol for are skipped (a stress mark, a tie bar). Tried in
+/// lower case first, since the word models write lower case ("Teil" would
+/// otherwise be scored as a capital T the model never wrote), then as
+/// written; IPA has no case, except small capitals, which are other letters.
 pub fn tokenize(label: &str, symbols: &[Option<String>]) -> Vec<usize> {
     let mut by_text: Vec<(&str, usize)> = symbols
         .iter()
@@ -41,7 +43,7 @@ pub fn tokenize(label: &str, symbols: &[Option<String>]) -> Vec<usize> {
     by_text.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
     let lower = label.to_lowercase();
     let mut out = Vec::new();
-    for text in [label, lower.as_str()] {
+    for text in [lower.as_str(), label] {
         let mut rest = text;
         out.clear();
         while !rest.is_empty() {
@@ -184,7 +186,10 @@ pub fn spot(pieces: &[Piece], ids: &[usize], max: usize, min_score: f32) -> Vec<
             let (score, first) = d[s_n - 2];
             if score > neg {
                 let score = (score / l as f32).exp();
-                if score >= min_score {
+                // A match far longer than its phones could be said in is a
+                // path that waited out a pause or a stretch of other speech.
+                let long = (t + 1 - first) as f64 * FRAME_S > 0.3 + 0.15 * l as f64;
+                if score >= min_score && !long {
                     found.push(Hit {
                         start: piece.offset + first as f64 * FRAME_S,
                         end: piece.offset + (t + 1) as f64 * FRAME_S,
@@ -259,5 +264,7 @@ mod tests {
         assert_eq!(tokenize("tsʼa", &syms), vec![3, 2, 4]);
         assert_eq!(tokenize("t͡a", &syms), vec![1, 4]);
         assert_eq!(tokenize("TA", &syms), vec![1, 4]);
+        let caps: Vec<Option<String>> = ["<blk>", "T", "t", "a"].iter().map(|s| Some(s.to_string())).collect();
+        assert_eq!(tokenize("Ta", &caps), vec![2, 3]);
     }
 }

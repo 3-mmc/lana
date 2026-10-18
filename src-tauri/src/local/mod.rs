@@ -71,6 +71,11 @@ pub struct Local {
     /// The last phone pass's frames, kept so search by example can run over
     /// the recording without reading it again.
     kept: Arc<Mutex<Option<align::Kept>>>,
+    /// The recording re-timing and search last read, decoded, and the model
+    /// they last used: a run of corrections re-times stretch after stretch of
+    /// one recording with one model.
+    audio: Arc<Mutex<Option<(String, Arc<Vec<f32>>)>>>,
+    net: Arc<Mutex<Option<(String, Arc<ctc::Ctc>)>>>,
 }
 
 impl Local {
@@ -85,6 +90,8 @@ impl Local {
             side: Default::default(),
             held: Default::default(),
             kept: Default::default(),
+            audio: Default::default(),
+            net: Default::default(),
         }
     }
 
@@ -208,6 +215,8 @@ impl Local {
             *job = Some(Job { model: model_id.into(), stage: "reading audio", total: 0.0, started: Some(Instant::now()) });
         }
         self.done_cues.lock().unwrap().clear();
+        // A recogniser is about to load: free the one re-timing kept.
+        *self.net.lock().unwrap() = None;
         self.serial.fetch_add(1, Ordering::Relaxed);
         self.percent.store(0, Ordering::Relaxed);
         self.cancel.store(false, Ordering::Relaxed);
@@ -273,6 +282,170 @@ impl Local {
             .collect::<Vec<_>>()
             .join(" ");
         Ok(json!({ "text": text, "duration": round3(duration), "cues": cues }))
+    }
+
+    /// The recording, decoded once per run of corrections.
+    fn samples(&self, bytes: Vec<u8>, filename: &str) -> Result<(String, Arc<Vec<f32>>), String> {
+        let hash = align::hash(&bytes);
+        if let Some((h, s)) = self.audio.lock().unwrap().as_ref().filter(|(h, _)| *h == hash) {
+            return Ok((h.clone(), s.clone()));
+        }
+        let s = Arc::new(audio::decode_16k_mono(bytes, filename)?);
+        *self.audio.lock().unwrap() = Some((hash.clone(), s.clone()));
+        Ok((hash, s))
+    }
+
+    /// A CTC model by its id (zipa-*, omnilingual-*, mms-<code>), loaded
+    /// once for a run of corrections.
+    fn ctc_model(&self, id: &str) -> Result<Arc<ctc::Ctc>, String> {
+        if let Some((_, c)) = self.net.lock().unwrap().as_ref().filter(|(k, _)| k == id) {
+            return Ok(c.clone());
+        }
+        let c = if let Some(code) = id.strip_prefix("mms-") {
+            if !self.models.mms_lang_installed(code) {
+                return Err(format!("MMS for '{code}' is not downloaded."));
+            }
+            let dir = self.models.mms_lang_dir(code);
+            ctc::Ctc::load(ctc::Engine::Omnilingual, &dir.join("model.onnx"), &dir.join("tokens.txt"), threads())?
+        } else {
+            let entry = models::find(id).filter(|e| matches!(e.kind, Kind::Phones | Kind::Letters))
+                .ok_or_else(|| format!("'{id}' cannot place labels: only ZIPA, Omnilingual and MMS can."))?;
+            if !self.models.is_installed(&entry) {
+                return Err(format!("{} is not downloaded.", entry.label));
+            }
+            let engine = if entry.kind == Kind::Letters { ctc::Engine::Omnilingual } else { ctc::Engine::Zipa };
+            ctc::Ctc::load(engine, &self.models.named(&entry, "model.int8.onnx"), &self.models.named(&entry, "tokens.txt"), threads())?
+        };
+        let c = Arc::new(c);
+        *self.net.lock().unwrap() = Some((id.to_owned(), c.clone()));
+        Ok(c)
+    }
+
+    /// Re-time corrected labels: where in [start, end] the model finds each
+    /// of `labels`, in order. Phones are placed with a ZIPA model, words with
+    /// Omnilingual or MMS (with a word space between them). Each label comes
+    /// back with the model's confidence in it, so a correction the model
+    /// does not hear stands out; a label with no symbol the model knows is
+    /// spread over the gap its neighbours leave.
+    pub fn align(&self, bytes: Vec<u8>, filename: &str, model: &str, start: f64, end: f64, labels: &[String]) -> Result<Value, String> {
+        let (_, samples) = self.samples(bytes, filename)?;
+        let rec = self.ctc_model(model)?;
+        let rate = audio::WHISPER_RATE as f64;
+        let duration = samples.len() as f64 / rate;
+        let (start, end) = (start.max(0.0), end.min(duration));
+        if end - start < 0.04 || labels.is_empty() {
+            return Err("Select a stretch with labels in it to re-time.".into());
+        }
+        // Audio either side, so the model hears the stretch in context; the
+        // labels are placed inside it only. Omnilingual and MMS normalise
+        // over, and attend across, all they are given: with 0.3 s either side
+        // the e of "Teil" on the German demo clip read 0.27, against 0.98
+        // when the whole clip was read.
+        const CONTEXT_S: f64 = 2.0;
+        let a = (start - CONTEXT_S).max(0.0);
+        let b = (end + CONTEXT_S).min(duration);
+        let m = rec.frames(&samples[(a * rate) as usize..(b * rate) as usize])?;
+        let f0 = ((start - a) / ctc::FRAME_S).ceil() as usize;
+        let f1 = ((end - a) / ctc::FRAME_S).floor() as usize;
+        let m = m.slice(f0, f1);
+        let at = |f: usize| a + (f0 + f) as f64 * ctc::FRAME_S;
+        let words = rec.engine == ctc::Engine::Omnilingual;
+        let space = rec.symbols().iter().position(|s| s.as_deref() == Some(" "));
+        let mut seq = Vec::new();
+        let mut owner: Vec<Option<usize>> = Vec::new();
+        for (i, label) in labels.iter().enumerate() {
+            let ids = align::tokenize(label.trim(), rec.symbols());
+            if words && !ids.is_empty() && !seq.is_empty() {
+                if let Some(sp) = space {
+                    seq.push(sp);
+                    owner.push(None);
+                }
+            }
+            owner.extend(std::iter::repeat_n(Some(i), ids.len()));
+            seq.extend(ids);
+        }
+        let placed = align::force(&m, &seq)
+            .ok_or("The stretch is too short for these labels, or the model has no symbols for them.")?;
+        if std::env::var_os("LANA_DEBUG_ALIGN").is_some() {
+            for (k, p) in placed.iter().enumerate() { eprintln!("align {:?} {:?} {:?}", rec.symbols()[seq[k]], owner[k], p); }
+        }
+        // Each label's first and last frame and its least sure symbol.
+        let mut spans: Vec<Option<(usize, usize, f32)>> = vec![None; labels.len()];
+        for (k, (first, last, conf)) in placed.iter().enumerate() {
+            let Some(i) = owner[k] else { continue };
+            spans[i] = Some(match spans[i] {
+                None => (*first, *last, *conf),
+                Some((f, _, c)) => (f, *last, c.min(*conf)),
+            });
+        }
+        let mut out: Vec<(f64, f64, Option<f32>)> = Vec::new();
+        for i in 0..labels.len() {
+            let Some((first, last, conf)) = spans[i] else {
+                out.push((f64::NAN, f64::NAN, None));
+                continue;
+            };
+            // A label runs to the next one's start; the last, briefly past
+            // its last frame.
+            let next = spans[i + 1..].iter().flatten().next().map(|s| at(s.0));
+            let tail = if words { at(last) + ctc::FRAME_S } else { at(last) + 0.08 };
+            let stop = next.unwrap_or_else(|| tail.min(end)).max(at(first) + 0.01);
+            out.push((at(first), stop, Some(conf)));
+        }
+        // Labels the model had no symbol for share the gap where they stand.
+        let mut i = 0;
+        while i < out.len() {
+            if !out[i].0.is_nan() { i += 1; continue; }
+            let j = (i..out.len()).find(|&j| !out[j].0.is_nan()).unwrap_or(out.len());
+            let from = if i == 0 { start } else { out[i - 1].1 };
+            let to = if j < out.len() { out[j].0 } else { end };
+            let step = ((to - from) / (j - i) as f64).max(0.0);
+            for (n, k) in (i..j).enumerate() {
+                out[k] = (from + step * n as f64, from + step * (n + 1) as f64, None);
+            }
+            i = j;
+        }
+        let intervals: Vec<Value> = labels.iter().zip(&out).map(|(l, (a, b, c))| json!({
+            "text": l, "start": round3(*a), "end": round3(*b), "conf": c.map(|c| round3(c as f64)),
+        })).collect();
+        Ok(json!({ "model": model, "start": round3(start), "end": round3(end), "intervals": intervals }))
+    }
+
+    /// Search by example: the places in the recording most like the phones of
+    /// [start, end], or like `phones` as typed. Reads the whole recording with
+    /// ZIPA the first time, unless a phone pass just did.
+    pub fn search(&self, bytes: Vec<u8>, filename: &str, model: &str, span: Option<(f64, f64)>, phones: Option<&str>, max: usize) -> Result<Value, String> {
+        let (hash, samples) = self.samples(bytes, filename)?;
+        let rec = self.ctc_model(model)?;
+        if rec.engine != ctc::Engine::Zipa {
+            return Err("Search by example reads phones: choose a ZIPA model.".into());
+        }
+        let mut kept = self.kept.lock().unwrap();
+        if !kept.as_ref().is_some_and(|k| k.hash == hash && k.model == model) {
+            let mut pieces = Vec::new();
+            let cancel = self.cancel.clone();
+            rec.recognise(&samples, audio::WHISPER_RATE, Some(&mut pieces), |_, _| !cancel.load(Ordering::Relaxed))?;
+            *kept = Some(align::Kept { hash, model: model.to_owned(), pieces });
+        }
+        let k = kept.as_ref().unwrap();
+        let query: Vec<String> = match (phones, span) {
+            (Some(p), _) => align::tokenize(p, rec.symbols()).iter().filter_map(|&i| rec.symbols()[i].clone()).collect(),
+            (None, Some((a, b))) => k.pieces.iter().flat_map(|p| {
+                let from = ((a - p.offset) / ctc::FRAME_S).max(0.0) as usize;
+                let to = ((b - p.offset) / ctc::FRAME_S).max(0.0) as usize;
+                rec.decode(&p.mat.slice(from, to), p.offset + from as f64 * ctc::FRAME_S)
+            }).map(|s| s.text).collect(),
+            (None, None) => return Err("Select a stretch, or type the phones to look for.".into()),
+        };
+        let ids: Vec<usize> = query.iter().flat_map(|q| align::tokenize(q, rec.symbols())).collect();
+        if ids.is_empty() {
+            return Err("No phones were heard in the selection.".into());
+        }
+        let hits = align::spot(&k.pieces, &ids, max, 0.05);
+        let found: Vec<Value> = hits.iter().map(|h| {
+            let own = span.is_some_and(|(a, b)| h.start < b && h.end > a);
+            json!({ "start": round3(h.start), "end": round3(h.end), "score": round3(h.score as f64), "selection": own })
+        }).collect();
+        Ok(json!({ "model": model, "query": query, "hits": found }))
     }
 
     fn speaker_models(&self, entry: &models::Entry) -> speakers::Models {
@@ -524,7 +697,7 @@ fn threads() -> i32 {
 // ---------------------------------------------------------------- routes
 
 use axum::{
-    extract::{Path as UrlPath, State},
+    extract::{Multipart, Path as UrlPath, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -540,6 +713,9 @@ pub fn router(local: Local) -> Router {
         .route("/api/local/mms/accept", post(mms_accept))
         .route("/api/local/mms/languages", get(mms_languages))
         .route("/api/local/mms/languages/{code}", post(mms_download).delete(mms_delete))
+        .route("/api/local/align", post(align_labels))
+        .route("/api/local/search", post(search_phones))
+        .layer(axum::extract::DefaultBodyLimit::max(crate::broker::MAX_UPLOAD))
         .with_state(local)
 }
 
@@ -606,5 +782,62 @@ async fn mms_delete_all(State(l): State<Local>) -> Response {
     match l.models.mms_delete_all() {
         Ok(()) => Json(json!({ "ok": true })).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+// ------------------------------------------------- re-timing and search
+
+/// A multipart form as its audio, the audio's name, and its text fields.
+async fn form_of(mut form: Multipart) -> Result<(Vec<u8>, String, std::collections::HashMap<String, String>), String> {
+    let (mut bytes, mut name, mut fields) = (None, "audio.wav".to_owned(), std::collections::HashMap::new());
+    while let Some(part) = form.next_field().await.map_err(|e| format!("bad upload: {e}"))? {
+        let Some(key) = part.name().map(str::to_owned) else { continue };
+        if key == "file" {
+            if let Some(f) = part.file_name() {
+                name = f.to_owned();
+            }
+            bytes = Some(part.bytes().await.map_err(|e| format!("upload failed: {e}"))?.to_vec());
+        } else if let Ok(text) = part.text().await {
+            fields.insert(key, text);
+        }
+    }
+    Ok((bytes.filter(|b| !b.is_empty()).ok_or("file is required")?, name, fields))
+}
+
+fn num(fields: &std::collections::HashMap<String, String>, k: &str) -> Option<f64> {
+    fields.get(k).and_then(|v| v.trim().parse().ok())
+}
+
+/// Fields: file, model, start, end, labels (a JSON array of strings).
+async fn align_labels(State(l): State<Local>, form: Multipart) -> Response {
+    let (bytes, name, f) = match form_of(form).await {
+        Ok(v) => v,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    };
+    let labels: Vec<String> = f.get("labels").and_then(|v| serde_json::from_str(v).ok()).unwrap_or_default();
+    let (model, start, end) = (f.get("model").cloned().unwrap_or_default(), num(&f, "start").unwrap_or(0.0), num(&f, "end").unwrap_or(0.0));
+    let r = tokio::task::spawn_blocking(move || l.align(bytes, &name, &model, start, end, &labels)).await;
+    match r {
+        Ok(Ok(v)) => Json(v).into_response(),
+        Ok(Err(e)) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": e }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("re-timing crashed: {e}") }))).into_response(),
+    }
+}
+
+/// Fields: file, model (a ZIPA id), and either start and end, or phones; max.
+async fn search_phones(State(l): State<Local>, form: Multipart) -> Response {
+    let (bytes, name, f) = match form_of(form).await {
+        Ok(v) => v,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    };
+    let model = f.get("model").cloned().unwrap_or_default();
+    let span = num(&f, "start").zip(num(&f, "end"));
+    let phones = f.get("phones").map(|p| p.trim().to_owned()).filter(|p| !p.is_empty());
+    let max = num(&f, "max").map_or(20, |m| m.clamp(1.0, 200.0) as usize);
+    let r = tokio::task::spawn_blocking(move || l.search(bytes, &name, &model, span, phones.as_deref(), max)).await;
+    match r {
+        Ok(Ok(v)) => Json(v).into_response(),
+        Ok(Err(e)) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": e }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("search crashed: {e}") }))).into_response(),
     }
 }
