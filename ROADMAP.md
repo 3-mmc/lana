@@ -48,12 +48,41 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
 - [x] **Neural pitch** beside Praat's: CREPE (MIT; PENN and FCPE publish no ONNX), tiny and small,
       downloaded from onnxcrepe's GitHub release with pinned checksums
 
+### Romanisation, second pass (2026-10-18)
+- [x] **Readings by use in speech**: a character no word settles takes the reading said most often
+      in that position in AISHELL-3's pinyin transcripts (Apache 2.0), with CC-CEDICT words weighted
+      by OpenSubtitles counts (FrequencyWords, CC BY-SA 4.0) for characters AISHELL-3 seldom has.
+      Marked characters 308 → 263; 的 还 了 着 都 no longer marked (还 now hái, was huán). On the
+      AISHELL-3 test half (held out): wrong readings 2.93% → 1.22%, marks 15,252 → 2,282 (right
+      anyway 13,961 → 1,626). Also fixed: CC-CEDICT pinyin split wrongly without apostrophes
+      (可能 kěn éng), and 28 words respelt / 11 dropped where speech says they are seldom that word
+      (生活中的 is not zhòngdì)
+- [x] **Gwoyeu Romatzyh** by rule, all 416 syllables × 5 tones checked against Wiktionary's converter
+- [x] **Jyutping** (rime-cantonese, CC BY 4.0, weighted by HKCanCor, CC BY 4.0) with Yale and
+      Cantonese IPA by rule (703 syllables × 6 tones checked); offered when the language is Cantonese,
+      or beside Mandarin when the tier holds Cantonese-only characters. 69 characters marked; held-out
+      HKCanCor half 2.45% wrong
+
 ## Later (noted, not started)
 
-- **Readings by use in speech**: the romanisation tiers rank a character's readings by how many
-  CC-CEDICT words use each, not by how often each is said, so 的 (de) and 还 (hái) are marked more
-  often than they need to be; a spoken-corpus frequency would settle most of them
-- **Gwoyeu Romatzyh** and Jyutping (Cantonese: MMS `yue` writes Han)
+- **Romanisations still to add**, by what Lana's models write:
+  - Hakka: Pha̍k-fa-sṳ (MMS `hak`) → Hakka Romanization System (Taiwan MOE), and Hakka from Han
+  - Min Nan from Han (MMS `nan` sometimes writes Han): Taiwanese MOE dictionary readings → POJ/Tâi-lô;
+    Teochew Peng'im
+  - Mandarin: Tongyong pinyin, MPS II, Yale Mandarin, Cyrillic Palladius (Wiktionary has rules for all
+    four, testable the same way as Gwoyeu Romatzyh); GR's neutral tone with its original tone
+  - Cantonese: Sidney Lau, Cantonese Pinyin, Guangdong romanisation (rules in Wiktionary yue-pron);
+    changed tones (變調) offered as alternatives
+  - Wu (Shanghainese, MMS `wuu`): Wugniu
+  - Japanese (Whisper, MMS `jpn` write kana/kanji): kana → Hepburn by rule; kanji needs a dictionary
+    (UniDic/JMdict) and is the same reading problem as Han
+  - Korean (Whisper, MMS `kor` write Hangul): Revised Romanization and Yale by rule, IPA by rule with
+    the usual assimilations
+  - Scripts Omnilingual and MMS write for languages linguists usually cite in Latin: Georgian
+    (national system and ISO 9984), Cyrillic (ISO 9 / scholarly, per language: Russian, Ossetian,
+    Dargwa, Avar with their palochka and digraphs), Armenian (Hübschmann-Meillet), Arabic and Persian
+    (abjad, needs vowels the script omits: only consonantal transliteration is honest), Hebrew,
+    Devanagari and other Brahmic scripts (ISO 15919 / IAST), Thai (RTGS), Greek (ELOT)
 
 - **Training bundle**: export corrected tiers + audio as a training package (MMS adapter,
   ZIPA fine-tune); train adapters inside Lana after that
