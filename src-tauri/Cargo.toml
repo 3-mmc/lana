@@ -29,6 +29,9 @@ sha2 = "0.10"
 sha1 = "0.10"
 # ZIPA (IPA phones) and speaker diarization. Static: links its own ONNX Runtime.
 sherpa-onnx = "1.13.8"
+# The CTC models' frame probabilities (confidence, re-timing, search), run on
+# the ONNX Runtime sherpa-onnx links rather than a second copy: see local/frames.rs.
+ort = { version = "=2.0.0-rc.14", default-features = false, features = ["std", "api-17", "alternative-backend"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [profile.release]

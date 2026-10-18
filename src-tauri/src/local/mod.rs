@@ -10,6 +10,8 @@
 pub mod audio;
 pub mod models;
 pub mod ctc;
+pub mod frames;
+pub mod align;
 pub mod mms;
 pub mod speakers;
 
@@ -66,6 +68,9 @@ pub struct Local {
     /// The last speaker pass, kept so the speaker count can be changed
     /// without reading the audio again.
     held: Arc<Mutex<Option<speakers::Held>>>,
+    /// The last phone pass's frames, kept so search by example can run over
+    /// the recording without reading it again.
+    kept: Arc<Mutex<Option<align::Kept>>>,
 }
 
 impl Local {
@@ -79,6 +84,7 @@ impl Local {
             done_cues: Default::default(),
             side: Default::default(),
             held: Default::default(),
+            kept: Default::default(),
         }
     }
 
@@ -167,7 +173,7 @@ impl Local {
                 return (400, json!({ "error": format!("MMS for '{code}' is not downloaded. Add the language in Connection → Recognisers.") }));
             }
             let dir = self.models.mms_lang_dir(code);
-            return self.with_job(model_id, |me| me.run_ctc_at(ctc::Engine::Omnilingual, &dir.join("model.onnx"), &dir.join("tokens.txt"), model_id, req.bytes, &req.filename));
+            return self.with_job(model_id, |me| me.run_ctc_at(ctc::Engine::Omnilingual, &dir.join("model.onnx"), &dir.join("tokens.txt"), model_id, req.bytes, &req.filename, None));
         }
         let Some(entry) = models::find(model_id) else {
             return (404, json!({ "error": format!("Lana has no model called '{model_id}'.") }));
@@ -185,7 +191,7 @@ impl Local {
         }
         let path = self.models.path(&entry);
         self.with_job(model_id, |me| match entry.kind {
-            Kind::Phones | Kind::Letters => me.run_ctc(&entry, req.bytes, &req.filename),
+            Kind::Phones | Kind::Letters => me.run_ctc(&entry, req.bytes, &req.filename, req.language.as_deref()),
             _ => me.run(&entry, &path, req.bytes, &req.filename, req.language.as_deref()),
         })
     }
@@ -214,26 +220,36 @@ impl Local {
         }
     }
 
-    fn run_ctc(&self, entry: &models::Entry, bytes: Vec<u8>, filename: &str) -> Result<Value, String> {
+    fn run_ctc(&self, entry: &models::Entry, bytes: Vec<u8>, filename: &str, language: Option<&str>) -> Result<Value, String> {
         let engine = if entry.kind == Kind::Letters { ctc::Engine::Omnilingual } else { ctc::Engine::Zipa };
         let (model, tokens) = (self.models.named(entry, "model.int8.onnx"), self.models.named(entry, "tokens.txt"));
-        self.run_ctc_at(engine, &model, &tokens, entry.id, bytes, filename)
+        // Omnilingual is not told the language; its alphabet is the only hold.
+        let language = language.filter(|_| engine == ctc::Engine::Omnilingual);
+        self.run_ctc_at(engine, &model, &tokens, entry.id, bytes, filename, language)
     }
 
     /// A CTC model given by its files. MMS runs here too: it has the same
     /// shape as Omnilingual (raw audio in, characters with a word separator out).
-    fn run_ctc_at(&self, engine: ctc::Engine, model: &std::path::Path, tokens: &std::path::Path, id: &str, bytes: Vec<u8>, filename: &str) -> Result<Value, String> {
+    #[allow(clippy::too_many_arguments)]
+    fn run_ctc_at(&self, engine: ctc::Engine, model: &std::path::Path, tokens: &std::path::Path, id: &str, bytes: Vec<u8>, filename: &str, language: Option<&str>) -> Result<Value, String> {
+        let hash = align::hash(&bytes);
         let samples = audio::decode_16k_mono(bytes, filename)?;
         let duration = samples.len() as f64 / audio::WHISPER_RATE as f64;
         if let Some(j) = self.job.lock().unwrap().as_mut() {
             j.total = duration;
         }
         self.stage("loading model");
-        let rec = ctc::Ctc::load(engine, model, tokens, threads())?;
+        let mut rec = ctc::Ctc::load(engine, model, tokens, threads())?;
+        let alphabet = language.and_then(|l| ctc::alphabet(l).map(|a| (l, a)));
+        if let Some((_, a)) = alphabet {
+            rec.hold_to(a);
+        }
         self.stage(if engine == ctc::Engine::Zipa { "reading phones" } else { "recognising words" });
         let t = Instant::now();
         let (pct, cancel, done_cues) = (self.percent.clone(), self.cancel.clone(), self.done_cues.clone());
-        let found = rec.recognise(&samples, audio::WHISPER_RATE, |done, piece| {
+        let mut pieces = Vec::new();
+        let keep = (engine == ctc::Engine::Zipa).then_some(&mut pieces);
+        let found = rec.recognise(&samples, audio::WHISPER_RATE, keep, |done, piece| {
             pct.store((done / duration.max(1e-3) * 100.0).clamp(0.0, 100.0) as u64, Ordering::Relaxed);
             let cues = if engine == ctc::Engine::Omnilingual { ctc::word_cues(piece, duration) } else { ctc::cues(piece, duration) };
             done_cues.lock().unwrap().extend(cues);
@@ -242,9 +258,14 @@ impl Local {
         eprintln!("lana: {id} read {} symbols in {duration:.1} s of audio in {:.1} s", found.len(), t.elapsed().as_secs_f64());
         if engine == ctc::Engine::Omnilingual {
             let cues = ctc::word_cues(&found, duration);
-            let text = found.iter().map(|(c, _)| c.as_str()).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ");
-            return Ok(json!({ "text": text, "duration": round3(duration), "cues": cues }));
+            let text = found.iter().map(|c| c.text.as_str()).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ");
+            let mut out = json!({ "text": text, "duration": round3(duration), "cues": cues });
+            if let Some((code, _)) = alphabet {
+                out["alphabet"] = json!(code);
+            }
+            return Ok(out);
         }
+        *self.kept.lock().unwrap() = Some(align::Kept { hash, model: id.to_owned(), pieces });
         let cues = ctc::cues(&found, duration);
         let text = cues
             .iter()

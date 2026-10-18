@@ -18,6 +18,7 @@ symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4", "alac"] }
 sha2 = "0.10"
 sha1 = "0.10"
 sherpa-onnx = "1.13.8"
+ort = { version = "=2.0.0-rc.14", default-features = false, features = ["std", "api-17", "alternative-backend"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 
