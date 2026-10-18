@@ -36,7 +36,7 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
 - [x] **Audio tagging** (sherpa-onnx AudioSet tagger): laughter, music, noise, coughs as a tier
 
 ### Romanisation tiers (asked 2026-10-18)
-- [ ] Derived tiers like the ARPABET one, worked backwards from what the models write:
+- [x] Derived tiers like the ARPABET one, worked backwards from what the models write:
       Han → pinyin (per-character readings; characters with several readings marked, the
       alternatives one click away), pinyin → Wade-Giles, Zhuyin (bopomofo), Gwoyeu Romatzyh
       and IPA by syllable table; POJ ↔ Tâi-lô for Min Nan (MMS `nan` writes POJ/Tâi-lô)
@@ -45,9 +45,15 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
 - [x] **Search by example**: select a stretch, find similar ones (DTW over ZIPA posteriors)
 - [x] **Voice quality**: H1–H2, CPP, HNR from Praat, with an optional creaky/breathy/modal
       tier by thresholds the user sets
-- [ ] **Neural pitch** beside Praat's (PENN or RMVPE, licence to check), as a second f0 track
+- [x] **Neural pitch** beside Praat's: CREPE (MIT; PENN and FCPE publish no ONNX), tiny and small,
+      downloaded from onnxcrepe's GitHub release with pinned checksums
 
 ## Later (noted, not started)
+
+- **Readings by use in speech**: the romanisation tiers rank a character's readings by how many
+  CC-CEDICT words use each, not by how often each is said, so 的 (de) and 还 (hái) are marked more
+  often than they need to be; a spoken-corpus frequency would settle most of them
+- **Gwoyeu Romatzyh** and Jyutping (Cantonese: MMS `yue` writes Han)
 
 - **Training bundle**: export corrected tiers + audio as a training package (MMS adapter,
   ZIPA fine-tune); train adapters inside Lana after that
