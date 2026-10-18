@@ -88,6 +88,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         // taken from every text field.
         .item(&item("add-note", "Add Note", None)?)
         .item(&item("flag", "Flag Interval for Later", None)?)
+        .separator()
+        // R in the page; both run on the built-in models.
+        .item(&item("retime", "Re-time from the Sound", None)?)
+        .item(&item("find-similar", "Find Similar Stretches", None)?)
         .build()?;
 
     let view = SubmenuBuilder::new(app, "View")
@@ -97,6 +101,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .separator()
         .item(&item("prev-note", "Previous Note", None)?)
         .item(&item("next-note", "Next Note", None)?)
+        .separator()
+        // Comma and full stop in the page.
+        .item(&item("prev-check", "Previous Label to Check", None)?)
+        .item(&item("next-check", "Next Label to Check", None)?)
         .separator()
         .item(&item("zoom-sel", "Zoom to Selection", Some("CmdOrCtrl+Shift+E"))?)
         .item(&item("zoom-in", "Zoom In", Some("CmdOrCtrl+="))?)

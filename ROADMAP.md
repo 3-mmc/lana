@@ -13,16 +13,16 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
 - [ ] Same tiers as before on the demo clips (no regression in symbols or times)
 
 ### Accuracy fixes
-- [ ] **Confidence**: each phone and word carries the model's probability; low ones are
+- [x] **Confidence**: each phone and word carries the model's probability; low ones are
       coloured, and a menu item steps through them (Whisper too, from its token p)
-- [ ] **Alternatives**: an uncertain phone carries the model's runner-ups with their
+- [x] **Alternatives**: an uncertain phone carries the model's runner-ups with their
       probabilities (n 0.55 · m 0.25 · ŋ 0.12), shown on the label and one click to accept;
       a word gets alternative spellings from its weakest characters
-- [ ] **Triage pass**: one list of everything worth a look — low-confidence labels,
+- [x] **Triage pass**: one list of everything worth a look — low-confidence labels,
       dropped Whisper loops, pieces with no output — stepped through with one key
 - [ ] **Alphabet**: Omnilingual is held to the language's alphabet (from MMS vocabularies),
       so Dargwa stops coming out in Arabic, Latin or Georgian script
-- [ ] **Re-timing**: after labels are corrected, boundaries are refitted to the corrected
+- [x] **Re-timing**: after labels are corrected, boundaries are refitted to the corrected
       labels by CTC forced alignment over the stretch
 - [ ] **Loudness**: audio is normalised before the models only (never for display or
       measurement), so a quiet recording like FLEURS ka is not missed by pyannote
@@ -41,7 +41,7 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
       and IPA by syllable table; POJ ↔ Tâi-lô for Min Nan (MMS `nan` writes POJ/Tâi-lô)
 
 ### Analysis aids
-- [ ] **Search by example**: select a stretch, find similar ones (DTW over ZIPA posteriors)
+- [x] **Search by example**: select a stretch, find similar ones (DTW over ZIPA posteriors)
 - [x] **Voice quality**: H1–H2, CPP, HNR from Praat, with an optional creaky/breathy/modal
       tier by thresholds the user sets
 - [ ] **Neural pitch** beside Praat's (PENN or RMVPE, licence to check), as a second f0 track
