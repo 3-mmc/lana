@@ -141,4 +141,6 @@ The analysis is Praat by Paul Boersma and David Weenink, through [praat-wasm](ht
 
 The built-in models are the work of their authors: Whisper (OpenAI), MMS and Omnilingual ASR (Meta), ZIPA (Zhu et al. 2025), and pyannote's segmentation model, run through [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). MMS is described in Pratap et al. (2023), *Scaling Speech Technology to 1,000+ Languages*.
 
+The romanisation tiers draw on [pinyin-data](https://github.com/mozillazg/pinyin-data) (MIT), from the Unicode Consortium's Unihan database; on word readings from [CC-CEDICT](https://cc-cedict.org/) (CC BY-SA 4.0), as packaged in [dragonmapper](https://github.com/tsroten/dragonmapper) (MIT), whose syllable table also gives zhuyin and IPA. `web/romanise.json` is derived from them by [`scripts/languages/romanise.py`](scripts/languages/romanise.py) and is shared under CC BY-SA 4.0.
+
 Lana is GPL-3.0-or-later, as praat-wasm requires. Until October 2026 the browser interface was a separate repository, `3-mmc/lana-web`, formerly `praat-web`; its history is preserved in `web/`.

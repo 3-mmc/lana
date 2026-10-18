@@ -20,7 +20,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT/app"
 
 cp -r "$ROOT/site/." "$OUT/"
-cp "$ROOT/web/index.html" "$ROOT/web/languages.json" "$ROOT/web/LICENSE" "$OUT/app/"
+cp "$ROOT/web/index.html" "$ROOT/web/languages.json" "$ROOT/web/romanise.js" "$ROOT/web/romanise.json" "$ROOT/web/LICENSE" "$OUT/app/"
 cp -r "$ROOT/web/demo" "$OUT/app/demo"
 rm -f "$OUT/app/demo/record.py"
 

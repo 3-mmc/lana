@@ -24,6 +24,8 @@
     "resources": {
       "../web/index.html": "web/index.html",
       "../web/languages.json": "web/languages.json",
+      "../web/romanise.js": "web/romanise.js",
+      "../web/romanise.json": "web/romanise.json",
       "../vendor/": "vendor/"
     },
     "publisher": "3-mmc",
