@@ -5449,31 +5449,46 @@ function arpabetTier(lane, set) {
   status(notes.join(' · '), unknown.length > 0);
 }
 /* Romanisation tiers (web/romanise.js, loaded the first time one is made):
-   Han characters as pinyin, Wade-Giles, zhuyin or IPA, and MMS's Min Nan
+   Han characters as pinyin, Wade-Giles, zhuyin, Gwoyeu Romatzyh or IPA for
+   Mandarin, or as Jyutping, Yale or IPA for Cantonese, and MMS's Min Nan
    (written in Pe̍h-ōe-jī) as Tâi-lô. Like an ARPABET tier, the conversion does
    not guess: a character read more than one way that its neighbours do not
-   settle keeps its usual reading and is listed under To check, its other
-   readings one key away with their share of CC-CEDICT's words. */
-const HAN_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+   settle takes its most used reading and is listed under To check, its other
+   readings one key away with their share of the character's uses in speech.
+   The Cantonese systems are offered when the language is Cantonese (and the
+   Mandarin ones are not), or beside the Mandarin ones when the tier has
+   characters only Cantonese writes (嘅 咗 佢 ...). */
+const HAN_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]|[\ud840-\ud87f][\udc00-\udfff]/;
+const YUE_ONLY = /[嘅咗佢哋冇喺嚟噉啲睇乜嘢唔嗰咁㗎嘞喎]/;
 let ROM = null;
 async function romaniser() {
   if (!ROM) { const R = await import('./romanise.js'); await R.load(''); ROM = R; }
   return ROM;
 }
+// As romanise.js's SYSTEMS, which is not loaded until a tier is made.
 const ROMAN_SYSTEMS = [['pinyin', 'pinyin'], ['pinyin-numbers', 'pinyin with tone numbers'], ['wade-giles', 'Wade-Giles'],
-                       ['zhuyin', 'zhuyin (bopomofo)'], ['ipa', 'IPA, citation tones']];
+                       ['zhuyin', 'zhuyin (bopomofo)'], ['gwoyeu', 'Gwoyeu Romatzyh'], ['ipa', 'IPA, citation tones']];
+const YUE_SYSTEMS = [['jyutping', 'Jyutping', 'Jyutping (Cantonese)'], ['yale', 'Yale', 'Yale (Cantonese)'],
+                     ['ipa-yue', 'IPA, Cantonese', 'IPA, Cantonese']];
 function romanItems(filled) {
   const han = filled.filter(l => l.track.items.some(it => HAN_RE.test(it.text || '')));
   const poj = filled.filter(l => CFG.language === 'nan' || l.track.items.some(it => /o\u0358|ⁿ/.test(it.text || '')));
+  const yue = CFG.language === 'yue';
+  const item = (l, sys, name, label = name) =>
+    ({ label: `${label[0].toUpperCase() + label.slice(1)} from ${l.label}`, run: () => romanTier(l, sys, name) });
   const out = [
-    ...han.flatMap(l => ROMAN_SYSTEMS.map(([sys, name]) => ({ label: `${name[0].toUpperCase() + name.slice(1)} from ${l.label}`, run: () => romanTier(l, sys, name) }))),
+    ...han.flatMap(l => [
+      ...(yue || l.track.items.some(it => YUE_ONLY.test(it.text || '')) ? YUE_SYSTEMS.map(([sys, name, label]) => item(l, sys, name, label)) : []),
+      ...(yue ? [] : ROMAN_SYSTEMS.map(([sys, name]) => item(l, sys, name)))]),
     ...poj.map(l => ({ label: `Tâi-lô from ${l.label} (Pe̍h-ōe-jī, as MMS writes Min Nan)`, run: () => romanTier(l, 'tai-lo', 'Tâi-lô') })),
   ];
   return out.length ? ['-', ...out] : [];
 }
 async function romanTier(lane, system, name) {
   let R;
-  try { R = await romaniser(); } catch (e) { return status('romanisation: ' + e.message, true); }
+  try { R = await romaniser(); if (R.cantonese(system)) await R.loadCantonese(''); }
+  catch (e) { return status('romanisation: ' + e.message, true); }
+  const yue = R.cantonese(system), readingsOf = yue ? R.jyutpingOf : R.pinyinOf;
   const src = lane.track.items, items = bare(src);
   if (system === 'tai-lo') {
     items.forEach(it => { it.text = R.taiLo(it.text || ''); });
@@ -5483,14 +5498,14 @@ async function romanTier(lane, system, name) {
   // Consecutive intervals of Han give each other context (one character per
   // interval is how MMS and Omnilingual write it); anything else breaks it.
   const syl = new Map(), run = [];
-  const flush = () => { R.pinyinOf(run.map(r => r.c)).forEach((py, k) => syl.set(run[k].key, py)); run.length = 0; };
+  const flush = () => { readingsOf(run.map(r => r.c)).forEach((py, k) => syl.set(run[k].key, py)); run.length = 0; };
   src.forEach((it, i) => {
     const cs = [...(it.text || '')];
     if (!cs.some(c => HAN_RE.test(c))) { flush(); return; }
     cs.forEach((c, j) => { if (HAN_RE.test(c)) run.push({ key: i + ':' + j, c }); });
   });
   flush();
-  const conv = py => R.fromPinyin(py, system) ?? py;
+  const conv = py => (yue ? R.fromJyutping(py, system) : R.fromPinyin(py, system)) ?? py;
   let marked = 0;
   items.forEach((it, i) => {
     const cs = [...(src[i].text || '')];

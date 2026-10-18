@@ -26,6 +26,7 @@
       "../web/languages.json": "web/languages.json",
       "../web/romanise.js": "web/romanise.js",
       "../web/romanise.json": "web/romanise.json",
+      "../web/jyutping.json": "web/jyutping.json",
       "../vendor/": "vendor/"
     },
     "publisher": "3-mmc",

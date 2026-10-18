@@ -83,6 +83,7 @@ pub async fn start_on(roots: Roots, port: u16) -> std::io::Result<u16> {
         // Romanisation tiers: the converter and its data (scripts/languages/romanise.py).
         .route_service("/romanise.js", ServeFile::new(roots.web.join("romanise.js")))
         .route_service("/romanise.json", ServeFile::new(roots.web.join("romanise.json")))
+        .route_service("/jyutping.json", ServeFile::new(roots.web.join("jyutping.json")))
         .nest_service("/vendor", ServeDir::new(&roots.vendor))
         .layer(middleware::from_fn(move |req, next| only_loopback_host(req, next, port)));
 
