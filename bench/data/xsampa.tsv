@@ -1,0 +1,136 @@
+# X-SAMPA -> IPA, for DoReCo's phone tiers (ph@...), which are written in
+# X-SAMPA (doreco_#2_CONVENTIONS.txt; each dataset's
+# doreco_<glottocode>_#3_transcription-conventions.csv maps the fieldworker's
+# letters to it). From John Wells's X-SAMPA chart. A phone is read longest
+# match first, so "t_h" is t + aspiration and "|\|\" one lateral click; a
+# symbol not listed here is reported by lana-bench as unmapped, not guessed.
+# Diphthongs ("eI", "@U") are two symbols in DoReCo and come out as two letters.
+#
+# x-sampa<TAB>ipa
+# --- vowels
+a	a
+e	e
+i	i
+o	o
+u	u
+y	y
+{	æ
+@	ə
+3	ɜ
+6	ɐ
+1	ɨ
+2	ø
+9	œ
+}	ʉ
+8	ɵ
+7	ɤ
+A	ɑ
+E	ɛ
+I	ɪ
+O	ɔ
+Q	ɒ
+U	ʊ
+V	ʌ
+Y	ʏ
+M	ɯ
+&	ɶ
+@\	ɘ
+3\	ɞ
+# --- plosives (affricates are two symbols, as ZIPA writes them too)
+p	p
+b	b
+t	t
+d	d
+k	k
+g	g
+q	q
+c	c
+J\	ɟ
+G\	ɢ
+?	ʔ
+>\	ʡ
+t`	ʈ
+d`	ɖ
+# --- nasals
+m	m
+n	n
+N	ŋ
+J	ɲ
+F	ɱ
+n`	ɳ
+N\	ɴ
+# --- fricatives
+f	f
+v	v
+T	θ
+D	ð
+s	s
+z	z
+S	ʃ
+Z	ʒ
+s\	ɕ
+z\	ʑ
+s`	ʂ
+z`	ʐ
+C	ç
+j\	ʝ
+x	x
+G	ɣ
+X	χ
+R	ʁ
+X\	ħ
+?\	ʕ
+h	h
+h\	ɦ
+B	β
+K	ɬ
+K\	ɮ
+x\	ɧ
+# --- approximants, taps, trills, laterals
+P	ʋ
+j	j
+w	w
+W	ʍ
+H	ɥ
+l	l
+L	ʎ
+5	ɫ
+l`	ɭ
+L\	ʟ
+r	r
+4	ɾ
+r\	ɹ
+r\`	ɻ
+R\	ʀ
+B\	ʙ
+M\	ɰ
+r`	ɽ
+l\	ɺ
+# --- clicks
+O\	ʘ
+|\	ǀ
+|\|\	ǁ
+!\	ǃ
+=\	ǂ
+# --- implosives
+b_<	ɓ
+d_<	ɗ
+g_<	ɠ
+# --- length and diacritics
+:	ː
+_>	ʼ
+_h	ʰ
+_w	ʷ
+_j	ʲ
+_G	ˠ
+_?\	ˤ
+~	̃
+_~	̃
+_0	̥
+_v	̬
+=	̩
+_=	̩
+_d	̪
+_}	̚
+_t	̤
+_k	̰
