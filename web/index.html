@@ -5928,6 +5928,13 @@ async function retime(key, span, outer = false) {
         if (Math.abs(s - it.start) > 1e-3 || Math.abs(e - it.end) > 1e-3) moved++;
         it.start = s; it.end = e;
       }
+      /* A label still as the recogniser read it (or swapped for one of its
+         readings) keeps the recogniser's score. Forced alignment reads a
+         stretch with less context than recognition did, and its scores run
+         lower for labels nobody touched (a 0.46 -> 0.22 on the Georgian demo),
+         so it would flag them for nothing. Only a label typed by hand, which
+         has no score, takes the alignment's. */
+      if (it.conf != null && it.why !== 'retime' && it.why !== 'guess') return;
       delete it.alts;
       if (r.conf == null) {
         delete it.conf;

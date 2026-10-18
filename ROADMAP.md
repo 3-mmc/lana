@@ -7,10 +7,10 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
 ## Now
 
 ### Frame probabilities (the base for the next four)
-- [ ] Run ZIPA, Omnilingual and MMS through `ort` against the onnxruntime that
+- [x] Run ZIPA, Omnilingual and MMS through `ort` against the onnxruntime that
       sherpa-onnx already links (no second runtime), keeping per-frame log-probabilities
-- [ ] Kaldi fbank in Rust for ZIPA, checked against sherpa-onnx's output on the demo clips
-- [ ] Same tiers as before on the demo clips (no regression in symbols or times)
+- [x] Kaldi fbank in Rust for ZIPA, checked against sherpa-onnx's output on the demo clips
+- [x] Same tiers as before on the demo clips (no regression in symbols or times)
 
 ### Accuracy fixes
 - [x] **Confidence**: each phone and word carries the model's probability; low ones are
@@ -20,7 +20,7 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
       a word gets alternative spellings from its weakest characters
 - [x] **Triage pass**: one list of everything worth a look — low-confidence labels,
       dropped Whisper loops, pieces with no output — stepped through with one key
-- [ ] **Alphabet**: Omnilingual is held to the language's alphabet (from MMS vocabularies),
+- [x] **Alphabet**: Omnilingual is held to the language's alphabet (from MMS vocabularies),
       so Dargwa stops coming out in Arabic, Latin or Georgian script
 - [x] **Re-timing**: after labels are corrected, boundaries are refitted to the corrected
       labels by CTC forced alignment over the stretch
