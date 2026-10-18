@@ -48,6 +48,13 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
 - [x] **Neural pitch** beside Praat's: CREPE (MIT; PENN and FCPE publish no ONNX), tiny and small,
       downloaded from onnxcrepe's GitHub release with pinned checksums
 
+### Evaluation
+- [x] **DoReCo as reference**, boundary timing in lana-bench (`--eval`): 17 min of CC BY speech
+      in Sanzhi Dargwa, Svan, Nǁng and Southern English. Re-timing with ZIPA small puts 56% of
+      phone onsets within 20 ms of DoReCo's (86% within 50 ms; spread evenly: 13%), ZIPA large
+      47%; free reading F1 at 20 ms 0.60 (small) / 0.51 (large); phone error rate 56% / 51%.
+      Omnilingual's word onsets run about 40 ms late (21–25% within 20 ms)
+
 ## Later (noted, not started)
 
 - **Readings by use in speech**: the romanisation tiers rank a character's readings by how many
@@ -64,5 +71,3 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
   embeddings; expected-speaker-count field; overlap tier from the segmentation output
 - **Qwen3-ASR** (52 languages; timestamps need its forced aligner)
 - **Ejective / glottalisation detector** on ZIPA encoder features
-- **Evaluation**: DoReCo phone-aligned corpus as reference; boundary-timing metric
-  (share within 20 ms) in lana-bench

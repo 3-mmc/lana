@@ -15,6 +15,7 @@
 #[allow(dead_code)]
 #[path = "../../src-tauri/src/local/mod.rs"]
 mod local;
+mod eval;
 
 use std::{
     io::{BufRead, Write},
@@ -84,7 +85,8 @@ fn main() {
         return;
     }
     let pause = !args.iter().any(|a| a == "--no-pause");
-    if let Err(e) = run(&args) {
+    let result = if args.iter().any(|a| a == "--eval") { run_eval(&args) } else { run(&args) };
+    if let Err(e) = result {
         println!("\nlana-bench stopped: {e}");
     }
     if pause {
@@ -134,33 +136,7 @@ fn run(args: &[String]) -> Result<(), String> {
         }
     }
 
-    // Where each model will come from: Lana's folder if it has it, ours otherwise.
-    let mut plan: Vec<(String, PathBuf)> = Vec::new();
-    let mut fetched_any = false;
-    for id in &ids {
-        if let Some(m) = lana.as_ref().filter(|m| has(m, id)) {
-            plan.push((id.clone(), m.dir.clone()));
-            continue;
-        }
-        if !has(&own, id) {
-            fetch(&own, id)?;
-            fetched_any = true;
-        }
-        plan.push((id.clone(), own_dir.clone()));
-    }
-    // The VAD every recogniser cuts its pieces with comes down with a model
-    // download; a folder whose models are all there already may lack it.
-    let mut dirs: Vec<&PathBuf> = plan.iter().map(|(_, d)| d).collect();
-    dirs.dedup();
-    for d in dirs {
-        let m = Models::new(d.clone());
-        if !m.vad_path().is_file() {
-            let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-            if let Err(e) = rt.block_on(m.fetch_vad()) {
-                println!("Could not download the VAD model ({e}); pieces are cut by energy instead.");
-            }
-        }
-    }
+    let (plan, fetched_any) = locate(&ids, lana.as_ref(), &own)?;
 
     let machine = machine();
     println!("\nThis computer: {} · {} · {} cores · {} GB memory",
@@ -215,6 +191,61 @@ fn run(args: &[String]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// --eval <folder>: boundary timing against phone-aligned references (see eval.rs).
+fn run_eval(args: &[String]) -> Result<(), String> {
+    println!("lana-bench {VERSION}: boundary timing against a phone-aligned reference.\n");
+    let lana = app_data_dir().map(|d| d.join("models")).filter(|d| d.is_dir()).map(Models::new);
+    let own = Models::new(cache_dir().join("lana-bench-models"));
+    let started = Instant::now();
+    let results = eval::run(args, |ids| locate(ids, lana.as_ref(), &own).map(|(p, _)| p))?;
+    let report = json!({
+        "tool": "lana-bench", "version": VERSION, "when": unix_now(), "mode": "eval",
+        "seconds": round3(started.elapsed().as_secs_f64()),
+        "machine": machine(),
+        "eval": results,
+    });
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let name = format!("lana-bench-eval-{}-{}.json", std::env::consts::OS, unix_now());
+    let dest = exe.parent().map(|p| p.join(&name)).filter(|p| std::fs::write(p, b"").is_ok())
+        .or_else(|| home_dir().map(|h| h.join(&name)))
+        .ok_or("nowhere to save the results")?;
+    std::fs::write(&dest, serde_json::to_string_pretty(&report).unwrap()).map_err(|e| e.to_string())?;
+    println!("\nSaved: {}", dest.display());
+    Ok(())
+}
+
+/// Where each model will come from: Lana's folder if it has it, ours
+/// otherwise, downloading what neither has; and whether anything was fetched.
+fn locate(ids: &[String], lana: Option<&Models>, own: &Models) -> Result<(Vec<(String, PathBuf)>, bool), String> {
+    let mut plan: Vec<(String, PathBuf)> = Vec::new();
+    let mut fetched_any = false;
+    for id in ids {
+        if let Some(m) = lana.filter(|m| has(m, id)) {
+            plan.push((id.clone(), m.dir.clone()));
+            continue;
+        }
+        if !has(own, id) {
+            fetch(own, id)?;
+            fetched_any = true;
+        }
+        plan.push((id.clone(), own.dir.clone()));
+    }
+    // The VAD every recogniser cuts its pieces with comes down with a model
+    // download; a folder whose models are all there already may lack it.
+    let mut dirs: Vec<&PathBuf> = plan.iter().map(|(_, d)| d).collect();
+    dirs.dedup();
+    for d in dirs {
+        let m = Models::new(d.clone());
+        if !m.vad_path().is_file() {
+            let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+            if let Err(e) = rt.block_on(m.fetch_vad()) {
+                println!("Could not download the VAD model ({e}); pieces are cut by energy instead.");
+            }
+        }
+    }
+    Ok((plan, fetched_any))
 }
 
 fn print_row(r: &Value) {
