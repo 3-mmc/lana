@@ -86,8 +86,12 @@ def doubtful(c):
     n = sorted(used.get(c, {}).values(), reverse=True)
     return len(n) > 1 and n[1] >= 3 and n[1] >= 0.1 * sum(n)
 doubt = {c for c in chars if len(chars[c]) > 1 and doubtful(c)}
-# The reading most used comes first, where CC-CEDICT has a clear view.
+# Readings CC-CEDICT uses that Unihan does not list (the neutral tone of
+# 去 in 回去) are added, and the reading most used comes first. Note that
+# these are counts of words, not of running speech: 还 is huán in more words
+# but hái far more often in speech, which is why such characters are marked.
 for c in doubt:
+    chars[c] += [r for r in sorted(used[c], key=used[c].get, reverse=True) if r not in chars[c]]
     common = max(used[c].items(), key=lambda kv: kv[1])[0]
     if common in chars[c]:
         chars[c] = [common] + [r for r in chars[c] if r != common]
@@ -100,7 +104,13 @@ for hz, sy in parsed:
         same = all(s == chars[c][0] for c, s in zip(hz, sy))
         words[hz] = '' if same else ' '.join(sy)
 
-json.dump({'chars': {c: ' '.join(r) for c, r in chars.items()}, 'doubt': ''.join(sorted(doubt)),
+# Each reading's share of the character's uses, in the order of its readings:
+# what the tier shows beside a reading it could not settle.
+shares = {}
+for c in doubt:
+    total = sum(used[c].values())
+    shares[c] = [round(used[c].get(r, 0) / total, 2) for r in chars[c]]
+json.dump({'chars': {c: ' '.join(r) for c, r in chars.items()}, 'doubt': ''.join(sorted(doubt)), 'shares': shares,
            'words': words, 'syllables': syllables},
           open(out, 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
 print(len(chars), 'characters,', len(doubt), 'read more than one way,', len(words), 'words,', len(syllables), 'syllables,', os.path.getsize(out), 'bytes')

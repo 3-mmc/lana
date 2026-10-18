@@ -37,7 +37,8 @@ export const isHan = s => HAN.test(s);
 /* Pinyin for a run of Han characters, as given (one per interval). Each item:
    { text: syllable or the character itself when unknown, alts: [other
    readings], doubt: true when the character has several readings and no word
-   settled which }. Longest-word match, left to right. */
+   settled which, shares: for those, each reading's share of the character's
+   uses in CC-CEDICT, text first, then alts }. Longest-word match, left to right. */
 export function pinyinOf(chars) {
   const { chars: C, words: W } = DATA;
   const out = [];
@@ -58,7 +59,8 @@ export function pinyinOf(chars) {
     }
     if (took) { i += took; continue; }
     const all = (C[chars[i]] || '').split(' ').filter(Boolean);
-    out.push(all.length ? { text: all[0], alts: all.slice(1), doubt: DATA.doubt.includes(chars[i]) }
+    const doubt = DATA.doubt.includes(chars[i]);
+    out.push(all.length ? { text: all[0], alts: all.slice(1), doubt, ...(doubt ? { shares: DATA.shares[chars[i]] } : {}) }
                         : { text: chars[i], alts: [], doubt: false });
     i++;
   }
