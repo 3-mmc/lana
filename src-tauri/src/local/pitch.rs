@@ -16,7 +16,6 @@ use std::{path::Path, sync::Mutex};
 use ort::{session::Session, value::Tensor};
 
 pub const HOP_S: f64 = 0.01;
-const RATE: usize = 16_000;
 const WINDOW: usize = 1024;
 const HOP: usize = 160;
 const BINS: usize = 360;

@@ -42,6 +42,9 @@ pub enum Kind {
     Transducer,
     /// An AudioSet tagger through sherpa-onnx: laughter, music, coughs.
     Tags,
+    /// CREPE through ort: a second f0 track, drawn beside Praat's. It fills
+    /// no tier, so the providers list leaves it out.
+    Pitch,
 }
 
 impl Kind {
@@ -52,11 +55,33 @@ impl Kind {
             Kind::Phones => "phones",
             Kind::Speakers => "speakers",
             Kind::Tags => "tags",
+            Kind::Pitch => "pitch",
         }
     }
 }
 
-/// One file of a model, from a HuggingFace repository.
+/// Files that are GitHub release assets rather than HuggingFace files: the
+/// repo is written "github:<owner>/<repo>@<tag>". GitHub publishes no
+/// checksum the app can check a download against, so each file's SHA-256 and
+/// size are pinned here, measured from the release when it was added.
+const PINNED: &[(&str, &str, &str, u64)] = &[
+    (CREPE, "tiny.onnx", "91fc2a0fd10f965dbf7775995daf50e99273caedd7efd00001f23be649da1bc3", 1_955_762),
+    (CREPE, "small.onnx", "cd119f6f5f608d9342a1c6f81e4653f21dbcde440a96d474ecbf6f27c6253466", 6_524_192),
+];
+const CREPE: &str = "github:yqzhishen/onnxcrepe@v1.1.0";
+
+/// Where a file comes from, with its checksum and size when they are pinned.
+fn source(f: &File) -> (String, Option<(String, u64)>) {
+    match f.repo.strip_prefix("github:").and_then(|r| r.split_once('@')) {
+        Some((repo, tag)) => {
+            let pin = PINNED.iter().find(|p| p.0 == f.repo && p.1 == f.path).map(|p| (p.2.to_owned(), p.3));
+            (format!("https://github.com/{repo}/releases/download/{tag}/{}", f.path), pin)
+        }
+        None => (format!("https://huggingface.co/{}/resolve/main/{}", f.repo, f.path), None),
+    }
+}
+
+/// One file of a model, from a HuggingFace repository or a GitHub release.
 pub struct File {
     pub repo: &'static str,
     pub path: &'static str,
@@ -131,6 +156,14 @@ pub fn catalogue() -> Vec<Entry> {
                          File { repo: TAGGER, path: "class_labels_indices.csv", local: "labels.csv" }],
                 label: "Sounds",
                 note: "Laughter, music, coughs, breathing and other sounds that are not words, from the 527 AudioSet classes: fills an events tier." },
+        Entry { id: "crepe-tiny", kind: Kind::Pitch, size_mb: 2, dtw: P::Base, licence: "MIT",
+                files: &[File { repo: CREPE, path: "tiny.onnx", local: "model.onnx" }],
+                label: "CREPE tiny",
+                note: "A second f0 track, read from the waveform by a network rather than by autocorrelation, drawn beside Praat's: where the two part, in creak or noise, look closer. Agreed with Praat's median f0 on both demo clips; about 5x real time." },
+        Entry { id: "crepe-small", kind: Kind::Pitch, size_mb: 7, dtw: P::Base, licence: "MIT",
+                files: &[File { repo: CREPE, path: "small.onnx", local: "model.onnx" }],
+                label: "CREPE small",
+                note: "CREPE, larger and slower (about 2.5x real time); try tiny first." },
     ]
 }
 
@@ -271,6 +304,11 @@ impl Models {
         let mut want = Vec::new();
         let mut lists: HashMap<&str, Value> = HashMap::new();
         for f in e.files {
+            if f.repo.starts_with("github:") {
+                let pin = source(f).1.ok_or_else(|| format!("{} has no pinned checksum.", f.path))?;
+                want.push((f, pin));
+                continue;
+            }
             if !lists.contains_key(f.repo) {
                 lists.insert(f.repo, self.listing(f.repo).await?);
             }
@@ -281,8 +319,7 @@ impl Models {
         for (f, (sha, size)) in want {
             let dest = self.file(e, f);
             if !dest.is_file() {
-                let url = format!("https://huggingface.co/{}/resolve/main/{}", f.repo, f.path);
-                self.fetch_file(e.id, &url, &dest, &sha, size, before, total).await?;
+                self.fetch_file(e.id, &source(f).0, &dest, &sha, size, before, total).await?;
             }
             before += size;
         }

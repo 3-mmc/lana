@@ -122,10 +122,12 @@ impl Ctc {
     /// With `keep`, each piece's frames are kept there as well.
     pub fn recognise(&self, samples: &[f32], rate: u32, mut keep: Option<&mut Vec<Piece>>, mut on_piece: impl FnMut(f64, &[Sym]) -> bool) -> Result<Vec<Sym>, String> {
         let mut out = Vec::new();
-        let mut at = 0usize;
-        while at < samples.len() {
+        // Pieces cut at the pauses VAD finds; every piece is read, silence
+        // too, since CTC models write little there and search needs frames
+        // for the whole recording.
+        for piece in super::vad::pieces(samples, rate, PIECE_S) {
+            let (at, end) = (piece.start, piece.end);
             let piece_from = out.len();
-            let end = cut_point(samples, at, rate);
             let offset = at as f64 / rate as f64;
             let mat = self.net.log_probs(&samples[at..end])?;
             out.extend(self.decode(&mat, offset));
@@ -140,8 +142,7 @@ impl Ctc {
             if let Some(k) = keep.as_mut() {
                 k.push(Piece { offset, mat });
             }
-            at = end;
-            if !on_piece(at as f64 / rate as f64, &out[piece_from..]) {
+            if !on_piece(end as f64 / rate as f64, &out[piece_from..]) {
                 return Err("stopped".into());
             }
         }

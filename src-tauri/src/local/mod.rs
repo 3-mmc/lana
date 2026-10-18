@@ -108,6 +108,7 @@ impl Local {
             .models
             .installed()
             .iter()
+            .filter(|e| e.kind != Kind::Pitch)
             .map(|e| json!({ "id": e.id, "role": e.kind.role(), "label": format!("{} (on this computer)", e.label) }))
             .collect();
         // One word model per MMS language on this computer.
@@ -414,6 +415,24 @@ impl Local {
             "text": l, "start": round3(*a), "end": round3(*b), "conf": c.map(|c| round3(c as f64)),
         })).collect();
         Ok(json!({ "model": model, "start": round3(start), "end": round3(end), "intervals": intervals }))
+    }
+
+    /// CREPE's f0 and periodicity over the whole recording, every 10 ms.
+    pub fn pitch(&self, bytes: Vec<u8>, filename: &str, model: &str) -> Result<Value, String> {
+        let entry = models::find(model).filter(|e| e.kind == Kind::Pitch)
+            .ok_or_else(|| format!("'{model}' is not a pitch model."))?;
+        if !self.models.is_installed(&entry) {
+            return Err(format!("{} is not downloaded. Add it in Connection → Recognisers.", entry.label));
+        }
+        let (_, samples) = self.samples(bytes, filename)?;
+        let t = Instant::now();
+        let crepe = pitch::Crepe::load(&self.models.path(&entry), threads())?;
+        let cancel = self.cancel.clone();
+        let track = crepe.track(&samples, |_| !cancel.load(Ordering::Relaxed))?;
+        eprintln!("lana: {model} tracked {:.1} s of audio in {:.1} s", samples.len() as f64 / audio::WHISPER_RATE as f64, t.elapsed().as_secs_f64());
+        let f0: Vec<f64> = track.f0.iter().map(|f| (*f as f64 * 10.0).round() / 10.0).collect();
+        let conf: Vec<f64> = track.conf.iter().map(|c| round3(*c as f64)).collect();
+        Ok(json!({ "model": model, "hop": pitch::HOP_S, "f0": f0, "conf": conf }))
     }
 
     /// Search by example: the places in the recording most like the phones of
@@ -910,6 +929,7 @@ pub fn router(local: Local) -> Router {
         .route("/api/local/mms/languages/{code}", post(mms_download).delete(mms_delete))
         .route("/api/local/align", post(align_labels))
         .route("/api/local/search", post(search_phones))
+        .route("/api/local/pitch", post(pitch_track))
         .layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD))
         .with_state(local)
 }
@@ -1050,5 +1070,19 @@ mod tests {
         assert_eq!(looping("ანტარქტიკის უმაღლესი მთები, ვინსონის მასივი, რომლის უმაღლესი მწვერვალი, ვინსონის მთა მდებარეობს 4892 მეტრზე, განლაგებულია სენტინელის ქედის ჩრდილოეთ ნაწილში."), None);
         assert_eq!(looping("Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis, das Vinson-Massiv."), None);
         assert_eq!(looping("no, no, no, I said no"), None);
+    }
+}
+
+/// Fields: file, model (a CREPE id).
+async fn pitch_track(State(l): State<Local>, form: Multipart) -> Response {
+    let (bytes, name, f) = match form_of(form).await {
+        Ok(v) => v,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    };
+    let model = f.get("model").cloned().unwrap_or_default();
+    match tokio::task::spawn_blocking(move || l.pitch(bytes, &name, &model)).await {
+        Ok(Ok(v)) => Json(v).into_response(),
+        Ok(Err(e)) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": e }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("the pitch model crashed: {e}") }))).into_response(),
     }
 }
