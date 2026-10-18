@@ -895,6 +895,10 @@ use axum::{
     Json, Router,
 };
 
+/// Re-timing and search take the recording itself, as /api/transcribe does,
+/// and allow the same size (broker.rs; local/ cannot name it, see bench/).
+const MAX_UPLOAD: usize = 512 * 1024 * 1024;
+
 /// The settings screen's model manager. Desktop only, like the rest of settings.
 pub fn router(local: Local) -> Router {
     Router::new()
@@ -906,7 +910,7 @@ pub fn router(local: Local) -> Router {
         .route("/api/local/mms/languages/{code}", post(mms_download).delete(mms_delete))
         .route("/api/local/align", post(align_labels))
         .route("/api/local/search", post(search_phones))
-        .layer(axum::extract::DefaultBodyLimit::max(crate::broker::MAX_UPLOAD))
+        .layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD))
         .with_state(local)
 }
 
