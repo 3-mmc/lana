@@ -24,8 +24,9 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
       so Dargwa stops coming out in Arabic, Latin or Georgian script
 - [ ] **Re-timing**: after labels are corrected, boundaries are refitted to the corrected
       labels by CTC forced alignment over the stretch
-- [ ] **Loudness**: audio is normalised before the models only (never for display or
-      measurement), so a quiet recording like FLEURS ka is not missed by pyannote
+- [x] ~~**Loudness**~~ tested 2026-10-18 and dropped: raising FLEURS ka (−50 dBFS) by 40 dB
+      before the models changed nothing (ZIPA small 43 vs 42 phones below 0.6, large 28 vs 29;
+      the speaker model found the same 13.6 s of speech either way)
 - [ ] **Whisper loops**: a piece whose text repeats (compression ratio / repeated n-grams)
       is dropped and reported, rather than shown as words
 
