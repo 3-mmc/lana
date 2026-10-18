@@ -147,13 +147,13 @@ One point about the import itself. Praat requires the intervals of a tier to til
 
 Measurements come out as CSV for R or a spreadsheet. The tracks file holds f0, F1 to F3 and intensity frame by frame over the window. The intervals file holds one row per labelled interval of a chosen tier across the whole recording: duration, mean f0 over the voiced frames, F1 to F3 as means and at the midpoint, mean intensity, and the speaker where a speaker tier exists. The file is analysed in stretches of at most fifteen seconds around the intervals, with the arguments in the Analysis pane, so a vowel table for an hour of fieldwork does not require analysing the hour in one pass.
 
-Right-clicking offers the same operations where they apply. On an interval: play, zoom, edit, split, merge, delete, and copy its label, its times or its measurements. On the waveform or spectrogram: playback and zoom, a boundary at the pointer, the readout at the pointer, and the figure and tracks exports. Copied values are tab-separated with a header row, so they paste into a spreadsheet as columns.
+Right-clicking offers the same operations where they apply. On an interval: play, zoom, edit, split, merge, delete, flag it for later, and copy its label, its times or its measurements. On the waveform or spectrogram: playback and zoom, a boundary at the pointer, a note at the pointer or on the selection, the readout at the pointer, and the figure and tracks exports. Copied values are tab-separated with a header row, so they paste into a spreadsheet as columns.
 
 ## Connecting a recogniser
 
 There are two ways to reach one, and the tool does not prefer either.
 
-**Direct.** Type the base URL of an endpoint under **⚙ Connection** and the browser posts to it. Nothing to install. The endpoint has to send `Access-Control-Allow-Origin`, and any key you gave it would be visible in the page, so this mode suits a recogniser running on your own machine or network.
+**Direct.** Type the base URL of an endpoint under **⚙ Recognisers**, in its Advanced section, and the browser posts to it. Nothing to install. The endpoint has to send `Access-Control-Allow-Origin`, and any key you gave it would be visible in the page, so this mode suits a recogniser running on your own machine or network.
 
 **Proxied.** Copy `providers.example.json` to `providers.json` beside `serve.py` and list the services you use. The page then asks its own server for the list and posts through it:
 
@@ -175,6 +175,8 @@ There are two ways to reach one, and the tool does not prefer either.
 ```
 
 This mode exists for three reasons, and only the first is about secrecy. An API key stays on the machine running `serve.py`, which is told to read it from the environment and never sends it to the browser. Every request is same-origin, so there is no CORS to configure, which is what makes the tool usable by a colleague who did not set the recogniser up. And providers disagree about where word timings live, so the server normalises the reply and the page parses one contract instead of five.
+
+Every provider's models are offered at once. Each tier's menu lists them grouped by provider, with where the audio goes in each group's name, so one tier can use a cloud model while another uses a service on your own machine. A provider without its key shows its models greyed out until the key is set.
 
 `role` says which tier a model can fill before it has run, so the queue can tell you what is coming. It takes `words`, `phones`, `both` or `speakers`. The reply is believed over the hint, except for `speakers`, which also decides that the model runs alongside the others rather than behind them.
 

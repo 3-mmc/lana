@@ -84,11 +84,19 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .select_all()
         .separator()
         .item(&item("add-tier", "Add Tier…", None)?)
+        // N and F in the page; no accelerator, since a bare letter would be
+        // taken from every text field.
+        .item(&item("add-note", "Add Note", None)?)
+        .item(&item("flag", "Flag Interval for Later", None)?)
         .build()?;
 
     let view = SubmenuBuilder::new(app, "View")
         .item(&item("play", "Play / Pause", None)?)
         .item(&item("stop-playback", "Stop Playback", None)?)
+        .item(&item("toggle-follow", "Follow Playback", None)?)
+        .separator()
+        .item(&item("prev-note", "Previous Note", None)?)
+        .item(&item("next-note", "Next Note", None)?)
         .separator()
         .item(&item("zoom-sel", "Zoom to Selection", Some("CmdOrCtrl+Shift+E"))?)
         .item(&item("zoom-in", "Zoom In", Some("CmdOrCtrl+="))?)

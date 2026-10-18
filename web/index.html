@@ -368,6 +368,44 @@
   .mgconsent{display:flex;gap:6px;align-items:flex-start;color:var(--warn);max-width:520px}
   .mgadv summary{cursor:pointer}
   #mgMsg.ok{color:var(--ok)} #mgMsg.bad{color:var(--err)}
+  /* One section per tier: what fills it on this computer, then what else can. */
+  .mgsec{border-top:1px solid var(--line2);margin-top:6px}
+  .mgsec .mghead{display:flex;gap:6px;align-items:baseline;padding-top:9px}
+  .mgsec .mghead .inuse{margin-left:auto;text-transform:none;letter-spacing:0;font-size:11px;color:var(--ok)}
+  .mgsub2{padding:9px 10px 2px;font-size:11px;color:var(--dim)}
+  .mgsub2 b{color:var(--ink);font-weight:600}
+  .mgalso{padding:5px 10px 8px;font-size:11px;color:var(--dim)}
+  .mgalso b{color:var(--ink);font-weight:600}
+  .mgalso .chip{font-size:10.5px;padding:0 6px;margin-left:4px}
+  .provrow{display:flex;gap:8px;align-items:center;padding:5px 10px;border-bottom:1px solid var(--line2);font-size:12px}
+  .provrow .who{flex:1;min-width:0}
+  .provrow .who em{display:block;font-style:normal;color:var(--dim2);font-size:11px}
+
+  /* notes */
+  #notesList{height:150px;overflow:auto}
+  #noteCount{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  #noteFilter{flex:none;width:84px}
+  .pane>h2 button{flex:none;white-space:nowrap}
+  .nrow{display:flex;gap:7px;align-items:baseline;padding:3px 9px;border-bottom:1px solid var(--line2);
+        font-size:12px;cursor:pointer}
+  .nrow:hover{background:var(--rowhover)}
+  .nrow.sel{background:var(--rowsel)}
+  .nrow .dot{flex:none;width:8px;height:8px;border-radius:50%;align-self:center}
+  .nrow .t{flex:none;font-family:var(--mono);font-size:11px;color:var(--dim2);min-width:52px}
+  .nrow .tx{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nrow .tx i{font-style:normal;color:var(--dim2)}
+  .nrow button{visibility:hidden}
+  .nrow:hover button{visibility:visible}
+  .nempty{padding:8px 9px;color:var(--dim2);font-size:11px}
+  #noteEd{position:fixed;z-index:75;width:300px;padding:8px;display:grid;gap:6px;background:var(--raise);
+          border:1px solid var(--line);border-radius:6px;box-shadow:0 8px 24px #0007}
+  #noteEd .tags{display:flex;flex-wrap:wrap;gap:4px}
+  #noteEd .tags button{display:flex;gap:4px;align-items:center;padding:1px 7px;font-size:11px;border-radius:999px}
+  #noteEd .tags button i{width:8px;height:8px;border-radius:50%}
+  #noteEd .tags button.on{border-color:var(--ink);background:var(--panel2)}
+  #noteEd input{width:100%}
+  #noteEd .foot{display:flex;gap:6px;align-items:center}
+  #noteEd .foot .hint{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   footer{padding:12px 10px 26px;color:var(--dim2);font-size:11px;border-top:1px solid var(--line)}
   footer a{color:var(--accent)}
 </style>
@@ -445,19 +483,14 @@
 
   <fieldset id="fsBroker">
     <legend>Providers configured on the machine serving this page</legend>
-    <div class="grid">
-      <label>provider</label>
-      <div class="row tight" style="padding:0;border:0">
-        <select id="provider" style="min-width:260px"></select>
-        <button id="providerRefresh" class="tiny">Reload</button>
-        <span id="providerNote" class="hint"></span>
-      </div>
-    </div>
+    <div id="provList"></div>
     <div class="hint pad">
+      Every provider's models are offered on the tiers they fit, in the Recognition panel.
       Providers come from <code>providers.json</code> beside <code>serve.py</code>. API keys stay
       on that machine: this page is told only whether a key is present. Requests are proxied, so
       there is no CORS to configure and no key in the browser. Copy
       <code>providers.example.json</code> to start.
+      <button id="providerRefresh" class="tiny">Reload</button>
     </div>
   </fieldset>
 
@@ -484,12 +517,32 @@
         </ul>
       </details>
     </div>
-    <div class="mghead">Built into Lana <span>— on this computer · pick one model per tier, then choose it in the Recognition panel</span></div>
-    <div id="mdirRow" class="mgrow"></div>
-    <div id="lcList"></div>
-    <div class="mghead">MMS <span>— words in more than 1,150 languages, added one at a time · non-commercial licence</span></div>
-    <div id="mmsBox"></div>
-    <div class="mghead">Other recognisers <span>— cloud services, or a speech server you run · these send audio away from this computer</span></div>
+    <!-- One section per tier. Models built into Lana are downloaded here and run
+         on this computer; the Recognition panel then offers each tier the
+         models in its section, from every recogniser at once. -->
+    <div id="lcList">
+      <div class="mgsec">
+        <div class="mghead">Words <span>— orthographic transcription, for the word tier</span><span class="inuse" data-use="word"></span></div>
+        <div data-kind="words"></div>
+        <div class="mgsub2"><b>MMS</b> — words in more than 1,150 languages, added one at a time · non-commercial licence</div>
+        <div id="mmsBox"></div>
+        <div class="mgalso" data-also="words"></div>
+      </div>
+      <div class="mgsec">
+        <div class="mghead">Phones <span>— IPA read off the acoustics, for the phone tier</span><span class="inuse" data-use="phone"></span></div>
+        <div data-kind="phones"></div>
+        <div class="mgalso" data-also="phones"></div>
+      </div>
+      <div class="mgsec">
+        <div class="mghead">Speakers <span>— who is talking, for the speaker tier</span><span class="inuse" data-use="speaker"></span></div>
+        <div data-kind="speakers"></div>
+        <div class="mgalso" data-also="speakers"></div>
+      </div>
+      <div data-kind=""></div>
+    </div>
+    <div class="mgsec">
+      <div class="mghead">Cloud services and speech servers <span>— each says where the audio goes when it runs</span></div>
+    </div>
     <div id="mgList"></div>
     <div class="row tight mgadd">
       <label for="mgPreset">Add</label>
@@ -538,6 +591,10 @@
       </div>
     </div>
     <div class="hint pad" id="mgFoot"></div>
+    <div class="mgsec">
+      <div class="mghead">Storage <span>— where downloaded models are kept</span></div>
+    </div>
+    <div id="mdirRow" class="mgrow"></div>
   </fieldset>
 
   <fieldset id="fsDirect">
@@ -583,6 +640,14 @@
       <button id="playsel" class="tiny" disabled>▶ Selection</button>
       <button id="pause" class="tiny" hidden title="Pause, and carry on from the same place (Space)">⏸ Pause</button>
       <button id="stopPlay" class="tiny" hidden title="Stop playing (Esc)">■ Stop</button>
+      <label title="While playing, turn the page when the playhead reaches the edge, so the labels under it stay still enough to read. Pausing puts the cursor where it stopped and selects the interval under it on the active tier: Enter edits it, B adds a boundary there.">
+        <input type="checkbox" id="followOn"> follow</label>
+      <select id="followPage" class="tiny num" style="padding:1px 18px 1px 5px" title="How much of the recording one page shows while following">
+        <option value="3">3 s pages</option><option value="5">5 s pages</option>
+        <option value="10">10 s pages</option><option value="20">20 s pages</option>
+        <option value="0">this zoom</option>
+      </select>
+      <label title="Resume a second before where you paused, to hear the context again"><input type="checkbox" id="rewindOn"> resume 1 s back</label>
       <span class="sep"></span>
       <button id="zoomSel" class="tiny" disabled title="Show only the selection (Z)">⤢ zoom to selection</button>
       <button id="zoomOut" class="tiny">−</button>
@@ -743,6 +808,18 @@
     <div id="queueList"></div>
   </div>
 
+  <div class="pane" id="notesPane">
+    <h2>Notes
+      <select id="noteFilter" class="tiny num" style="padding:1px 18px 1px 5px" title="Show only notes with this tag"></select>
+      <span class="sub" id="noteCount">—</span>
+      <span class="sp"></span>
+      <button class="tiny" id="notePrev" title="Previous note ([)">[</button>
+      <button class="tiny" id="noteNext" title="Next note (])">]</button>
+      <button class="tiny" id="noteAdd" title="A note at the playhead, the selection or the cursor (N)">+ note</button>
+    </h2>
+    <div id="notesList"></div>
+  </div>
+
   <div class="pane">
     <h2>Analysis <span class="sub">Praat arguments, as typed</span>
       <span class="sp"></span>
@@ -794,6 +871,16 @@
   </div>
 </div>
 </main>
+
+<div id="noteEd" hidden>
+  <div class="tags" id="noteTags"></div>
+  <input id="noteText" placeholder="what to come back to (optional)" autocomplete="off">
+  <div class="foot">
+    <span class="hint num" id="noteWhere"></span>
+    <button class="tiny" id="noteDel">Delete</button>
+    <button class="tiny primary" id="noteSave">Save</button>
+  </div>
+</div>
 
 <div id="paperDlg" class="dlg" hidden>
   <div class="dlgbox">
@@ -929,6 +1016,7 @@ const CFG = {
   langRecent: [],
   langWord: '', langPhone: '', size: 'medium', nameTiers: false,
   theme: 'graphite',
+  follow: true, followPage: 5, rewind: true,   // the listening pass; see "playback"
 };
 // The project's old name, kept so saved settings survive the rename. The demo
 // keeps its own, so trying it out never rewrites a working configuration.
@@ -1219,6 +1307,7 @@ const S = {
   queue: [], running: null, side: null, sideAbort: null,
   lastReadout: {},
   extra: [],            // tiers added by hand or from a TextGrid: {key, label, items, ...}
+  notes: [],            // {start, end, text, tag, tier}: see "notes"
   activeLane: 'word',   // the tier the edit buttons and keys act on
   undo: [], redo: [],
   file: null,           // {name, size} of the loaded recording
@@ -1339,7 +1428,8 @@ $('file').addEventListener('change', async ev => {
   for (const job of Q.items) if (job.state === 'queued') cancelQueued(job, 'another recording was opened');
   renderQueue();
   for (const k of TKEYS) S.tracks[k].edited = false;
-  S.extra = []; S.undo = []; S.redo = []; S.selectedItem = null;
+  S.extra = []; S.notes = []; S.undo = []; S.redo = []; S.selectedItem = null;
+  NOTES.current = null; renderNotes();
   if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
   S.file = { name: f.name, size: f.size };
   PROJ.key = await PROJ.keyFor(bytes, f);
@@ -1670,6 +1760,53 @@ function shadeSelection(F, t0, t1) {
   g.stroke();
 }
 
+/* Notes on the signal panes: a stretch as a tinted band, a moment as a line.
+   Where `pins` is set (waveform, spectrogram) each note also gets a flag at
+   the top, which is what the pointer finds, and on the spectrogram its text
+   beside it, so a comment can be read where it was left. A figure shows none
+   of this: notes are for the annotator, not the reader of a paper. */
+function drawNotes(F, t0, t1, pins = false, text = false) {
+  if (RENDER || !S.notes.length) return;
+  const { g, x0, y0, y1, iw } = F, span = (t1 - t0) || 1;
+  const xOf = t => x0 + (t - t0) / span * iw;
+  const loose = S.notes.filter(n => !n.tier && n.end >= t0 && n.start <= t1);
+  g.save();
+  g.beginPath(); g.rect(x0, y0, iw, y1 - y0); g.clip();
+  for (const n of loose) {
+    const col = noteColor(n), xa = xOf(n.start);
+    if (isPoint(n)) {
+      g.strokeStyle = alpha(col, 0.85);
+      g.beginPath(); g.moveTo(xa + .5, y0); g.lineTo(xa + .5, y1); g.stroke();
+    } else {
+      const xb = xOf(n.end);
+      g.fillStyle = alpha(col, n === NOTES.current ? 0.2 : 0.1);
+      g.fillRect(xa, y0, xb - xa, y1 - y0);
+      g.strokeStyle = alpha(col, 0.55);
+      g.beginPath(); g.moveTo(xa + .5, y0); g.lineTo(xa + .5, y1); g.moveTo(xb - .5, y0); g.lineTo(xb - .5, y1); g.stroke();
+    }
+  }
+  if (pins) {
+    g.font = '10.5px ui-sans-serif, system-ui, sans-serif';
+    g.textBaseline = 'middle'; g.textAlign = 'left';
+    loose.forEach((n, i) => {
+      const x = xOf(n.start), col = noteColor(n);
+      g.fillStyle = col;
+      g.beginPath(); g.moveTo(x, y0); g.lineTo(x + 9, y0 + 4.5); g.lineTo(x, y0 + 9); g.closePath(); g.fill();
+      if (!text || !n.text) return;
+      // Up to the next flag, so two comments close together do not overprint.
+      const next = loose.slice(i + 1).find(m => xOf(m.start) > x + 1);
+      const room = Math.min(220, (next ? xOf(next.start) : F.x1) - x - 16);
+      if (room < 24) return;
+      let s = n.text;
+      while (s.length > 1 && g.measureText(s).width > room) s = s.slice(0, -2) + '…';
+      const w = g.measureText(s).width;
+      g.fillStyle = alpha(C.panel, 0.88); g.fillRect(x + 11, y0 + 1, w + 8, 13);
+      g.fillStyle = C.ink; g.fillText(s, x + 15, y0 + 8);
+    });
+  }
+  g.restore();
+}
+
 function drawCursor(F, t0, t1) {
   if (S.cursor == null || S.cursor < t0 || S.cursor > t1) return;
   const { g, x0, y0, y1, iw } = F;
@@ -1709,6 +1846,11 @@ function drawOverview() {
       lastX = xa;
       g.fillRect(xa, yy, Math.max(1, (it.end - it.start) / S.dur * iw), 2);
     }
+  }
+  // Notes along the top, so the whole file's notes show at any zoom.
+  for (const n of S.notes) {
+    g.fillStyle = noteColor(n);
+    g.fillRect(Math.floor(x0 + n.start / S.dur * iw), y0, Math.max(2, (n.end - n.start) / S.dur * iw), 3);
   }
   /* The window: everything outside it is veiled, so the part on screen stands
      out even when it is a sliver of a long file. A window narrower than a few
@@ -1780,6 +1922,7 @@ function drawWave() {
   g.stroke();
   g.strokeStyle = C.line;
   g.beginPath(); g.moveTo(x0, mid + .5); g.lineTo(F.x1, mid + .5); g.stroke();
+  drawNotes(F, t0, t1, true);
   drawCursor(F, t0, t1);
   drawTimeAxis(F, t0, t1);
   if (peak > 0) {
@@ -1817,6 +1960,7 @@ function drawIntensity() {
     started = true;
   }
   g.stroke(); g.lineWidth = 1;
+  drawNotes(F, w0, w1);
   drawCursor(F, w0, w1);
   drawTimeAxis(F, w0, w1);
   $('intensinfo').textContent = `${lo.toFixed(0)}–${hi.toFixed(0)} dB · To Intensity... ${A.p.pitchFloor} ${A.p.pitchStep} yes`;
@@ -1955,6 +2099,7 @@ function drawSpec() {
   }
 
   shadeSelection(F, w0, w1);
+  drawNotes(F, w0, w1, true, true);
   drawCursor(F, w0, w1);
   drawTimeAxis(F, w0, w1);
 }
@@ -2080,6 +2225,16 @@ function drawTiers() {
         g.restore();
       }
     }
+    /* A flag sits in the top right corner of the interval it was left on. It
+       keeps the times it was made with, so it follows the interval that holds
+       its middle when a boundary moves, and stays put if the interval goes. */
+    if (!RENDER) for (const n of S.notes) {
+      if (n.tier !== lane.key || n.end < t0 || n.start > t1) continue;
+      const mid = (n.start + n.end) / 2, host = t.items.find(it => it.start <= mid && mid <= it.end);
+      const xr = Math.min(F.x1, xOf(host ? host.end : n.end)) - 1;
+      g.fillStyle = noteColor(n);
+      g.beginPath(); g.moveTo(xr, ly + 1); g.lineTo(xr - 8, ly + 1); g.lineTo(xr, ly + 9); g.closePath(); g.fill();
+    }
     // closing boundary of the last visible interval
     const last = t.items[t.items.length - 1];
     if (last && last.end <= t1 && last.end >= t0) {
@@ -2103,6 +2258,7 @@ function drawTiers() {
   const sig = TKEYS.map(k => S.tracks[k].items.length).join(',');
   if (sig !== drawTiers.sig) { drawTiers.sig = sig; drawOverview(); }
 
+  drawNotes(F, t0, t1);
   shadeSelection(F, t0, t1);
   drawCursor(F, t0, t1);
   drawTimeAxis(F, t0, t1);
@@ -2190,7 +2346,7 @@ addEventListener('pointerup', () => { panning = false; });
 // waveform: drag selects, click probes
 let drag = null;
 $('wave').addEventListener('pointerdown', e => {
-  if (!S.audio) return;
+  if (!S.audio || (S.notes.length && noteAtPin(e))) return;   // a note's flag: see "notes"
   e.currentTarget.setPointerCapture(e.pointerId);
   drag = { a: xToTime(e, S.win[0], S.win[1]), moved: false };
 });
@@ -2213,7 +2369,10 @@ $('spec').addEventListener('pointermove', e => {
   const fy = (e.clientY - r.top - PAD.t) / Math.max(1, r.height - PAD.t - PAD.b);
   probe(xToTime(e, S.win[0], S.win[1]), (1 - Math.max(0, Math.min(1, fy))) * S.analysis.p.maxHz);
 });
-$('spec').addEventListener('pointerdown', e => { probe(xToTime(e, S.win[0], S.win[1])); drawAll(); });
+$('spec').addEventListener('pointerdown', e => {
+  if (S.notes.length && noteAtPin(e)) return;
+  probe(xToTime(e, S.win[0], S.win[1])); drawAll();
+});
 function labelAt(t) {
   const w = S.tracks.word.items.find(it => it.start <= t && t <= it.end);
   const p = S.tracks.phone.items.find(it => it.start <= t && t <= it.end);
@@ -2265,7 +2424,21 @@ function play(from, to) {
   if (!S.audio) return;
   stopSource();
   PB.from = from; PB.to = to;
+  // Following a long stretch from far out: start at a page one can read.
+  const page = followPage(), span = S.win[1] - S.win[0];
+  if (CFG.follow && to - from > page && span > page * 1.5) setWindow(from, from + page);
   startAt(from);
+}
+/* Following: the view turns a page when the playhead reaches its right edge,
+   rather than scrolling under it, so the labels hold still long enough to be
+   read. A page is a fixed number of seconds, or whatever the zoom is. */
+const followPage = () => Number(CFG.followPage) > 0 ? Number(CFG.followPage) : S.win[1] - S.win[0];
+function followPlayhead() {
+  if (!CFG.follow || PB.state !== 'playing' || panning || drag || bdrag) return;
+  const t = playPos(), [a, b] = S.win, span = b - a;
+  if ((t >= a && t <= b - span * 0.03) || t >= PB.to - 1e-3) return;
+  const page = followPage();
+  setWindow(t - page * 0.02, t - page * 0.02 + page);
 }
 function startAt(pos) {
   if (S.ctx.state === 'suspended') S.ctx.resume();
@@ -2285,12 +2458,23 @@ function stopSource() {
   PB.src = null;
   if (s) try { s.stop(); } catch {}
 }
+/* Where playback paused is where an edit goes: the cursor moves there, so B
+   adds a boundary at that moment, and the interval under it on the active
+   tier is selected, so Enter edits it. A selection that is itself what is
+   playing is left alone. */
 function pausePlayback() {
   if (PB.state !== 'playing') return;
   PB.pos = playPos(); stopSource(); PB.state = 'paused';
+  const playingSel = S.sel && Math.abs(S.sel[0] - PB.from) < 1e-6 && Math.abs(S.sel[1] - PB.to) < 1e-6;
+  const track = trackOf(S.activeLane);
+  const it = !playingSel && track && !busyTrack(track) && track.items.find(x => x.start <= PB.pos && PB.pos < x.end);
+  if (it) { S.selectedItem = it; S.sel = [it.start, it.end]; renderSegments(); }
+  probe(PB.pos); drawAll();
   showTransport();
 }
-function resumePlayback() { if (PB.state === 'paused') startAt(PB.pos); }
+function resumePlayback() {
+  if (PB.state === 'paused') startAt(CFG.rewind ? Math.max(PB.from, PB.pos - 1) : PB.pos);
+}
 function stopPlayback() { stopSource(); PB.state = 'stopped'; PB.pos = PB.from; showTransport(); }
 /* Space: pause what is playing, resume what is paused, or play the selection
    (the window when nothing is selected). */
@@ -2304,7 +2488,7 @@ function showTransport() {
   $('pause').hidden = $('stopPlay').hidden = !on;
   $('pause').textContent = PB.state === 'paused' ? '▶ Resume' : '⏸ Pause';
   cancelAnimationFrame(PB.raf);
-  const step = () => { drawPlayhead(); if (PB.state === 'playing') PB.raf = requestAnimationFrame(step); };
+  const step = () => { followPlayhead(); drawPlayhead(); if (PB.state === 'playing') PB.raf = requestAnimationFrame(step); };
   step();
 }
 const PH_PANES = ['overview', 'wave', 'intens', 'spec', 'tiers'];
@@ -2331,6 +2515,16 @@ $('playwin').addEventListener('click', () => play(S.win[0], S.win[1]));
 $('playsel').addEventListener('click', () => S.sel && play(S.sel[0], S.sel[1]));
 $('pause').addEventListener('click', () => PB.state === 'paused' ? resumePlayback() : pausePlayback());
 $('stopPlay').addEventListener('click', stopPlayback);
+function showFollow() {
+  $('followOn').checked = !!CFG.follow;
+  $('followPage').value = String(CFG.followPage ?? 5);
+  $('followPage').disabled = !CFG.follow;
+  $('rewindOn').checked = !!CFG.rewind;
+}
+showFollow();
+$('followOn').addEventListener('change', () => { CFG.follow = $('followOn').checked; saveCfg(); showFollow(); });
+$('followPage').addEventListener('change', () => { CFG.followPage = Number($('followPage').value); saveCfg(); });
+$('rewindOn').addEventListener('change', () => { CFG.rewind = $('rewindOn').checked; saveCfg(); });
 
 addEventListener('keydown', e => {
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
@@ -2414,15 +2608,22 @@ const NET = {
     await NET.loadModels();
   },
 
+  /* Every provider's models are on offer at once, each tier choosing a model
+     and with it the provider that runs it. So the provider a progress poll or
+     a cancel goes to is the running job's, or else the one the tiers use. */
+  prov: id => NET.providers.find(p => p.id === id) || null,
+  activeProvider() {
+    return S.running?.provider || S.tracks.word.provider || S.tracks.phone.provider || NET.provider?.id || null;
+  },
   hasControl() {
-    return NET.mode === 'broker' ? !!(NET.provider && NET.provider.control)
+    return NET.mode === 'broker' ? !!NET.prov(NET.activeProvider())?.control
                                  : !!ctrlUrl('/progress');
   },
 
   async loadModels() {
     if (NET.mode === 'broker') {
-      NET.models = (NET.provider?.models || []).map(m => ({
-        id: m.id, label: m.label || m.id, role: m.role || guessRole(m.id), guessed: !m.role }));
+      NET.models = NET.providers.flatMap(p => (p.models || []).map(m => ({
+        id: m.id, label: m.label || m.id, role: m.role || guessRole(m.id), guessed: !m.role, provider: p.id })));
       $('asrstate').textContent = 'not checked';
     } else {
       try {
@@ -2439,6 +2640,7 @@ const NET = {
     }
     fillModelSelects();
     renderConnection();
+    NET.onchange?.();     // and which model each tier now has
   },
 
   transcribeUrl() {
@@ -2447,11 +2649,12 @@ const NET = {
   reclusterUrl() {
     return NET.mode === 'broker' ? apiUrl('/recluster') : ctrlUrl('/recluster');
   },
-  controlPath(tail) {
+  controlPath(tail, id = NET.activeProvider()) {
     if (NET.mode === 'broker') {
-      if (!NET.provider || !NET.provider.control) return null;
+      const p = NET.prov(id);
+      if (!p || !p.control) return null;
       const join = tail.includes('?') ? '&' : '?';
-      return apiUrl(tail) + join + 'provider=' + enc(NET.provider.id);
+      return apiUrl(tail) + join + 'provider=' + enc(p.id);
     }
     return ctrlUrl(tail);
   },
@@ -2493,7 +2696,9 @@ function audioGoes(p) {
   if (p.kind === 'demo') return { here: true, text: 'nothing is uploaded' };
   const loop = h => /^(localhost|127\.|\[?::1\]?$)/.test(h);
   let host = '';
-  try { host = new URL(p.base, location.href).hostname; } catch {}
+  try { host = p.base ? new URL(p.base, location.href).hostname : ''; } catch {}
+  // serve.py builds a Cloudflare address from the account id and publishes none.
+  if (!host && p.kind === 'cloudflare') host = 'api.cloudflare.com';
   // A broker's addresses are as seen from the machine serving the page, which
   // is this computer only when the page itself came from loopback.
   if (!host || host === location.hostname || loop(host))
@@ -2508,62 +2713,115 @@ const audioChip = p => {
   return w ? `<span class="chip ${w.here ? 'live' : 'away'}" title="Where a recording goes when this recogniser runs">${w.here ? LOCK : ''}${esc(w.text)}</span>` : '';
 };
 
+/* The header says where recordings go with the models chosen now: nowhere,
+   if every tier's model runs here, or the host that receives them. */
 function renderConnection() {
   const chip = $('connchip');
-  if (NET.mode === 'broker' && NET.provider) {
-    const w = audioGoes(NET.provider);
-    chip.className = 'chip ' + (!NET.provider.ready ? 'none' : w.here ? 'live' : 'away');
-    chip.title = w.here ? 'Recognition runs without the recording leaving this computer'
-                        : `Running recognition uploads the recording to ${NET.provider.base}`;
-    chip.innerHTML = `${w.here ? LOCK : ''}<b>${esc(NET.provider.label)}</b> · ${NET.models.length} model${NET.models.length === 1 ? '' : 's'}`
-      + (NET.provider.ready ? '' : ' · no key') + (w.here ? '' : ` · ${esc(w.text)}`);
+  if (NET.mode === 'broker' && NET.providers.length) {
+    const chosen = TIERS.map(T => S.tracks[T.key]).filter(t => t.model);
+    const provs = [...new Set(chosen.map(t => t.provider))].map(NET.prov).filter(Boolean);
+    const away = provs.filter(p => !audioGoes(p).here);
+    if (!provs.length) {
+      chip.className = 'chip none';
+      chip.textContent = NET.models.length ? `${NET.models.length} model${NET.models.length === 1 ? '' : 's'} · none chosen` : 'no models yet';
+      chip.title = 'Choose a model for a tier in the Recognition panel';
+    } else if (away.length) {
+      chip.className = 'chip away';
+      chip.innerHTML = `<b>${esc(away.map(p => p.label).join(' + '))}</b> · ${esc(away.map(p => audioGoes(p).text).join(', '))}`;
+      chip.title = 'Running recognition uploads the recording to ' + away.map(p => p.base).join(' and ');
+    } else {
+      chip.className = 'chip ' + (provs.every(p => p.ready) ? 'live' : 'none');
+      chip.innerHTML = `${LOCK}<b>${esc(provs.length === 1 ? provs[0].label : provs.length + ' recognisers')}</b> · ${esc(audioGoes(provs[0]).text)}`;
+      chip.title = 'Recognition runs without the recording leaving this computer';
+    }
   } else if (NET.mode === 'broker') {
     chip.className = 'chip none';
     chip.textContent = 'no providers configured';
+    chip.title = '';
   } else {
     chip.className = 'chip ' + (NET.models.length ? 'live' : 'none');
     chip.innerHTML = `<b>direct</b> · ${esc(CFG.asrBase || 'same origin')}`
       + (NET.models.length ? ` · ${NET.models.length} model${NET.models.length === 1 ? '' : 's'}` : '');
+    chip.title = '';
   }
   $('modeBroker').checked = NET.mode === 'broker';
   $('modeDirect').checked = NET.mode === 'direct';
   $('fsBroker').disabled = NET.mode !== 'broker';
   $('fsDirect').disabled = NET.mode !== 'direct';
-  $('provider').innerHTML = NET.providers.map(p =>
-    `<option value="${esc(p.id)}"${p.id === CFG.provider ? ' selected' : ''}>` +
-    `${esc(p.label)}${p.ready ? '' : ' — no key'}${audioGoes(p).here ? '' : ' — sends audio away'}</option>`).join('')
-    || '<option value="">(none — copy providers.example.json)</option>';
-  $('providerNote').innerHTML = audioChip(NET.provider) + ' ' + esc(NET.provider?.note || (NET.provider?.kind === 'builtin' ? '' : NET.provider?.base || ''));
+  $('provList').innerHTML = NET.providers.map(p => {
+    const n = (p.models || []).length;
+    return `<div class="provrow"><div class="who"><b>${esc(p.label)}</b>${audioChip(p)}
+      <em>${esc(p.note || (p.kind === 'builtin' ? '' : p.base || ''))}</em></div>
+      <span class="chip ${p.ready ? 'live' : 'none'}">${p.ready ? 'ready' : 'no key'} · ${n} model${n === 1 ? '' : 's'}</span></div>`;
+  }).join('') || '<div class="mgempty">None. Copy providers.example.json to providers.json beside serve.py.</div>';
+}
+
+/* A tier's choice is a model and the provider that runs it: the same model
+   can come from two places (whisper-large-v3 from Groq and from a server of
+   one's own), and only one of them keeps the recording on this computer. */
+const modelKey = m => `${m.provider || ''}::${m.id}`;
+function chosenModel(T) {
+  const t = S.tracks[T.key], id = t.model || CFG[T.cfg], prov = t.provider || CFG[T.cfg + 'Provider'] || '';
+  if (!id) return null;
+  const same = NET.models.filter(m => m.id === id);
+  // Settings from before a tier named its provider meant the one then selected.
+  return same.find(m => (m.provider || '') === prov) || same.find(m => m.provider === CFG.provider)
+      || same.find(m => NET.prov(m.provider)?.ready !== false) || same[0] || null;
+}
+function groupLabel(p) {
+  if (!p) return '';
+  if (p.kind === 'builtin') return 'Built into Lana — audio stays on this computer';
+  if (p.kind === 'demo') return p.label;
+  return `${p.label} — ${audioGoes(p).text}${p.ready ? '' : ' — needs a key (⚙ Recognisers)'}`;
 }
 
 function fillModelSelects() {
+  const pins = CFG.mmsPins || [];
+  const pinned = m => pins.includes((m.id.match(/^mms-(.+)$/) || [])[1]);
+  const tierName = { words: 'word', phones: 'phone', speakers: 'speaker' };
+  // The built-in group's own name says where it runs; each label need not.
+  const short = (m, p) => p?.kind === 'builtin'
+    ? m.label.replace(/ \(on this computer\)$/, '').replace(/\(on this computer, /, '(') : m.label;
+  // Built in first, then the providers in the order they were added.
+  const order = p => p?.kind === 'builtin' || p?.kind === 'demo' ? 0 : 1;
   for (const t of TIERS) {
-    const el = $(t.sel), cur = S.tracks[t.key].model || CFG[t.cfg];
+    const el = $(t.sel), want = chosenModel(t);
     /* Each tier offers the models made for it: a word model on the phone tier
        fills it with whole words, which looked like a broken recogniser. A
        model whose role the provider did not say is offered everywhere, since
-       nothing says it cannot. The others are listed under the ones that fit,
+       nothing says it cannot. The others are listed after the ones that fit,
        greyed out, with the tier they are for, so a missing model is explained
        rather than just absent. The speaker tier lists speaker models only.
        A role Lana only guessed from the model's name (a direct endpoint, or a
        provider that did not say) never locks a model out: it is listed with
        the others, still choosable, since the guess may be wrong. */
-    const pins = CFG.mmsPins || [];
-    const pinned = m => pins.includes((m.id.match(/^mms-(.+)$/) || [])[1]);
     const fits = m => !m.role || m.role === 'both' || m.role === t.role;
     const lockedOut = m => !fits(m) && !m.guessed;
-    const sorted = (t.optional ? NET.models.filter(m => m.role === t.role) : NET.models)
-      .slice().sort((a, b) => pinned(b) - pinned(a));
-    const good = sorted.filter(m => !lockedOut(m)), other = sorted.filter(lockedOut);
-    const tierName = { words: 'word', phones: 'phone', speakers: 'speaker' };
-    el.innerHTML = '<option value="">(none)</option>' +
-      good.map(m => `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join('') +
-      (other.length ? `<optgroup label="For other tiers">` + other.map(m =>
-        `<option value="${esc(m.id)}" disabled>${esc(m.label)} — for the ${tierName[m.role] || m.role} tier</option>`).join('') + '</optgroup>' : '');
-    el.value = good.some(m => m.id === cur) ? cur : '';
-    S.tracks[t.key].model = el.value;
+    const pool = t.optional ? NET.models.filter(m => m.role === t.role) : NET.models;
+    const groups = [];
+    for (const m of pool) {
+      let g = groups.find(g => g.id === (m.provider || ''));
+      if (!g) groups.push(g = { id: m.provider || '', p: NET.prov(m.provider), ms: [] });
+      g.ms.push(m);
+    }
+    groups.sort((a, b) => order(a.p) - order(b.p));
+    const opt = (m, p) => {
+      const off = lockedOut(m) || (p && !p.ready);
+      return `<option value="${esc(modelKey(m))}"${off ? ' disabled' : ''}>${esc(short(m, p))}` +
+             `${lockedOut(m) ? ` — for the ${tierName[m.role] || m.role} tier` : ''}</option>`;
+    };
+    el.innerHTML = '<option value="">(none)</option>' + groups.map(g => {
+      const ms = g.ms.slice().sort((a, b) => pinned(b) - pinned(a));
+      const opts = [...ms.filter(m => !lockedOut(m)), ...ms.filter(lockedOut)].map(m => opt(m, g.p)).join('');
+      return g.p ? `<optgroup label="${esc(groupLabel(g.p))}">${opts}</optgroup>` : opts;
+    }).join('');
+    const ok = want && !lockedOut(want) && NET.prov(want.provider)?.ready !== false;
+    el.value = ok ? modelKey(want) : '';
+    S.tracks[t.key].model = ok ? want.id : '';
+    S.tracks[t.key].provider = ok ? want.provider || '' : '';
   }
   renderPlan();
+  renderConnection();
 }
 
 /* ------------------------------------------------------------- language */
@@ -2632,12 +2890,12 @@ function renderLanguage() {
   if (c && mms && mms.id !== wm) {
     html = `${esc(mms.label)} reads ${esc(LANG.name(c))} <button class="tiny" id="langUseMms">use it for words</button>`;
   } else if (c && r && r[4] && !mms && (!wm || langWarning(wm, c)) && typeof DESK !== 'undefined' && DESK.caps) {
-    html = `MMS can read ${esc(LANG.name(c))}: add it under ⚙ Connection → MMS (about 9 MB).`;
+    html = `MMS can read ${esc(LANG.name(c))}: add it under ⚙ Recognisers → Words → MMS (about 9 MB).`;
   }
   note.innerHTML = html;
   note.hidden = !html;
   $('langUseMms')?.addEventListener('click', () => {
-    $('mdWord').value = mms.id;
+    $('mdWord').value = modelKey(mms);
     $('mdWord').dispatchEvent(new Event('change'));
   });
 }
@@ -2775,11 +3033,13 @@ function updateTierInfo() {
 
 for (const T of TIERS) {
   $(T.sel).addEventListener('change', () => {
-    const t = S.tracks[T.key];
-    t.model = $(T.sel).value;
+    const t = S.tracks[T.key], v = $(T.sel).value, cut = v.indexOf('::');
+    t.provider = cut < 0 ? '' : v.slice(0, cut);
+    t.model = cut < 0 ? v : v.slice(cut + 2);
     if (t.state === 'empty' || t.state === 'ready') t.state = t.model ? 'ready' : 'empty';
-    CFG[T.cfg] = t.model;
-    saveCfg(); renderPlan(); drawTiers();
+    CFG[T.cfg] = t.model; CFG[T.cfg + 'Provider'] = t.provider;
+    saveCfg(); renderPlan(); renderConnection(); drawTiers();
+    NET.onchange?.();
   });
 }
 $('spkN').value = CFG.spkCount; $('spkTh').value = CFG.spkThreshold;
@@ -3190,15 +3450,15 @@ function buildJobs(only) {
   const want = only ? [only] : TKEYS;
   const out = [], gpu = [];
   for (const k of want) {
-    const model = S.tracks[k].model;
+    const { model, provider } = S.tracks[k];
     if (!model) continue;
-    if (tierOf(k).concurrent) out.push({ model, claims: [k], concurrent: true });
-    else gpu.push({ k, model });
+    if (tierOf(k).concurrent) out.push({ model, provider, claims: [k], concurrent: true });
+    else gpu.push({ k, model, provider });
   }
   // One model that fills two tiers is one job, not two identical uploads.
-  if (gpu.length === 2 && gpu[0].model === gpu[1].model)
-    out.push({ model: gpu[0].model, claims: gpu.map(g => g.k) });
-  else for (const g of gpu) out.push({ model: g.model, claims: [g.k] });
+  if (gpu.length === 2 && gpu[0].model === gpu[1].model && gpu[0].provider === gpu[1].provider)
+    out.push({ model: gpu[0].model, provider: gpu[0].provider, claims: gpu.map(g => g.k) });
+  else for (const g of gpu) out.push({ model: g.model, provider: g.provider, claims: [g.k] });
   return out;
 }
 
@@ -3234,7 +3494,7 @@ async function reclusterSpeakers() {
   try {
     const r = await fetch(NET.reclusterUrl(), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: NET.provider?.id, model: t.model,
+      body: JSON.stringify({ provider: t.provider || NET.provider?.id, model: t.model,
                              hash: t.cached.hash, speakers: n }),
     });
     const body = await r.json().catch(() => ({}));
@@ -3276,11 +3536,11 @@ async function runJob(job) {
      and nothing is lost, since every built-in model reads 16 kHz mono anyway.
      Cloud services keep the original, which is usually far smaller. */
   if (job.span) fd.append('file', await wavSpan(job.span[0], job.span[1]), `${fileStem()}_${spanTag(...job.span)}.wav`);
-  else if (NET.mode === 'broker' && NET.provider?.kind === 'builtin' && S.audio) fd.append('file', await wav16k(), S.name + '.wav');
+  else if (NET.mode === 'broker' && NET.prov(job.provider)?.kind === 'builtin' && S.audio) fd.append('file', await wav16k(), S.name + '.wav');
   else fd.append('file', f, f.name);
   fd.append('model', job.model);
   fd.append('response_format', 'verbose_json');
-  if (NET.mode === 'broker' && NET.provider) fd.append('provider', NET.provider.id);
+  if (NET.mode === 'broker' && job.provider) fd.append('provider', job.provider);
   if (job.concurrent) {
     // Diarization takes no language: a speaker embedding keys on the voice.
     if (job.spkN) fd.append('speakers', job.spkN);
@@ -3306,7 +3566,7 @@ async function runJob(job) {
     if (r.status === 409) throw new Error('cancelled');
     if ([404, 405, 501].includes(r.status)) throw new Error(
       'no recogniser at ' + (NET.mode === 'broker' ? 'this server' : (CFG.asrBase || 'this origin')) +
-      ' — set one up under ⚙ Connection. The analysis and the TextGrid export do not need one.');
+      ' — set one up under ⚙ Recognisers. The analysis and the TextGrid export do not need one.');
     const body = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
     // The recording was replaced while this ran: its result belongs to no tier here.
@@ -3935,6 +4195,11 @@ $('tiers').addEventListener('contextmenu', e => {
     { label: 'Merge with previous', off: busy || idx === 0, run: () => { S.selectedItem = items[idx - 1]; mergeNext(); } },
     { label: 'Delete interval', key: 'Del', off: busy, run: () => { S.selectedItem = it; deleteSelected(); } },
     '-',
+    ...(flagOf(lane.key, it)
+      ? [{ label: 'Edit flag…', key: 'F', run: () => openNoteEditor(flagOf(lane.key, it), false, e.clientX, e.clientY) },
+         { label: 'Remove flag', run: () => deleteNote(flagOf(lane.key, it)) }]
+      : [{ label: 'Flag for later…', key: 'F', run: () => flagSelected(e.clientX, e.clientY) }]),
+    '-',
     { label: 'Copy label', run: () => copyText(it.text || '', 'the label') },
     { label: 'Copy times', run: () => copyText(timesRow(it.start, it.end), 'start, end and duration (ms)') },
     { label: 'Copy measurements', run: () => copyMeasurements(it.start, it.end, it.text) },
@@ -3949,6 +4214,7 @@ for (const id of ['wave', 'intens', 'spec']) {
     if (!S.audio) return;
     e.preventDefault();
     const t = xToTime(e, S.win[0], S.win[1]);
+    const pin = id !== 'intens' && S.notes.length ? noteAtPin(e) : null;
     probe(t); drawAll();
     const A = S.analysis, lane = lanes().find(l => l.key === S.activeLane);
     const readout = () => {
@@ -3967,6 +4233,11 @@ for (const id of ['wave', 'intens', 'spec']) {
       '-',
       { label: `Add boundary here on ${lane?.label || 'the active tier'}`, off: !lane || busyTrack(lane.track),
         run: () => { S.cursor = t; splitAtCursor(); } },
+      ...(pin ? [{ label: 'Edit note…', run: () => openNoteEditor(pin, false, e.clientX, e.clientY) },
+                 { label: 'Delete note', run: () => deleteNote(pin) }]
+          : S.sel && S.sel[0] <= t && t <= S.sel[1]
+          ? [{ label: 'Add a note on the selection…', key: 'N', run: () => addNote({ start: S.sel[0], end: S.sel[1] }, true, e.clientX, e.clientY) }]
+          : [{ label: 'Add a note here…', key: 'N', run: () => addNote({ start: t, end: t }, true, e.clientX, e.clientY) }]),
       ...(S.sel ? [{ label: 'Copy measurements of the selection', run: () => copyMeasurements(S.sel[0], S.sel[1], labelAt((S.sel[0] + S.sel[1]) / 2)) }] : []),
       { label: 'Copy the readout here', off: !A, run: readout },
       ...(id === 'spec' ? ['-',
@@ -4025,9 +4296,6 @@ for (const id of ['modeBroker', 'modeDirect'])
     CFG.mode = $('modeBroker').checked ? 'broker' : 'direct';
     saveCfg(); await NET.discover();
   });
-$('provider').addEventListener('change', async () => {
-  CFG.provider = $('provider').value; saveCfg(); await NET.discover();
-});
 $('providerRefresh').addEventListener('click', () => NET.discover());
 $('asrbase').addEventListener('change', async () => {
   CFG.asrBase = $('asrbase').value.trim(); saveCfg(); NET.controlOk = true; await NET.loadModels();
@@ -4081,11 +4349,23 @@ function toTextGrid(dur) {
   const emit = [...TIERS.filter(T => !T.optional || S.tracks[T.key].items.length)
                   .map(T => [nm(T.label, S.tracks[T.key]), S.tracks[T.key].items]),
                 ...S.extra.map(x => [x.label, x.items])];
+  /* Notes go last, as a point tier, which is how Praat keeps marks at a
+     moment. A point has no end and no tier, so a note's tag, the end of its
+     stretch and the tier it flags are written in brackets before its text
+     (noteMark), and read back from there on opening. */
+  const notes = S.notes.slice().sort((a, b) => a.start - b.start);
   let out = 'File type = "ooTextFile"\nObject class = "TextGrid"\n\n';
-  out += `xmin = 0\nxmax = ${dur}\ntiers? <exists>\nsize = ${emit.length}\nitem []:\n`;
+  out += `xmin = 0\nxmax = ${dur}\ntiers? <exists>\nsize = ${emit.length + (notes.length ? 1 : 0)}\nitem []:\n`;
   emit.forEach(([name, items], i) => {
     out += `    item [${i + 1}]:\n${tier(name, items)}`;
   });
+  if (notes.length) {
+    out += `    item [${emit.length + 1}]:\n        class = "TextTier"\n        name = "notes"\n`;
+    out += `        xmin = 0\n        xmax = ${dur}\n        points: size = ${notes.length}\n`;
+    notes.forEach((n, i) => {
+      out += `        points [${i + 1}]:\n            number = ${n.start}\n            mark = "${escq(noteMark(n))}"\n`;
+    });
+  }
   return out;
 }
 
@@ -4110,6 +4390,8 @@ $('dlTsv').addEventListener('click', () => {
     for (const it of track.items)
       rows.push(`${track.custom ? label : k}\t${it.start.toFixed(4)}\t${it.end.toFixed(4)}\t` +
                 `${(it.end - it.start).toFixed(4)}\t${it.speaker || ''}\t${it.text}`);
+  for (const n of S.notes)
+    rows.push(`notes\t${n.start.toFixed(4)}\t${n.end.toFixed(4)}\t${(n.end - n.start).toFixed(4)}\t\t${noteMark(n)}`);
   download(S.name + '.intervals.tsv', rows.join('\n'), 'text/tab-separated-values');
 });
 
@@ -4174,7 +4456,7 @@ function lanes() {
   return [...shownTiers().map(T => ({ key: T.key, label: T.label, track: S.tracks[T.key] })),
           ...S.extra.map(x => ({ key: x.key, label: x.label, track: x }))];
 }
-const hasAnnotation = () => TKEYS.some(k => S.tracks[k].items.length) || S.extra.length > 0;
+const hasAnnotation = () => TKEYS.some(k => S.tracks[k].items.length) || S.extra.length > 0 || S.notes.length > 0;
 const busyTrack = t => ['running', 'queued', 'partial'].includes(t.state);
 /* The transcript comes from the intervals, not a model's cues, when the tiers
    were edited, when there are no cues (an opened TextGrid), or when words and
@@ -4359,11 +4641,13 @@ function snap() {
                   note: t.note, edited: !!t.edited };
   }
   return { tracks, transcript: S.transcript,
-           extra: S.extra.map(x => ({ ...x, items: plain(x.items) })) };
+           extra: S.extra.map(x => ({ ...x, items: plain(x.items) })),
+           notes: S.notes.map(n => ({ ...n })) };
 }
 function applySnap(sn) {
   for (const k of TKEYS) Object.assign(S.tracks[k], sn.tracks[k], { items: plain(sn.tracks[k].items) });
   S.extra = sn.extra.map(x => ({ ...x, items: plain(x.items) }));
+  S.notes = (sn.notes || []).map(n => ({ ...n }));
   S.transcript = sn.transcript;
   S.selectedItem = null;
   if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
@@ -4410,7 +4694,7 @@ function edit(keys, fn) {
 }
 function afterEdit() {
   stampSpeakers();
-  renderPlan(); renderSegments(); updateTierInfo(); renderTranscript(); drawAll();
+  renderPlan(); renderSegments(); updateTierInfo(); renderTranscript(); renderNotes(); drawAll();
   PROJ.dirty();
 }
 
@@ -4524,6 +4808,7 @@ $('tiers').addEventListener('pointerup', () => {
 function applySnapQuiet(sn) {
   for (const k of TKEYS) S.tracks[k].items = plain(sn.tracks[k].items);
   S.extra = sn.extra.map(x => ({ ...x, items: plain(x.items) }));
+  S.notes = (sn.notes || []).map(n => ({ ...n }));
 }
 
 /* Double-click: type a label. On an interval, edit it. On empty space, make an
@@ -4744,7 +5029,255 @@ addEventListener('keydown', e => {
     if (selectedOnActive()) { e.preventDefault(); deleteSelected(); }
   } else if (e.key === 'b' || e.key === 'B') splitAtCursor();
   else if (e.key === 'm' || e.key === 'M') mergeNext();
+  else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); noteHere(); }
+  else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); flagSelected(); }
+  else if (e.key === '[' || e.key === ']') { e.preventDefault(); stepNote(e.key === ']' ? 1 : -1); }
 });
+
+/* ---------------------------------------------------------------- notes */
+/* What a listener leaves for later: a bookmark at a moment, a comment on a
+   stretch of the signal, or a flag on one interval of a tier. They are one
+   kind of thing with three anchors ({start, end, text, tag, tier}: a moment
+   has start === end, a flag names its tier), so one list finds them all and
+   [ and ] step through them. Each has a tag from a short fixed set, so the
+   list can be cut down to what still needs checking. Notes belong to the
+   annotation: they are undone, saved and exported with the tiers. */
+const NOTE_TAGS = {
+  note: 'blue', check: 'amber', unsure: 'red', example: 'green', question: 'violet',
+};
+const NOTES = { current: null, editing: null };
+const isPoint = n => n.end - n.start < 1e-6;
+const noteColor = n => (TIER_COLORS[NOTE_TAGS[n.tag] || 'blue'])[document.documentElement.dataset.theme === 'paper' ? 1 : 0];
+const laneName = key => lanes().find(l => l.key === key)?.label || key;
+
+function tidyNotes(list) {
+  return (list || []).filter(n => n && isFinite(n.start))
+    .map(n => {
+      const start = Math.max(0, Math.min(S.dur, +n.start)), end = Math.max(start, Math.min(S.dur, isFinite(n.end) ? +n.end : start));
+      return { start, end, text: String(n.text || ''), tag: NOTE_TAGS[n.tag] ? n.tag : 'note', tier: n.tier || null };
+    })
+    .sort((a, b) => a.start - b.start);
+}
+/* A note as one line of text, for a TextGrid point or a TSV row:
+   "[check][→12.345][@words] is this a schwa?" */
+function noteMark(n) {
+  return `[${n.tag}]` + (isPoint(n) ? '' : `[→${+n.end.toFixed(4)}]`) +
+         (n.tier ? `[@${laneName(n.tier)}]` : '') + (n.text ? ' ' + n.text : '');
+}
+function parseNoteMark(t, mark) {
+  const n = { start: t, end: t, text: mark, tag: 'note', tier: null };
+  let m;
+  while ((m = n.text.match(/^\[([^\]]*)\]\s*/))) {
+    const v = m[1];
+    if (NOTE_TAGS[v]) n.tag = v;
+    else if (v.startsWith('→') && isFinite(parseFloat(v.slice(1)))) n.end = parseFloat(v.slice(1));
+    else if (v.startsWith('@')) n.tier = lanes().find(l => l.label === v.slice(1))?.key || null;
+    else break;
+    n.text = n.text.slice(m[0].length);
+  }
+  return n;
+}
+
+function renderNotes() {
+  const f = $('noteFilter'), want = f.value;
+  const counts = Object.fromEntries(Object.keys(NOTE_TAGS).map(k => [k, S.notes.filter(n => n.tag === k).length]));
+  const opts = `<option value="">all</option>` + Object.keys(NOTE_TAGS).map(k =>
+    `<option value="${k}"${counts[k] ? '' : ' disabled'}>${k}${counts[k] ? ' · ' + counts[k] : ''}</option>`).join('');
+  if (f.innerHTML !== opts) { f.innerHTML = opts; f.value = counts[want] ? want : ''; }
+  const shown = S.notes.filter(n => !f.value || n.tag === f.value);
+  $('noteCount').textContent = S.notes.length
+    ? `${shown.length}${f.value ? ' of ' + S.notes.length : ''} note${S.notes.length === 1 ? '' : 's'}` : 'none';
+  $('notesList').innerHTML = shown.length ? shown.map(n => {
+    const i = S.notes.indexOf(n);
+    const host = n.tier && trackOf(n.tier)?.items.find(it => it.start <= (n.start + n.end) / 2 && (n.start + n.end) / 2 <= it.end);
+    const where = n.tier ? `${laneName(n.tier)}${host?.text ? ' “' + host.text + '”' : ''}`
+                : isPoint(n) ? '' : `to ${f2(n.end)} s`;
+    return `<div class="nrow${n === NOTES.current ? ' sel' : ''}" data-i="${i}" title="${esc(noteMark(n))}">
+      <i class="dot" style="background:${noteColor(n)}"></i><span class="t">${f3(n.start)}</span>
+      <span class="tx">${esc(n.text || n.tag)}${where ? ` <i>· ${esc(where)}</i>` : ''}</span>
+      <button class="tiny" data-nd title="Delete this note">×</button></div>`;
+  }).join('') : `<div class="nempty">${S.notes.length ? 'No notes with this tag.'
+    : 'No notes yet. N leaves one at the playhead, the selection or the cursor; F flags the selected interval. [ and ] step through them.'}</div>`;
+}
+
+/* Show a note: in view at the zoom there is, or zoomed out to fit a stretch
+   wider than the window; a flag selects its interval, ready for Enter. */
+function goToNote(n) {
+  NOTES.current = n;
+  const span = S.win[1] - S.win[0];
+  if (n.end - n.start > span * 0.9) zoomTo(n.start, n.end);
+  else if (n.start < S.win[0] || n.end > S.win[1]) { const c = (n.start + n.end) / 2; setWindow(c - span / 2, c + span / 2, false); }
+  S.cursor = n.start;
+  const host = n.tier && trackOf(n.tier)?.items.find(it => it.start <= (n.start + n.end) / 2 && (n.start + n.end) / 2 <= it.end);
+  if (host) { setActiveLane(n.tier, false); S.selectedItem = host; S.sel = [host.start, host.end]; }
+  else if (!isPoint(n)) { S.sel = [n.start, n.end]; S.selectedItem = null; }
+  probe(n.start); renderNotes(); renderSegments(); drawAll();
+  $('notesList').querySelector('.nrow.sel')?.scrollIntoView({ block: 'nearest' });
+}
+function stepNote(dir) {
+  const f = $('noteFilter').value, list = S.notes.filter(n => !f || n.tag === f);
+  if (!list.length) return status('no notes yet — N leaves one', true);
+  const from = NOTES.current && list.includes(NOTES.current) ? NOTES.current.start : (S.cursor ?? (dir > 0 ? -1 : Infinity));
+  const n = dir > 0 ? list.find(x => x.start > from + 1e-6) || list[0]
+                    : list.slice().reverse().find(x => x.start < from - 1e-6) || list[list.length - 1];
+  goToNote(n);
+}
+
+/* N: while playing, a bookmark at the playhead without stopping, to come back
+   to; otherwise a note on the selection, or at the cursor, opened to type. */
+function noteHere(x, y) {
+  if (!S.audio) return status('open a recording first', true);
+  if (PB.state === 'playing') {
+    const t = playPos();
+    addNote({ start: t, end: t }, false);
+    return status(`note at ${f2(t)} s — it is in the Notes list to write up later`);
+  }
+  const at = PB.state === 'paused' ? [PB.pos, PB.pos] : S.sel && !S.selectedItem ? S.sel : S.cursor != null ? [S.cursor, S.cursor] : null;
+  if (!at) return status('click where the note should go, or select a stretch, then press N', true);
+  addNote({ start: at[0], end: at[1] }, true, x, y);
+}
+/* F: flag the selected interval, or open its flag if it has one. */
+const flagOf = (key, it) => S.notes.find(n => n.tier === key && it.start <= (n.start + n.end) / 2 && (n.start + n.end) / 2 <= it.end);
+function flagSelected(x, y) {
+  const it = selectedOnActive();
+  if (!it) return status('select an interval to flag it', true);
+  const had = flagOf(S.activeLane, it);
+  if (had) return openNoteEditor(had, false, x, y);
+  addNote({ start: it.start, end: it.end, tier: S.activeLane, tag: 'check' }, true, x, y);
+}
+function addNote(at, open = true, x, y) {
+  const n = { start: at.start, end: at.end, text: '', tag: at.tag || 'note', tier: at.tier || null };
+  edit([], () => { S.notes.push(n); S.notes.sort((a, b) => a.start - b.start); });
+  NOTES.current = n; renderNotes();
+  if (open) openNoteEditor(n, true, x, y);
+  return n;
+}
+
+/* The editor floats where the note was made: over the spectrogram at its
+   time when it came from a key, at the pointer when it came from a menu. */
+function openNoteEditor(n, isNew, x, y) {
+  closeNoteEditor(true);
+  const ed = $('noteEd');
+  if (x == null) {
+    const r = $('spec').getBoundingClientRect();
+    x = r.left + PAD.l + (n.start - S.win[0]) / ((S.win[1] - S.win[0]) || 1) * (r.width - PAD.l - PAD.r);
+    y = Math.max(8, r.top + 24);
+  }
+  NOTES.editing = { n, isNew, tag: n.tag, at: performance.now() };
+  $('noteTags').innerHTML = Object.entries(NOTE_TAGS).map(([k, c]) =>
+    `<button class="${k === n.tag ? 'on' : ''}" data-tag="${k}"><i style="background:${TIER_COLORS[c][document.documentElement.dataset.theme === 'paper' ? 1 : 0]}"></i>${k}</button>`).join('');
+  $('noteText').value = n.text;
+  $('noteWhere').textContent = n.tier ? `flag on ${laneName(n.tier)} · ${f3(n.start)}–${f3(n.end)} s`
+    : isPoint(n) ? `at ${f3(n.start)} s` : `${f3(n.start)}–${f3(n.end)} s`;
+  ed.hidden = false;
+  const w = ed.offsetWidth, h = ed.offsetHeight;
+  ed.style.left = Math.max(6, Math.min(innerWidth - w - 6, x - 20)) + 'px';
+  ed.style.top = Math.max(6, Math.min(innerHeight - h - 6, y)) + 'px';
+  $('noteText').focus();
+}
+function closeNoteEditor(commit) {
+  const E = NOTES.editing;
+  if (!E) return;
+  NOTES.editing = null;
+  $('noteEd').hidden = true;
+  const text = $('noteText').value.trim(), { n, isNew, tag } = E;
+  if (!S.notes.includes(n)) return;
+  if (commit) {
+    if (text === n.text && tag === n.tag) return;
+    if (isNew) { n.text = text; n.tag = tag; afterEdit(); }       // the creation is already one undo step
+    else edit([], () => { n.text = text; n.tag = tag; });
+  } else if (isNew) S.undo.length && applySnap(S.undo.pop());  // Escape takes back a note just made
+}
+function deleteNote(n) {
+  if (NOTES.editing?.n === n) { NOTES.editing = null; $('noteEd').hidden = true; }
+  edit([], () => { S.notes = S.notes.filter(x => x !== n); });
+  if (NOTES.current === n) NOTES.current = null;
+  status('note deleted — Undo brings it back');
+}
+$('noteTags').addEventListener('click', e => {
+  const b = e.target.closest('button[data-tag]');
+  if (!b || !NOTES.editing) return;
+  NOTES.editing.tag = b.dataset.tag;
+  for (const x of $('noteTags').children) x.classList.toggle('on', x === b);
+  $('noteText').focus();
+});
+$('noteText').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); closeNoteEditor(true); }
+  else if (e.key === 'Escape') { e.preventDefault(); closeNoteEditor(false); }
+  e.stopPropagation();
+});
+$('noteSave').addEventListener('click', () => closeNoteEditor(true));
+$('noteDel').addEventListener('click', () => { const n = NOTES.editing?.n; if (n) deleteNote(n); });
+$('noteEd').addEventListener('mousedown', e => { if (e.target !== $('noteText')) e.preventDefault(); });
+// A click anywhere else keeps what was typed, as the label editor does.
+// (Not the press that opened it: a flag opens the editor on pointerdown.)
+addEventListener('mousedown', e => {
+  if (NOTES.editing && !$('noteEd').contains(e.target) && performance.now() - NOTES.editing.at > 300) closeNoteEditor(true);
+}, true);
+
+/* The flag of a note under the pointer, on a pane that draws flags. */
+function noteAtPin(e) {
+  const cv = e.currentTarget, r = cv.getBoundingClientRect();
+  if (e.clientY - r.top > PAD.t + 14) return null;
+  const x = e.clientX - r.left, iw = r.width - PAD.l - PAD.r, span = (S.win[1] - S.win[0]) || 1;
+  let best = null, bd = 7;
+  for (const n of S.notes) {
+    if (n.tier) continue;
+    const d = Math.abs(x - (PAD.l + (n.start - S.win[0]) / span * iw) - 3);
+    if (d < bd) { bd = d; best = n; }
+  }
+  return best;
+}
+for (const id of ['wave', 'spec']) {
+  $(id).addEventListener('pointermove', e => {
+    const n = S.notes.length ? noteAtPin(e) : null;
+    e.currentTarget.title = n ? `${n.tag}${n.text ? ': ' + n.text : ''} — click to open` : '';
+    e.currentTarget.style.cursor = n ? 'pointer' : '';
+  });
+  // The pane's own pointerdown (select, probe) stands aside for a flag.
+  $(id).addEventListener('pointerdown', e => {
+    const n = S.notes.length && e.button === 0 ? noteAtPin(e) : null;
+    if (!n) return;
+    e.preventDefault();
+    goToNote(n); openNoteEditor(n, false, e.clientX, e.clientY + 12);
+  });
+}
+
+$('notesList').addEventListener('click', e => {
+  const row = e.target.closest('.nrow[data-i]');
+  if (!row) return;
+  const n = S.notes[+row.dataset.i];
+  if (!n) return;
+  if (e.target.closest('button[data-nd]')) return deleteNote(n);
+  goToNote(n);
+});
+$('notesList').addEventListener('dblclick', e => {
+  const row = e.target.closest('.nrow[data-i]'), n = row && S.notes[+row.dataset.i];
+  if (!n) return;
+  const r = row.getBoundingClientRect();
+  openNoteEditor(n, false, r.left - 310, r.top);
+});
+$('notesList').addEventListener('contextmenu', e => {
+  const row = e.target.closest('.nrow[data-i]'), n = row && S.notes[+row.dataset.i];
+  if (!n) return;
+  e.preventDefault();
+  goToNote(n);
+  openMenu(e.clientX, e.clientY, [
+    { label: 'Edit note…', run: () => openNoteEditor(n, false, e.clientX - 300, e.clientY) },
+    { label: isPoint(n) ? 'Play from here' : 'Play', run: () => play(n.start, isPoint(n) ? S.dur : n.end) },
+    { label: 'Delete note', run: () => deleteNote(n) },
+    '-',
+    { label: 'Copy all notes', off: !S.notes.length,
+      run: () => copyText('time_s\tend_s\ttag\ttier\ttext\n' + S.notes.map(x =>
+        `${x.start.toFixed(3)}\t${x.end.toFixed(3)}\t${x.tag}\t${x.tier ? laneName(x.tier) : ''}\t${x.text}`).join('\n'), 'the notes') },
+  ]);
+});
+$('noteFilter').addEventListener('change', renderNotes);
+$('notePrev').addEventListener('click', () => stepNote(-1));
+$('noteNext').addEventListener('click', () => stepNote(1));
+$('noteAdd').addEventListener('mousedown', e => e.preventDefault());
+$('noteAdd').addEventListener('click', () => noteHere());
+renderNotes();
 
 /* --------------------------------------------------- opening a TextGrid */
 /* Praat's long and short text formats are the same sequence of values with
@@ -4789,7 +5322,7 @@ function parseTextGrid(buf) {
       }
       tiers.push({ name, kind: 'interval', items });
     } else {
-      for (let j = 0; j < count; j++) { num(); str(); }
+      for (let j = 0; j < count; j++) { const t = num(), mark = str(); items.push({ t, mark }); }
       tiers.push({ name, kind: 'point', items });
     }
   }
@@ -4828,6 +5361,11 @@ function importTextGrid(tg, filename) {
                          edited: !!f, cached: null });
     }
     S.extra = extra;
+    /* Point tiers become notes. Lana's own "notes" tier comes back as it went
+       out; the points of any other point tier (tones, say) keep the tier's
+       name in front of their text, since a note has no tier of its own. */
+    S.notes = tidyNotes(points.flatMap(p => p.items.map(({ t, mark }) =>
+      parseNoteMark(t, /^notes?$/i.test(p.name.trim()) ? mark : `${p.name}: ${mark}`))));
     S.transcript = [];
   });
   // edit() appended "+ hand"; an opened file has not been touched yet.
@@ -4835,7 +5373,8 @@ function importTextGrid(tg, filename) {
   for (const x of S.extra) x.source = filename;
   afterEdit();
   const notes = [];
-  if (points.length) notes.push(`${points.length} point tier${points.length === 1 ? '' : 's'} skipped (Lana shows interval tiers only)`);
+  const others = points.filter(p => !/^notes?$/i.test(p.name.trim()));
+  if (others.length) notes.push(`point tier${others.length === 1 ? '' : 's'} ${others.map(p => `"${p.name}"`).join(', ')} opened as notes`);
   if (Math.abs(tg.xmax - S.dur) > 0.05)
     notes.push(`the TextGrid is ${f2(tg.xmax)} s long and the recording ${f2(S.dur)} s — is it the right file?`);
   status(`opened ${filename}` + (notes.length ? ' · ' + notes.join(' · ') : ''), notes.length > 0);
@@ -4853,6 +5392,7 @@ function annotationData() {
     tiers: TKEYS.map(k => tier(k, S.tracks[k])),
     extra: S.extra.map(x => ({ key: x.key, label: x.label, source: x.source, format: x.format || undefined, color: x.color,
                                items: plain(x.items) })),
+    notes: S.notes.map(({ start, end, text, tag, tier }) => ({ start, end, text, tag, ...(tier ? { tier } : {}) })),
     transcript: S.transcript,
   };
 }
@@ -4874,6 +5414,7 @@ function applyAnnotation(d) {
     extra.push(Object.assign(t, { source: x.source || 'hand', color: x.color }));
   }
   S.extra = extra;
+  S.notes = tidyNotes(d.notes);
   S.transcript = d.transcript || [];
   S.selectedItem = null;
   if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
@@ -4968,6 +5509,9 @@ window.lanaMenu = id => {
     'undo': () => once('undo', () => inField() ? document.execCommand('undo') : undo()),
     'redo': () => once('redo', () => inField() ? document.execCommand('redo') : redo()),
     'add-tier': () => addTier(),
+    'add-note': needAudio(() => noteHere()), 'flag': needAudio(() => flagSelected()),
+    'next-note': needAudio(() => stepNote(1)), 'prev-note': needAudio(() => stepNote(-1)),
+    'toggle-follow': () => $('followOn').click(),
     'play': needAudio(togglePlay), 'stop-playback': stopPlayback,
     'zoom-sel': needAudio(zoomSel), 'zoom-in': needAudio(() => $('zoomIn').click()),
     'zoom-out': needAudio(() => $('zoomOut').click()), 'zoom-all': needAudio(() => $('zoomAll').click()),
@@ -5082,10 +5626,10 @@ const PROJ = {
     if (!PROJ.key) return false;
     let d;
     try { d = await STORE.get('annotations', PROJ.key); } catch { return false; }
-    if (!d || !(d.tiers || []).some(t => (t.items || []).length) && !(d.extra || []).length) return false;
+    if (!d || !(d.tiers || []).some(t => (t.items || []).length) && !(d.extra || []).length && !(d.notes || []).length) return false;
     try { applyAnnotation(d); } catch { return false; }
     stampSpeakers();
-    renderPlan(); renderSegments(); updateTierInfo(); renderTranscript(); drawAll();
+    renderPlan(); renderSegments(); updateTierInfo(); renderTranscript(); renderNotes(); drawAll();
     const when = d.saved ? new Date(d.saved).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'earlier';
     PROJ.show(`restored your annotation from ${when}`, false, { label: 'start over', run: PROJ.startOver });
     return true;
@@ -5097,7 +5641,7 @@ const PROJ = {
         Object.assign(t, { items: [], cues: [], source: '', note: '', edited: false, cached: null,
                            state: t.model ? 'ready' : 'empty' });
       }
-      S.extra = []; S.transcript = [];
+      S.extra = []; S.notes = []; S.transcript = [];
     });
     status('cleared — Undo brings the annotation back');
   },
@@ -5113,7 +5657,7 @@ renderPlan();
   await NET.discover();
   if (DEMO.on) { DEMO.open(new URLSearchParams(location.search).get('demo')); return; }
   if (!NET.models.length && NET.mode === 'broker')
-    status('no recogniser configured — analysis and TextGrid export still work (⚙ Connection)');
+    status('no recogniser configured — analysis and TextGrid export still work (⚙ Recognisers)');
 })();
 
 /* ------------------------------------------------------------------ desktop
@@ -5171,11 +5715,12 @@ const DESK = {
       DESK.caps = caps;
     } catch { return; }
     $('fsManage').hidden = false;
-    // In the app the "server-side providers" ARE these; say so instead of
-    // pointing at a serve.py the user does not have.
-    $('fsBroker').querySelector('legend').textContent = 'Recogniser to use';
-    $('fsBroker').querySelector('.hint.pad').hidden = true;
+    // In the app the "server-side providers" ARE the recognisers listed in
+    // these settings, and every tier chooses among all of them: nothing to pick.
+    $('fsBroker').hidden = true;
     $('modeBroker').parentElement.lastChild.textContent = ' Recognisers in this app';
+    $('gearclose').insertAdjacentHTML('beforebegin',
+      '<span class="hint">Download models and add services here; each tier picks one in the Recognition panel.</span>');
     // Talking to an endpoint straight from the page is a developer's mode in
     // the app; it stays reachable, folded away, and opens if it is in use.
     const adv = document.createElement('details');
@@ -5187,7 +5732,7 @@ const DESK = {
     radios.className = 'modehdr';
     radios.append($('modeBroker').parentElement, $('modeDirect').parentElement);
     adv.append(radios, $('fsDirect'));
-    NET.onchange = () => DESK.renderList();
+    NET.onchange = () => { DESK.renderList(); DESK.renderSections(); };
     deskStore = !!DESK.caps.store;
     if (deskStore) await DESK.loadPrefs();
     // The recording the app was opened with ("Open with Lana", or a path on the
@@ -5242,7 +5787,11 @@ const DESK = {
     $('asrsize').value = CFG.size || 'medium';
     $('nameTiers').checked = !!CFG.nameTiers;
     $('spkN').value = CFG.spkCount || ''; $('spkTh').value = CFG.spkThreshold || '0.7';
-    for (const T of TIERS) if (!S.tracks[T.key].model) S.tracks[T.key].model = CFG[T.cfg] || '';
+    showFollow();
+    for (const T of TIERS) if (!S.tracks[T.key].model) {
+      S.tracks[T.key].model = CFG[T.cfg] || '';
+      S.tracks[T.key].provider = CFG[T.cfg + 'Provider'] || '';
+    }
     try { localStorage.setItem(CFG_KEY, JSON.stringify(CFG)); } catch {}
     await NET.discover();
     drawAll();
@@ -5282,14 +5831,15 @@ const DESK = {
         <div class="who"><b>${esc(m.label)}</b>` +
         `<em>${esc(m.note)}${m.licence ? ` Licence: ${esc(m.licence)}.` : ''}</em></div>${right}</div>`;
     };
+    // Each tier's section in the settings gets the built-in models for it.
     const known = new Set(GROUPS.map(g => g[0]));
-    $('lcList').innerHTML = [...GROUPS, ['', 'Other', '']].map(([kind, title, gist]) => {
+    for (const [kind, title] of [...GROUPS, ['', 'Other']]) {
       const ms = j.models.filter(m => kind ? m.kind === kind : !known.has(m.kind));
-      if (!ms.length) return '';
       const n = ms.filter(m => m.installed).length;
-      return `<div class="mgsub"><b>${title}</b>${gist ? ` — ${gist}` : ''}` +
+      $('lcList').querySelector(`[data-kind="${kind}"]`).innerHTML = !ms.length ? '' :
+        `<div class="mgsub"><b>${kind ? 'Built into Lana' : title}</b> — runs on this computer` +
         `${n ? ` · <span style="color:var(--ok)">${n} ready</span>` : ' · none downloaded yet'}</div>` + ms.map(row).join('');
-    }).join('');
+    }
     const busy = j.models.some(m => m.downloading);
     clearTimeout(DESK.lcTimer);
     if (busy) DESK.lcTimer = setTimeout(() => DESK.loadLocal(), 1000);
@@ -5426,6 +5976,26 @@ const DESK = {
       DESK.providers = r.ok ? (await r.json()).providers || [] : [];
     } catch { DESK.providers = []; }
     DESK.renderList();
+  },
+
+  /* Under each tier's section: the model the tier uses now, and the services
+     added below that offer models for it, so one place answers "what can
+     fill my phone tier, and where would the audio go". */
+  renderSections() {
+    const box = $('lcList');
+    for (const T of TIERS) {
+      const t = S.tracks[T.key], m = NET.models.find(x => x.id === t.model && (x.provider || '') === (t.provider || ''));
+      box.querySelector(`[data-use="${T.key}"]`).textContent = m ? 'in use: ' + m.label.replace(/ \(on this computer.*\)$/, '') : '';
+      const others = NET.providers.filter(p => p.kind !== 'builtin')
+        .map(p => [p, (p.models || []).filter(x => {
+          const role = x.role || guessRole(x.id);
+          return role === T.role || (role === 'both' && !T.optional);   // "both" is words and phones
+        })])
+        .filter(([, ms]) => ms.length);
+      box.querySelector(`[data-also="${T.role}"]`).innerHTML = others.length
+        ? 'Also offered: ' + others.map(([p, ms]) => `<b>${esc(p.label)}</b> (${esc(ms.map(x => x.id).join(', '))})${audioChip(p)}`).join(' · ')
+        : T.key === 'speaker' ? '' : 'A cloud service or a speech server added below can offer models for this tier too.';
+    }
   },
 
   renderList() {
