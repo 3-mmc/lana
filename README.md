@@ -70,13 +70,15 @@ The desktop app's catalogue covers each tier with at least one model that runs o
 | --- | --- | --- | --- |
 | Whisper base, small, large-v3 turbo | words | 142–547 MB | MIT |
 | Omnilingual ASR 300M, 1B (Meta) | words | 365 MB, 1 GB | Apache 2.0 |
+| Parakeet TDT 0.6B v3 (NVIDIA), 25 European languages | words | 646 MB | CC BY 4.0 |
 | MMS-1b-all (Meta), per language | words | 1 GB once, then about 9 MB a language | CC BY-NC 4.0 |
 | ZIPA small, large | IPA phones | 71 MB, 310 MB | CC BY 4.0 |
 | Speakers (pyannote segmentation + speaker embedding) | speakers | 36 MB | MIT, CC BY 4.0 |
+| Sounds (AudioSet tagger, zipformer small) | events | 27 MB | Apache 2.0 |
 
 ![The desktop settings screen: the catalogue of built-in models with sizes, licences and notes, and the MMS section with its shared part and two installed languages](web/docs/fig-desktop-models.png)
 
-The catalogue as the settings screen presents it, grouped by the tier each model fills. Each model says what it is good for, in the terms a user choosing between them needs, rather than in benchmark names.
+The catalogue as the settings screen presents it, grouped by the tier each model fills. Each model says what it is good for, in the terms a user choosing between them needs, rather than in benchmark names. With the first model, Lana also downloads Silero VAD (2 MB, MIT), with which every recogniser cuts long recordings into pieces at pauses; Whisper skips the pieces in which it hears no speech, since silence is where Whisper invents text.
 
 The choice of word model depends on the language more than on the size of the model. Omnilingual covers some 1,600 languages, but it is not told which language it is hearing, and where the writing system is ambiguous it guesses. On 40 held-out Common Voice recordings each, it wrote Dargwa in Arabic or Latin letters rather than Cyrillic:
 
@@ -145,7 +147,7 @@ The analysis is Praat by Paul Boersma and David Weenink, through [praat-wasm](ht
 
 > Boersma, Paul & Weenink, David. *Praat: doing phonetics by computer* [Computer program]. http://www.praat.org/
 
-The built-in models are the work of their authors: Whisper (OpenAI), MMS and Omnilingual ASR (Meta), ZIPA (Zhu et al. 2025), and pyannote's segmentation model, run through [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). MMS is described in Pratap et al. (2023), *Scaling Speech Technology to 1,000+ Languages*.
+The built-in models are the work of their authors: Whisper (OpenAI), MMS and Omnilingual ASR (Meta), Parakeet (NVIDIA), ZIPA (Zhu et al. 2025), pyannote's segmentation model, Silero VAD and k2-fsa's AudioSet tagger, run through [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). MMS is described in Pratap et al. (2023), *Scaling Speech Technology to 1,000+ Languages*.
 
 The romanisation tiers draw on [pinyin-data](https://github.com/mozillazg/pinyin-data) (MIT), from the Unicode Consortium's Unihan database; on word readings from [CC-CEDICT](https://cc-cedict.org/) (CC BY-SA 4.0), as packaged in [dragonmapper](https://github.com/tsroten/dragonmapper) (MIT), whose syllable table also gives zhuyin and IPA. `web/romanise.json` is derived from them by [`scripts/languages/romanise.py`](scripts/languages/romanise.py) and is shared under CC BY-SA 4.0.
 

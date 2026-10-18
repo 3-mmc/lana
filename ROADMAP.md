@@ -27,13 +27,13 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
 - [x] ~~**Loudness**~~ tested 2026-10-18 and dropped: raising FLEURS ka (−50 dBFS) by 40 dB
       before the models changed nothing (ZIPA small 43 vs 42 phones below 0.6, large 28 vs 29;
       the speaker model found the same 13.6 s of speech either way)
-- [ ] **Whisper loops**: a piece whose text repeats (compression ratio / repeated n-grams)
+- [x] **Whisper loops**: a piece whose text repeats (compression ratio / repeated n-grams)
       is dropped and reported, rather than shown as words
 
 ### New models
-- [ ] **Silero VAD**: pieces cut at real pauses; silence skipped
-- [ ] **Parakeet TDT 0.6B v3** (25 European languages, sherpa-onnx transducer)
-- [ ] **Audio tagging** (sherpa-onnx AudioSet tagger): laughter, music, noise, coughs as a tier
+- [x] **Silero VAD**: pieces cut at real pauses; silence skipped
+- [x] **Parakeet TDT 0.6B v3** (25 European languages, sherpa-onnx transducer)
+- [x] **Audio tagging** (sherpa-onnx AudioSet tagger): laughter, music, noise, coughs as a tier
 
 ### Romanisation tiers (asked 2026-10-18)
 - [ ] Derived tiers like the ARPABET one, worked backwards from what the models write:

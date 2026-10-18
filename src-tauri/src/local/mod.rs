@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Recognition that runs inside Lana, with no server and no key: whisper.cpp
-// and Omnilingual ASR for words, ZIPA for IPA phones, and pyannote with CAM++
-// for speakers; everything but whisper.cpp through sherpa-onnx.
+// Recognition that runs inside Lana, with no server and no key: whisper.cpp,
+// Omnilingual ASR and Parakeet for words, ZIPA for IPA phones, pyannote with
+// CAM++ for speakers, an AudioSet tagger for other sounds, and Silero VAD to
+// cut the audio into pieces at pauses; everything but whisper.cpp through
+// sherpa-onnx.
 //
 // It presents itself to the page as one more provider ("lana", kind "builtin"),
 // answering the same progress / partial / cancel / recluster contract as the
@@ -14,7 +16,10 @@ pub mod frames;
 pub mod align;
 pub mod pitch;
 pub mod mms;
+pub mod parakeet;
 pub mod speakers;
+pub mod tags;
+pub mod vad;
 
 use std::{
     sync::{
@@ -81,6 +86,7 @@ pub struct Local {
 
 impl Local {
     pub fn new(models: Models) -> Self {
+        vad::use_model(models.vad_path());
         Local {
             models,
             job: Default::default(),
@@ -102,10 +108,7 @@ impl Local {
             .models
             .installed()
             .iter()
-            .map(|e| {
-                let role = match e.kind { Kind::Whisper | Kind::Letters => "words", Kind::Phones => "phones", Kind::Speakers => "speakers" };
-                json!({ "id": e.id, "role": role, "label": format!("{} (on this computer)", e.label) })
-            })
+            .map(|e| json!({ "id": e.id, "role": e.kind.role(), "label": format!("{} (on this computer)", e.label) }))
             .collect();
         // One word model per MMS language on this computer.
         for code in self.models.mms_installed() {
@@ -200,6 +203,8 @@ impl Local {
         let path = self.models.path(&entry);
         self.with_job(model_id, |me| match entry.kind {
             Kind::Phones | Kind::Letters => me.run_ctc(&entry, req.bytes, &req.filename, req.language.as_deref()),
+            Kind::Transducer => me.run_parakeet(&entry, req.bytes, &req.filename),
+            Kind::Tags => me.run_tags(&entry, req.bytes, &req.filename),
             _ => me.run(&entry, &path, req.bytes, &req.filename, req.language.as_deref()),
         })
     }
@@ -449,6 +454,67 @@ impl Local {
         Ok(json!({ "model": model, "query": query, "hits": found }))
     }
 
+    /// Parakeet over the recording in VAD pieces of up to 30 s, each piece's
+    /// words on the page as it finishes. Pieces VAD found no speech in are
+    /// skipped, as they are for Whisper: a transducer invents less in
+    /// silence, but reading it is still time spent for nothing. The language
+    /// is the model's own guess; it cannot be told one.
+    fn run_parakeet(&self, entry: &models::Entry, bytes: Vec<u8>, filename: &str) -> Result<Value, String> {
+        let samples = audio::decode_16k_mono(bytes, filename)?;
+        let rate = audio::WHISPER_RATE;
+        let duration = samples.len() as f64 / rate as f64;
+        if let Some(j) = self.job.lock().unwrap().as_mut() {
+            j.total = duration;
+        }
+        self.stage("loading model");
+        let dir = self.models.path(entry);
+        let rec = parakeet::Parakeet::load(dir.parent().ok_or("no model folder")?, threads())?;
+        self.stage("recognising words");
+        let t = Instant::now();
+        let mut words = Vec::new();
+        for p in vad::plan(&samples, rate, 30.0) {
+            let (offset, end) = (p.range.start as f64 / rate as f64, p.range.end as f64 / rate as f64);
+            if p.speech {
+                let piece = rec.words(&samples[p.range.clone()], rate, offset, end);
+                self.done_cues.lock().unwrap().extend(parakeet::cues(&piece));
+                words.extend(piece);
+            }
+            self.percent.store((end / duration.max(1e-3) * 100.0).clamp(0.0, 100.0) as u64, Ordering::Relaxed);
+            if self.cancel.load(Ordering::Relaxed) {
+                return Err("stopped".into());
+            }
+        }
+        eprintln!("lana: {} read {} words in {duration:.1} s of audio in {:.1} s", entry.id, words.len(), t.elapsed().as_secs_f64());
+        let text = words.iter().map(|w| w.0.as_str()).collect::<Vec<_>>().join(" ");
+        Ok(json!({ "text": text, "duration": round3(duration), "cues": parakeet::cues(&words) }))
+    }
+
+    /// The sound tagger, one window per second, each second's sound on the
+    /// page as soon as its run of hops is closed.
+    fn run_tags(&self, entry: &models::Entry, bytes: Vec<u8>, filename: &str) -> Result<Value, String> {
+        let samples = audio::decode_16k_mono(bytes, filename)?;
+        let rate = audio::WHISPER_RATE;
+        let duration = samples.len() as f64 / rate as f64;
+        if let Some(j) = self.job.lock().unwrap().as_mut() {
+            j.total = duration;
+        }
+        self.stage("loading model");
+        let tagger = tags::Tagger::load(&self.models.named(entry, "model.int8.onnx"), &self.models.named(entry, "labels.csv"), threads())?;
+        self.stage("listening for sounds");
+        let t = Instant::now();
+        let (pct, cancel) = (self.percent.clone(), self.cancel.clone());
+        let hops = tagger.label(&samples, rate, |done| {
+            pct.store((done / duration.max(1e-3) * 100.0).clamp(0.0, 100.0) as u64, Ordering::Relaxed);
+            !cancel.load(Ordering::Relaxed)
+        })?;
+        let events = tags::events(&hops, duration);
+        eprintln!("lana: {} found {} sounds in {duration:.1} s of audio in {:.1} s", entry.id, events.len(), t.elapsed().as_secs_f64());
+        let cues = tags::cues(&events);
+        self.done_cues.lock().unwrap().extend(cues.iter().cloned());
+        let text = events.iter().map(|e| e.0.as_str()).collect::<Vec<_>>().join(", ");
+        Ok(json!({ "text": text, "duration": round3(duration), "cues": cues }))
+    }
+
     fn speaker_models(&self, entry: &models::Entry) -> speakers::Models {
         speakers::models_at(&self.models.named(entry, "segmentation.onnx"), &self.models.named(entry, "campplus.onnx"), threads())
     }
@@ -540,6 +606,12 @@ impl Local {
     /// both set_initial_prompt (std::bad_alloc on the second piece) and
     /// tokenize (free(): invalid pointer) crash the process. Once the first
     /// piece has detected a language, the rest are held to it.
+    ///
+    /// The pieces are cut at pauses Silero VAD found (vad.rs), and a piece in
+    /// which it heard no speech at all is not given to Whisper: silence is
+    /// where Whisper makes text up. A piece whose text repeats itself (see
+    /// `looping`) or that has no word Whisper was sure of (`unsure`) is
+    /// dropped too, and reported under "warnings".
     fn run(&self, entry: &models::Entry, path: &std::path::Path, bytes: Vec<u8>, filename: &str, language: Option<&str>) -> Result<Value, String> {
         let samples = audio::decode_16k_mono(bytes, filename)?;
         let rate = audio::WHISPER_RATE;
@@ -557,10 +629,14 @@ impl Local {
         self.stage("recognising words");
         let t = Instant::now();
         let (mut cues, mut text, mut detected) = (Vec::new(), String::new(), String::new());
-        let mut at = 0usize;
-        while at < samples.len() {
-            let end = ctc::cut_point(&samples, at, rate);
+        let mut warnings = Vec::new();
+        for piece in vad::plan(&samples, rate, 30.0) {
+            let (at, end) = (piece.range.start, piece.range.end);
             let (offset, piece_len) = (at as f64 / rate as f64, (end - at) as f64 / rate as f64);
+            if !piece.speech {
+                self.percent.store(((offset + piece_len) / duration.max(1e-3) * 100.0) as u64, Ordering::Relaxed);
+                continue;
+            }
             let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
             params.set_language(Some(lang.as_deref().unwrap_or("auto")));
             params.set_n_threads(threads());
@@ -578,29 +654,46 @@ impl Local {
             // the boxed closure as the bare closure type, so every call returns
             // garbage. Linux happened to read "continue" on a first run and
             // "abort" later; Windows aborted the encoder at once (error -6). The
-            // flag is all the callback needs, so hand whisper.cpp the flag itself.
-            // It lives in self.cancel (an Arc), which outlives this full() call.
+            // flag is all the callback needs, so hand whisper.cpp the flag itself,
+            // with this piece's deadline (`Abort`), in a local that outlives the
+            // full() call below.
+            let abort = Abort { cancel: self.cancel.clone(), deadline: Instant::now() + piece_budget(piece_len) };
             unsafe {
                 params.set_abort_callback(Some(should_abort));
-                params.set_abort_callback_user_data(Arc::as_ptr(&self.cancel) as *mut std::ffi::c_void);
+                params.set_abort_callback_user_data(&abort as *const Abort as *mut std::ffi::c_void);
             }
             // A fresh state per piece: a second full() on one state died with
             // std::bad_alloc before it read any audio. The weights live in ctx,
             // so a state is only its buffers.
             let mut state = ctx.create_state().map_err(|e| e.to_string())?;
-            state.full(params, &samples[at..end]).map_err(|e| format!("whisper failed: {e}"))?;
+            let done = state.full(params, &samples[at..end]);
             if self.cancel.load(Ordering::Relaxed) {
                 return Err("stopped".into());
+            }
+            if let Err(e) = done {
+                if Instant::now() < abort.deadline {
+                    return Err(format!("whisper failed: {e}"));
+                }
+                let secs = piece_budget(piece_len).as_secs();
+                eprintln!("lana: {} gave up on {offset:.1}-{:.1} s after {secs} s", entry.id, offset + piece_len);
+                warnings.push(json!({ "start": round3(offset), "end": round3(offset + piece_len),
+                                      "reason": format!("no answer in {secs} s") }));
+                continue;
             }
             if lang.is_none() {
                 detected = whisper_rs::get_lang_str(state.full_lang_id_from_state()).unwrap_or("").to_string();
                 lang = (!detected.is_empty()).then(|| detected.clone());
             }
             let (piece_cues, piece_text) = segments_to_cues(&state, eot, offset, offset + piece_len);
+            if let Some(reason) = looping(&piece_text).or_else(|| unsure(&piece_cues)) {
+                eprintln!("lana: {} dropped {offset:.1}-{:.1} s ({reason}): {:.80}", entry.id, offset + piece_len, piece_text.trim());
+                warnings.push(json!({ "start": round3(offset), "end": round3(offset + piece_len), "reason": reason,
+                                      "text": piece_text.trim().chars().take(200).collect::<String>() }));
+                continue;
+            }
             text.push_str(&piece_text);
             self.done_cues.lock().unwrap().extend(piece_cues.iter().cloned());
             cues.extend(piece_cues);
-            at = end;
         }
         eprintln!("lana: {} transcribed {duration:.1} s of audio in {:.1} s", entry.id, t.elapsed().as_secs_f64());
         Ok(json!({
@@ -608,8 +701,75 @@ impl Local {
             "language": if detected.is_empty() { lang.unwrap_or_default() } else { detected },
             "duration": round3(duration),
             "cues": cues,
+            "warnings": warnings,
         }))
     }
+}
+
+/// Whether Whisper was guessing over a whole piece: the mean confidence of
+/// its words under 0.15. A loop does not always reach the text: whisper.cpp
+/// itself notices a looping decode (its entropy test) and retries at higher
+/// temperatures, and on the Georgian FLEURS clip whisper-small's last try
+/// was "117. external" for all 15 s, at 0.085 and 0.000, after 42 s of
+/// retries. Real words, even misheard ones, came out at 0.3-1.0 in testing
+/// (whisper-base on the same clip: 0.33-0.66).
+fn unsure(cues: &[Value]) -> Option<&'static str> {
+    let confs: Vec<f64> = cues.iter()
+        .flat_map(|c| c["words"].as_array().into_iter().flatten())
+        .filter_map(|w| w["conf"].as_f64())
+        .collect();
+    let mean = confs.iter().sum::<f64>() / confs.len().max(1) as f64;
+    (!confs.is_empty() && mean < 0.15).then_some("no confident words")
+}
+
+/// Whether a piece of Whisper's text is a loop rather than speech: Whisper,
+/// given a language it knows little or a stretch of noise, can fall into
+/// writing one phrase over and over (whisper-small on the Georgian FLEURS clip
+/// gave "117. external" for all of it). Two tests, as OpenAI's whisper uses
+/// the first: the text compresses far better than speech does (ratio over
+/// 2.4), or one n-gram of words repeats back to back.
+///
+/// The ratio is taken over characters, not UTF-8 bytes: Georgian's three-byte
+/// letters share their first two bytes, so an ordinary Georgian sentence
+/// already compresses 2.4 to 1 as bytes (1.4 as characters).
+pub fn looping(text: &str) -> Option<&'static str> {
+    use std::io::Write;
+    let text = text.trim();
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() >= 24 {
+        let mut ids = std::collections::HashMap::new();
+        let bytes: Vec<u8> = if chars.iter().collect::<std::collections::HashSet<_>>().len() < 256 {
+            chars.iter().map(|c| { let n = ids.len(); *ids.entry(*c).or_insert(n) as u8 }).collect()
+        } else {
+            text.as_bytes().to_vec()
+        };
+        let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        if z.write_all(&bytes).is_ok() {
+            if let Ok(packed) = z.finish() {
+                if bytes.len() as f64 / packed.len().max(1) as f64 > 2.4 {
+                    return Some("repeated text");
+                }
+            }
+        }
+    }
+    // An n-gram of n words repeated back to back: eight times for one word
+    // ("no, no, no" is speech; eight is not), four times for two or more.
+    let words: Vec<String> = text.split_whitespace()
+        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
+        .filter(|w| !w.is_empty())
+        .collect();
+    for n in 1..=6usize {
+        let need = if n == 1 { 8 } else { 4 };
+        if words.len() < n * need {
+            break;
+        }
+        for i in 0..=words.len() - n * need {
+            if (1..need).all(|k| words[i..i + n] == words[i + k * n..i + k * n + n]) {
+                return Some("repeated text");
+            }
+        }
+    }
+    None
 }
 
 /// One Whisper call's segments as cues, shifted by `offset` seconds and kept
@@ -624,7 +784,8 @@ fn segments_to_cues(state: &whisper_rs::WhisperState, eot: i32, offset: f64, lim
         let b = (offset + seg.end_timestamp() as f64 / 100.0).min(limit).max(a);
         let seg_text = seg.to_str_lossy().map(|s| s.into_owned()).unwrap_or_default();
         text.push_str(&seg_text);
-        let mut words: Vec<(String, f64)> = Vec::new();
+        // (text, start, sum of token probabilities, tokens)
+        let mut words: Vec<(String, f64, f64, u32)> = Vec::new();
         for i in 0..seg.n_tokens() {
             let Some(tok) = seg.get_token(i) else { continue };
             let data = tok.token_data();
@@ -633,10 +794,13 @@ fn segments_to_cues(state: &whisper_rs::WhisperState, eot: i32, offset: f64, lim
             }
             let piece = tok.to_str_lossy().map(|s| s.into_owned()).unwrap_or_default();
             let t = offset + if data.t_dtw >= 0 { data.t_dtw as f64 / 100.0 } else { data.t0 as f64 / 100.0 };
+            let p = data.p as f64;
             if piece.starts_with(' ') || words.is_empty() {
-                words.push((piece.trim_start().to_owned(), t.clamp(a, b)));
+                words.push((piece.trim_start().to_owned(), t.clamp(a, b), p, 1));
             } else if let Some(last) = words.last_mut() {
                 last.0.push_str(&piece);
+                last.2 += p;
+                last.3 += 1;
             }
         }
         let n = words.len();
@@ -645,8 +809,12 @@ fn segments_to_cues(state: &whisper_rs::WhisperState, eot: i32, offset: f64, lim
             let start = words[k].1;
             let end = if k + 1 < n { words[k + 1].1 } else { b };
             let end = end.max(start + 0.02).min(b.max(start + 0.02));
+            // The word's confidence: the mean probability Whisper gave its
+            // tokens, punctuation included, as whisper.cpp's own word-level
+            // output does.
+            let conf = words[k].2 / words[k].3.max(1) as f64;
             out.push(json!({ "text": words[k].0, "start": round3(start), "end": round3(end),
-                             "phones": [], "phone_times": [], "aligned": true }));
+                             "conf": round3(conf), "phones": [], "phone_times": [], "aligned": true }));
         }
         let mut cue = json!({ "start": round3(a), "end": round3(b), "words": out });
         if n == 0 {
@@ -658,9 +826,31 @@ fn segments_to_cues(state: &whisper_rs::WhisperState, eot: i32, offset: f64, lim
 }
 
 
-/// ggml's abort callback: `user_data` is the job's cancel flag.
+/// What whisper.cpp's abort callback reads: the job's Stop flag, and when
+/// to give up on the piece.
+struct Abort {
+    cancel: Arc<AtomicBool>,
+    deadline: Instant,
+}
+
+/// How long one piece may take before Whisper is stopped and the piece left
+/// empty. Not for speed: when whisper.cpp finds its own output looping it
+/// decodes the piece again at a higher temperature, up to five times, and
+/// whisper-small on the 15 s Georgian FLEURS clip once ran for over twenty
+/// minutes that way (on a busy machine; 42 s on a quiet one) to return two
+/// words. A minute plus five times the piece's length is several times what
+/// large-v3 turbo needs on the slowest processor measured (0.7x real time).
+fn piece_budget(piece_s: f64) -> std::time::Duration {
+    std::time::Duration::from_secs_f64(60.0 + 5.0 * piece_s)
+}
+
+/// ggml's abort callback: `user_data` is the piece's `Abort`.
 unsafe extern "C" fn should_abort(user_data: *mut std::ffi::c_void) -> bool {
-    !user_data.is_null() && (*(user_data as *const AtomicBool)).load(Ordering::Relaxed)
+    if user_data.is_null() {
+        return false;
+    }
+    let a = &*(user_data as *const Abort);
+    a.cancel.load(Ordering::Relaxed) || Instant::now() >= a.deadline
 }
 
 fn preset(id: &str) -> whisper_rs::DtwModelPreset {
@@ -840,5 +1030,21 @@ async fn search_phones(State(l): State<Local>, form: Multipart) -> Response {
         Ok(Ok(v)) => Json(v).into_response(),
         Ok(Err(e)) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": e }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("search crashed: {e}") }))).into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::looping;
+
+    #[test]
+    fn loops_are_caught_and_speech_is_not() {
+        assert_eq!(looping(&" 117. external".repeat(12)), Some("repeated text"));
+        assert_eq!(looping("ich bin, ich bin, ich bin, ich bin ein Berliner"), Some("repeated text"));
+        // Ordinary sentences, Georgian included, whose UTF-8 bytes alone
+        // compress 2.4 to 1.
+        assert_eq!(looping("ანტარქტიკის უმაღლესი მთები, ვინსონის მასივი, რომლის უმაღლესი მწვერვალი, ვინსონის მთა მდებარეობს 4892 მეტრზე, განლაგებულია სენტინელის ქედის ჩრდილოეთ ნაწილში."), None);
+        assert_eq!(looping("Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis, das Vinson-Massiv."), None);
+        assert_eq!(looping("no, no, no, I said no"), None);
     }
 }
