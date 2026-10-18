@@ -918,6 +918,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "chrono",
+ "flate2",
  "libc",
  "reqwest",
  "serde_json",

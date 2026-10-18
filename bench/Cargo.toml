@@ -17,6 +17,8 @@ whisper-rs = "0.16"
 symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4", "alac"] }
 sha2 = "0.10"
 sha1 = "0.10"
+# Whisper's loop guard measures how well a piece's text compresses (local/mod.rs).
+flate2 = "1"
 sherpa-onnx = "1.13.8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 sysinfo = { version = "0.37", default-features = false, features = ["system"] }

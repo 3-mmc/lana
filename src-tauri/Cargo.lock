@@ -2338,6 +2338,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
+ "flate2",
  "keyring",
  "mime_guess",
  "reqwest 0.12.28",

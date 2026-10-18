@@ -538,6 +538,11 @@
         <div data-kind="speakers"></div>
         <div class="mgalso" data-also="speakers"></div>
       </div>
+      <div class="mgsec">
+        <div class="mghead">Sounds <span>— laughter, music, coughs, for the events tier</span><span class="inuse" data-use="event"></span></div>
+        <div data-kind="tags"></div>
+        <div class="mgalso" data-also="tags"></div>
+      </div>
       <div data-kind=""></div>
     </div>
     <div class="mgsec">
@@ -786,6 +791,18 @@
                 title="Re-partition the turns this recording already produced into the speaker count above, without reading the audio again. The service keeps the recording, so this costs a fraction of a full pass and nothing at all after the first one. A turn that has to be split gains a boundary at window resolution, which is coarser than a full pass would give.">re-cluster</button>
       </div>
       <div class="meta" id="mtSpeaker">who is talking, by voice</div>
+    </div>
+    <div class="track" data-track="event" id="trkEvent" hidden>
+      <div class="top">
+        <span class="name">Events tier</span>
+        <span class="sp"></span>
+        <span class="state" id="stEvent" data-s="empty">no model</span>
+        <button class="tiny" id="reEvent" title="Run this tier only">⟲</button>
+      </div>
+      <div class="row tight" style="padding:5px 0 0;border:0">
+        <select id="mdEvent"><option value="">(none)</option></select>
+      </div>
+      <div class="meta" id="mtEvent">sounds that are not words</div>
     </div>
     <div class="row tight" id="sizeRow">
       <label>whisper size</label>
@@ -1229,6 +1246,12 @@ const TIERS = [
     sel: 'mdSpeaker', st: 'stSpeaker', mt: 'mtSpeaker', rerun: 'reSpeaker',
     row: 'trkSpeaker', cfg: 'speakerModel', optional: true, concurrent: true,
     gist: 'who is talking, by voice' },
+  /* Sounds that are not words (laughter, music, coughs), from a tagger that
+     names a window at a time: its boundaries are a second apart at best. */
+  { key: 'event',   role: 'tags',     label: 'events',
+    sel: 'mdEvent',   st: 'stEvent',   mt: 'mtEvent',   rerun: 'reEvent',
+    row: 'trkEvent', cfg: 'eventModel', optional: true,
+    gist: 'sounds that are not words, to the nearest second' },
 ];
 const TKEYS = TIERS.map(t => t.key);
 const tierOf = k => TIERS.find(t => t.key === k);
@@ -2778,7 +2801,7 @@ function groupLabel(p) {
 function fillModelSelects() {
   const pins = CFG.mmsPins || [];
   const pinned = m => pins.includes((m.id.match(/^mms-(.+)$/) || [])[1]);
-  const tierName = { words: 'word', phones: 'phone', speakers: 'speaker' };
+  const tierName = { words: 'word', phones: 'phone', speakers: 'speaker', tags: 'events' };
   // The built-in group's own name says where it runs; each label need not.
   const short = (m, p) => p?.kind === 'builtin'
     ? m.label.replace(/ \(on this computer\)$/, '').replace(/\(on this computer, /, '(') : m.label;
@@ -2974,18 +2997,19 @@ function renderPlan() {
     const bits = [esc(T.gist)];
     if (t.source) bits.push('from ' + esc(t.source));
     if (t.note) bits.push(esc(t.note));
-    const warn = T.key !== 'speaker' && langWarning(t.model, CFG.language);
+    const warn = !T.optional && langWarning(t.model, CFG.language);
     if (warn) bits.push(`<span class="warn">${esc(warn)}</span>`);
     $(T.mt).innerHTML = bits.join(' · ');
   }
-  const wm = S.tracks.word.model, pm = S.tracks.phone.model, sm = S.tracks.speaker.model;
-  $('planNote').textContent = !wm && !pm && !sm
+  const wm = S.tracks.word.model, pm = S.tracks.phone.model, sm = S.tracks.speaker.model, em = S.tracks.event.model;
+  $('planNote').textContent = !wm && !pm && !sm && !em
     ? 'No model chosen. Everything except recognition works without one, including an empty TextGrid to annotate by hand.'
     : (wm && wm === pm)
       ? `${wm} fills both tiers in one pass, so it runs once.`
       : wm && pm ? `${wm} runs first and fills the word tier; ${pm} follows for the phone tier.`
-      : wm || pm ? `Only the ${wm ? 'word' : 'phone'} tier will be filled${sm ? ', beside the speaker tier' : ''}.`
-      : 'Only the speaker tier will be filled: turns and their boundaries, with nothing said in them.';
+      : wm || pm ? `Only the ${wm ? 'word' : 'phone'} tier will be filled${sm ? ', beside the speaker tier' : ''}${em ? (sm ? ' and the events tier' : ', beside the events tier') : ''}.`
+      : sm ? 'Only the speaker tier will be filled: turns and their boundaries, with nothing said in them.'
+      : 'Only the events tier will be filled.';
   /* Worth saying out loud, because it is the one thing here that does not
      queue: the diarizer holds no GPU, so it starts at the same moment the
      recogniser does rather than after it. */
@@ -3001,7 +3025,7 @@ function renderPlan() {
     $('planNote').textContent +=
       ` ${pt.source} returned per-word boundaries — choose it for the word tier too.`;
   /* Run stays live while a job runs: a click then adds to the queue. */
-  $('run').disabled = !S.audio || (!wm && !pm && !sm);
+  $('run').disabled = !S.audio || (!wm && !pm && !sm && !em);
   $('run').textContent = Q.items.some(x => x.state === 'queued' || x.state === 'running')
     ? 'Add to queue' : 'Run recognition';
   if (LANG.rows.length) renderLanguage();
@@ -3090,7 +3114,7 @@ function itemsFrom(cues, kind) {
       // to align: the label is the speaker, and the boundaries are the answer.
       if (c.speaker != null)
         out.push({ start: +c.start, end: +c.end, text: spkName(c.speaker) });
-    } else if (kind === 'word') {
+    } else if (kind === 'word' || kind === 'event') {
       if (ws.length) for (const w of ws) out.push({ start: +w.start, end: +w.end, text: w.text || '' });
       else {
         const txt = (c.plain ?? c.text ?? '').trim();
@@ -3185,7 +3209,8 @@ function assignTrack(key, cues, source, state) {
   if (state === 'done' && !items.length)
     t.note = { phone: 'this model returned no phone labels',
                word: 'this model returned no word timings',
-               speaker: 'this model found no speech to attribute' }[key] || '';
+               speaker: 'this model found no speech to attribute',
+               event: 'no sounds besides speech were heard' }[key] || '';
   else if (cueLevel)
     t.note = 'cue-level intervals: the model timed segments, not words';
   stampSpeakers();
@@ -3327,10 +3352,13 @@ async function pullPartial(j) {
    would be wrong for exactly the models that matter. */
 function applyCues(cues, source, state, claims) {
   const hasPhones = cues.some(c => (c.words || []).some(w => (w.phones || []).length));
-  const hasWords = cues.some(c => (c.words || []).length || (c.plain ?? c.text ?? '').trim());
+  /* A sound tagger's cues carry their label as a word, marked `event`: they
+     are not a transcription and never fill the word tier or the transcript. */
+  const hasEvents = cues.some(c => c.event != null);
+  const hasWords = !hasEvents && cues.some(c => (c.words || []).length || (c.plain ?? c.text ?? '').trim());
   const hasSpeakers = cues.some(c => c.speaker != null);
   const targets = claims || [...(hasWords ? ['word'] : []), ...(hasPhones ? ['phone'] : []),
-                             ...(hasSpeakers ? ['speaker'] : [])];
+                             ...(hasSpeakers ? ['speaker'] : []), ...(hasEvents ? ['event'] : [])];
   for (const k of targets) {
     if (k === 'phone' && !hasPhones && state === 'partial') continue;
     /* A finished tier is never replaced by a partial one. The poller awaits its
@@ -3456,9 +3484,12 @@ function buildJobs(only) {
     else gpu.push({ k, model, provider });
   }
   // One model that fills two tiers is one job, not two identical uploads.
-  if (gpu.length === 2 && gpu[0].model === gpu[1].model && gpu[0].provider === gpu[1].provider)
-    out.push({ model: gpu[0].model, provider: gpu[0].provider, claims: gpu.map(g => g.k) });
-  else for (const g of gpu) out.push({ model: g.model, provider: g.provider, claims: [g.k] });
+  // (By model rather than by pair: the events tier makes three queued tiers.)
+  for (const g of gpu) {
+    const same = out.find(j => !j.concurrent && j.model === g.model && j.provider === g.provider);
+    if (same) same.claims.push(g.k);
+    else out.push({ model: g.model, provider: g.provider, claims: [g.k] });
+  }
   return out;
 }
 
@@ -3697,7 +3728,7 @@ function renderQueue() {
   const lab = { queued: 'waiting', running: 'running', done: 'done', failed: 'failed', cancelled: 'cancelled' };
   $('queueList').innerHTML = shown.map(j => {
     const tiers = j.claims.map(k => tierOf(k).label).join(' + ') + (j.span ? ` (${f2(j.span[0])}–${f2(j.span[1])} s)` : '');
-    const lang = j.concurrent ? '' : (j.language ? LANG.name(j.language) : 'language detected');
+    const lang = j.concurrent || j.claims.every(k => k === 'event') ? '' : (j.language ? LANG.name(j.language) : 'language detected');
     const st = j.state === 'running' && j.pct != null ? `${j.pct.toFixed(0)}%` : lab[j.state];
     const act = j.state === 'queued' ? 'remove' : j.state === 'running' ? 'stop' : '';
     return `<div class="qrow" data-id="${j.id}" data-s="${j.state}">
@@ -3727,6 +3758,7 @@ $('run').addEventListener('click', () => enqueue());
 $('reWord').addEventListener('click', () => enqueue('word'));
 $('rePhone').addEventListener('click', () => enqueue('phone'));
 $('reSpeaker').addEventListener('click', () => enqueue('speaker'));
+$('reEvent').addEventListener('click', () => enqueue('event'));
 $('spkRe').addEventListener('click', reclusterSpeakers);
 
 /* ------------------------------------------------------- for a paper */
@@ -4713,7 +4745,7 @@ function setActiveLane(key, redraw = true) {
 function fillSegWhich() {
   // The table always shows the tier the edit keys act on.
   const el = $('segWhich'), cur = S.activeLane;
-  const opts = [...TIERS.map(T => [T.key, { word: 'words', phone: 'phones', speaker: 'speakers' }[T.key]]),
+  const opts = [...TIERS.map(T => [T.key, { word: 'words', phone: 'phones', speaker: 'speakers', event: 'events' }[T.key]]),
                 ...S.extra.map(x => [x.key, x.label])];
   const html = opts.map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join('');
   if (el.innerHTML !== html) el.innerHTML = html;
@@ -5338,7 +5370,8 @@ function importTextGrid(tg, filename) {
     const n = name.toLowerCase();
     for (const [k, re] of [['word', /^(words?|orth\w*|transcri\w*|wort\w*)\b/],
                            ['phone', /^(phones?|phonemes?|segments?|ipa|phon\w*)\b/],
-                           ['speaker', /^(speakers?|spk|turns?|voices?)\b/]])
+                           ['speaker', /^(speakers?|spk|turns?|voices?)\b/],
+                           ['event', /^(events?|sounds?)\b/]])
       if (!used.has(k) && re.test(n)) { used.add(k); return k; }
     return null;
   };
@@ -5698,7 +5731,7 @@ const PRESETS = {
     hint: 'Only needed if the server asks for one. Press “Test connection” to list its models.',
   },
 };
-const ROLE_NAMES = { words: 'words', phones: 'phones (IPA)', both: 'words + phones', speakers: 'speakers' };
+const ROLE_NAMES = { words: 'words', phones: 'phones (IPA)', both: 'words + phones', speakers: 'speakers', tags: 'sounds (events)' };
 /* Which of a server's models to tick by default. A gateway lists its language
    models too, and transcribing with one of those just fails. */
 const SPEECHY = /whisper|asr|ipa|mms|owsm|diariz|transcri|speech|parakeet|canary|wav2vec|xeus|buckeye/i;
@@ -5819,7 +5852,8 @@ const DESK = {
     const mb = n => n >= 1000 ? (n / 1000).toFixed(1) + ' GB' : n + ' MB';
     const GROUPS = [['words', 'For the word tier', 'orthographic transcription'],
                     ['phones', 'For the phone tier', 'IPA, in any language'],
-                    ['speakers', 'For the speaker tier', 'who is talking']];
+                    ['speakers', 'For the speaker tier', 'who is talking'],
+                    ['tags', 'For the events tier', 'sounds that are not words']];
     const row = m => {
       const d = m.downloading;
       const pct = d && d.total ? Math.floor(d.done / d.total * 100) : 0;
@@ -5994,7 +6028,7 @@ const DESK = {
         .filter(([, ms]) => ms.length);
       box.querySelector(`[data-also="${T.role}"]`).innerHTML = others.length
         ? 'Also offered: ' + others.map(([p, ms]) => `<b>${esc(p.label)}</b> (${esc(ms.map(x => x.id).join(', '))})${audioChip(p)}`).join(' · ')
-        : T.key === 'speaker' ? '' : 'A cloud service or a speech server added below can offer models for this tier too.';
+        : T.optional ? '' : 'A cloud service or a speech server added below can offer models for this tier too.';
     }
   },
 
