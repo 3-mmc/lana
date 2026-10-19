@@ -42,7 +42,7 @@ const SHARED_FILES: &[&str] = &["model.onnx", "mms-base.bin", "adapters.json"];
 /// The graph with a 4,608-symbol output layer, and its adapter layout, for the
 /// four alphabets the 512-symbol graph cannot hold: Mandarin (4,495 symbols),
 /// Cantonese, Japanese and Korean. Same weights in mms-base.bin; fetched only
-/// when one of those languages is added (scripts/mms/widen.py makes them).
+/// when one of those languages is added (lana-models mms/widen.py makes them).
 const WIDE_FILES: &[&str] = &["model-wide.onnx", "adapters-wide.json"];
 pub const SHARED_MB: u32 = 1018;
 const ADAPTER_MB: u32 = 9;
