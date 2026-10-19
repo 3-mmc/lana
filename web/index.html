@@ -354,6 +354,7 @@
   .mghead span{text-transform:none;letter-spacing:0;color:var(--dim2)}
   .mgrow .who em{display:block;font-style:normal;color:var(--dim);font-size:11px;white-space:normal}
   .lcbar{width:120px;height:4px;background:var(--sunken);border-radius:2px;overflow:hidden}
+  .mgrow .who em.lcaccel{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:4px}
   .lcbar i{display:block;height:100%;background:var(--accent);transition:width .4s linear}
   .lcerr{color:var(--err);font-size:11px;max-width:260px}
   #mmsBox{font-size:12px}
@@ -538,6 +539,9 @@
             recordings is sent.</li>
           <li><b>GitHub</b>, a few seconds after start: whether a newer Lana exists. Nothing about your
             recordings is sent.</li>
+          <li><b>GitHub and PyPI</b>, only if you download the NVIDIA GPU pack (Linux): ONNX Runtime from
+            Microsoft's GitHub releases, and NVIDIA's CUDA libraries from pypi.org, once. Nothing about your
+            recordings is sent.</li>
           <li><b>A cloud recogniser or speech server</b>, only if you add one below and then run it: the
             recording you run it on goes to that service, under that service's terms. Such recognisers are
             marked <span class="chip away">sends audio to …</span> wherever you choose them.</li>
@@ -638,6 +642,10 @@
       <div class="mghead">Storage <span>— where downloaded models are kept</span></div>
     </div>
     <div id="mdirRow" class="mgrow"></div>
+    <div class="mgsec">
+      <div class="mghead">Processor <span>— where the built-in models run</span></div>
+    </div>
+    <div id="compRow" class="mgrow"></div>
   </fieldset>
 
   <fieldset id="fsDirect">
@@ -7006,9 +7014,17 @@ const DESK = {
         // A non-commercial model asks for the same acceptance as MMS, once for both.
         : m.nc && !m.accepted ? `<button class="tiny" data-lc="accept" title="Accept ${esc(m.licence)} (non-commercial use only) and download">I accept: non-commercial use only · ${mb(m.size_mb)}</button>`
         : `${m.error ? `<span class="lcerr">${esc(m.error)}</span>` : ''}<button class="tiny" data-lc="get">${m.error ? 'Try again' : 'Download'} · ${mb(m.size_mb)}</button>`;
+      // The same model in floating point, for this computer's GPU or Neural
+      // Engine: int8 models run no faster there than on the processor.
+      const a = m.installed && m.accel, ad = a && a.downloading;
+      const apct = ad && ad.total ? Math.floor(ad.done / ad.total * 100) : 0;
+      const accel = !a ? '' : `<em class="lcaccel">GPU version (${esc(a.precision)}): ` + (a.installed
+        ? `<span class="chip live">ready</span><button class="tiny" data-lc="delete" data-accel>Delete</button>`
+        : ad ? `<span class="lcbar"><i style="width:${apct}%"></i></span><span class="hint num">${apct}%</span>`
+        : `${a.error ? `<span class="lcerr">${esc(a.error)}</span>` : 'faster on the GPU, a second download. '}<button class="tiny" data-lc="get" data-accel>${a.error ? 'Try again' : 'Download'} · ${mb(a.size_mb)}</button>`) + '</em>';
       return `<div class="mgrow" data-id="${esc(m.id)}">
         <div class="who"><b>${esc(m.label)}</b>` +
-        `<em>${esc(m.note)}${m.licence ? ` Licence: ${esc(m.licence)}.` : ''}</em></div>${right}</div>`;
+        `<em>${esc(m.note)}${m.licence ? ` Licence: ${esc(m.licence)}.` : ''}</em>${accel}</div>${right}</div>`;
     };
     // Each tier's section in the settings gets the built-in models for it.
     const known = new Set(GROUPS.map(g => g[0]));
@@ -7019,7 +7035,7 @@ const DESK = {
         `<div class="mgsub"><b>${kind ? 'Built into Lana' : title}</b> — runs on this computer` +
         `${n ? ` · <span style="color:var(--ok)">${n} ready</span>` : ' · none downloaded yet'}</div>` + ms.map(row).join('');
     }
-    const busy = j.models.some(m => m.downloading);
+    const busy = j.models.some(m => m.downloading || m.accel?.downloading);
     clearTimeout(DESK.lcTimer);
     if (busy) DESK.lcTimer = setTimeout(() => DESK.loadLocal(), 1000);
     // A download just finished: the built-in recogniser appears or grows.
@@ -7047,6 +7063,38 @@ const DESK = {
       ${j.can_change ? `<button class="tiny" data-md="change">Change…</button>` : ''}
       ${j.pending ? `<button class="tiny primary" data-md="restart">Restart now</button>` : ''}`;
     DESK.mdirBytes = j.bytes;
+  },
+
+  /* Which processor the built-in models run on: the GPU or Neural Engine
+     when this computer has one Lana can use, or the CPU only. Takes effect
+     from the next run; a model the accelerator refuses runs on the CPU. */
+  async loadCompute() {
+    let j;
+    try {
+      const r = await fetch(apiUrl('/local/compute'), { cache: 'no-store' });
+      if (!r.ok) return;
+      j = await r.json();
+    } catch { return; }
+    const ran = Object.entries(j.models || {});
+    const where = ran.length ? 'Last run: ' + ran.map(([m, on]) => `${esc(m.split('/')[0])} on ${esc(on)}`).join(', ') + '.' : '';
+    const acc = j.accelerator ? `This computer has ${esc(j.accelerator)}.` : 'Lana found no GPU or Neural Engine it can use here; models run on the CPU.';
+    // Linux with an NVIDIA card: the CUDA build of the runtime and NVIDIA's
+    // libraries, a large optional download, used from the next start.
+    const p = j.gpu_pack || {}, pd = p.downloading, ppct = pd && pd.total ? Math.floor(pd.done / pd.total * 100) : 0;
+    const usingPack = (j.library || '').includes('runtime/cuda');
+    const pack = !p.wanted ? '' : `<em class="lcaccel">NVIDIA GPU pack (CUDA and cuDNN, from Microsoft and NVIDIA): ` + (
+      p.installed ? (usingPack ? `<span class="chip live">in use</span>` : `downloaded; <button class="tiny primary" data-gp="restart">Restart Lana to use it</button>`)
+                    + `<button class="tiny" data-gp="delete">Delete</button>`
+      : pd ? `<span class="lcbar"><i style="width:${ppct}%"></i></span><span class="hint num">${ppct}%</span>`
+      : `${p.error ? `<span class="lcerr">${esc(p.error)}</span>` : ''}<button class="tiny" data-gp="get">${p.error ? 'Try again' : 'Download'} · ${(p.size_mb / 1000).toFixed(1)} GB</button>`) + '</em>';
+    $('compRow').innerHTML = `<div class="who"><b>Run models on</b>
+        <em>${j.error ? `<span class="lcerr">${esc(j.error)}</span>` : acc} ${where}</em>${pack}</div>
+      <select id="compSel" ${j.accelerator ? '' : 'disabled'}>
+        <option value="auto" ${j.compute !== 'cpu' ? 'selected' : ''}>GPU or Neural Engine when possible</option>
+        <option value="cpu" ${j.compute === 'cpu' ? 'selected' : ''}>CPU only</option>
+      </select>`;
+    clearTimeout(DESK.gpTimer);
+    if (pd) DESK.gpTimer = setTimeout(() => DESK.loadCompute(), 1000);
   },
 
   /* MMS: a licence step, the shared part, and the languages. Each language is
@@ -7148,6 +7196,7 @@ const DESK = {
 
   async load() {
     DESK.loadModelsDir();
+    DESK.loadCompute();
     DESK.loadLocal();
     DESK.loadMms();
     try {
@@ -7384,6 +7433,24 @@ $('mmsBox').addEventListener('click', async e => {
   if (act === 'add') { DESK.mmsQuery = ''; }
   await DESK.loadMms();
 });
+$('compRow').addEventListener('click', async e => {
+  const act = e.target.closest('button[data-gp]')?.dataset.gp;
+  if (!act) return;
+  if (act === 'restart') {
+    status('restarting Lana…');
+    await fetch(apiUrl('/restart'), { method: 'POST' });
+    return;
+  }
+  const r = await fetch(apiUrl('/local/gpu-pack'), { method: act === 'delete' ? 'DELETE' : 'POST' });
+  if (!r.ok) status((await r.json().catch(() => ({}))).error || `error ${r.status}`, true);
+  DESK.loadCompute();
+});
+$('compRow').addEventListener('change', async e => {
+  if (e.target.id !== 'compSel') return;
+  await fetch(apiUrl('/local/compute'), { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ compute: e.target.value }) });
+  DESK.loadCompute();
+});
 $('mdirRow').addEventListener('click', async e => {
   const act = e.target.closest('button[data-md]')?.dataset.md;
   if (!act) return;
@@ -7404,7 +7471,7 @@ $('mdirRow').addEventListener('click', async e => {
 $('lcList').addEventListener('click', async e => {
   const btn = e.target.closest('button[data-lc]');
   if (!btn) return;
-  const id = btn.closest('.mgrow').dataset.id;
+  const id = btn.closest('.mgrow').dataset.id + ('accel' in btn.dataset ? '+gpu' : '');
   if (btn.dataset.lc === 'delete' && btn.textContent !== 'Really delete?') {
     btn.textContent = 'Really delete?';
     setTimeout(() => { if (btn.isConnected) btn.textContent = 'Delete'; }, 3000);

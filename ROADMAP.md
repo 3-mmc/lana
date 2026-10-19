@@ -6,6 +6,20 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
 
 ## Now
 
+### Runtime and accelerators (branch `ort-runtime`, 2026-10-19)
+- [ ] sherpa-onnx dropped: VAD, the sound tagger, pyannote + CAM++ and Parakeet TDT ported
+      to Rust on `ort`, held to sherpa's outputs (`cargo test -- --ignored golden`)
+- [ ] ONNX Runtime shipped beside the app (`scripts/fetch-onnxruntime.sh`): 1.30 with CoreML
+      on macOS, 1.24.4 with DirectML on Windows, 1.30 CPU on Linux; one session builder
+      (`local/runtime.rs`) with a "Run models on" setting and CPU fallback at load and run time
+- [ ] Optimised graphs kept on disk for CPU sessions (ZIPA small loads in 0.38 s, not 1.34 s)
+- [ ] Linux GPU pack: CUDA 12 runtime + NVIDIA's CUDA/cuDNN 9.10.2 wheels, pinned, in-app
+- [ ] Float variants of ZIPA, Omnilingual and Parakeet for the accelerator (int8 stays on the
+      CPU: it runs no faster on CUDA)
+- [ ] Checked on a Mac (CoreML) and a Windows GPU (DirectML) with lana-bench `--compute cpu,auto`
+- [ ] Whisper on Vulkan (`whisper-vulkan` feature): needs a Vulkan loader shipped or required,
+      and the SDK in CI
+
 ### Frame probabilities (the base for the next four)
 - [x] Run ZIPA, Omnilingual and MMS through `ort` against the onnxruntime that
       sherpa-onnx already links (no second runtime), keeping per-frame log-probabilities

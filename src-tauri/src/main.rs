@@ -62,6 +62,10 @@ fn main() {
             };
             eprintln!("providers from {}", providers.display());
             let mut roots = server::Roots::locate(app.path().resource_dir().ok(), providers)?;
+            // The ONNX Runtime library ships as a resource (local/runtime.rs).
+            if let Ok(r) = app.path().resource_dir() {
+                local::runtime::look_in(r.join("onnxruntime"));
+            }
             // `lana-desktop recording.wav`: the first argument that names a file.
             // (macOS "Open with" arrives as an event instead; not handled yet.)
             // A folder the user chose in the settings screen, recorded in the

@@ -29,12 +29,20 @@ sha2 = "0.10"
 sha1 = "0.10"
 # Whisper's loop guard measures how well a piece's text compresses (local/mod.rs).
 flate2 = "1"
-# ZIPA (IPA phones) and speaker diarization. Static: links its own ONNX Runtime.
-sherpa-onnx = "1.13.8"
-# The CTC models' frame probabilities (confidence, re-timing, search), run on
-# the ONNX Runtime sherpa-onnx links rather than a second copy: see local/frames.rs.
-ort = { version = "=2.0.0-rc.14", default-features = false, features = ["std", "api-17", "alternative-backend"] }
+# The GPU pack (local/gpupack.rs) comes as a .tgz and as wheels, which are zips.
+tar = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+# Every built-in model but Whisper, on an ONNX Runtime library shipped beside
+# the app and loaded at run time (local/runtime.rs, scripts/fetch-onnxruntime.sh).
+ort = { version = "=2.0.0-rc.14", default-features = false, features = ["std", "load-dynamic", "api-24"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[features]
+# whisper.cpp on the GPU through Vulkan, for Windows and Linux. Off by
+# default: the executable then needs a Vulkan loader (vulkan-1.dll,
+# libvulkan.so.1) to start at all, which VMs and minimal systems lack, and the
+# build needs the Vulkan SDK. Untested on a real GPU so far.
+whisper-vulkan = ["whisper-rs/vulkan"]
 
 [profile.release]
 lto = true
@@ -49,10 +57,17 @@ opt-level = 3
 debug = false
 
 # Linux: the microphone permission handler talks to WebKitGTK directly. Same
-# version as wry uses, so this adds no second copy.
+# version as wry uses, so this adds no second copy. CUDA is there for the GPU
+# pack's runtime; the bundled one has only the CPU.
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0"
+ort = { version = "=2.0.0-rc.14", default-features = false, features = ["cuda"] }
 
-# Apple Silicon: whisper.cpp on the GPU through Metal. Untested until a Mac build.
+# Apple Silicon: whisper.cpp on the GPU through Metal, the ONNX models through
+# CoreML. Untested until a Mac build.
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.16", features = ["metal"] }
+ort = { version = "=2.0.0-rc.14", default-features = false, features = ["coreml"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+ort = { version = "=2.0.0-rc.14", default-features = false, features = ["directml"] }

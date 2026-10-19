@@ -15,6 +15,11 @@ const WHISPER: &str = "ggerganov/whisper.cpp";
 const SHERPA_SEG: &str = "csukuangfj/sherpa-onnx-pyannote-segmentation-3-0";
 const SHERPA_EMB: &str = "csukuangfj/speaker-embedding-models";
 const PARAKEET: &str = "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8";
+/// The floating-point exports, for an accelerator. Their weights are in a
+/// file beside the graph, which names it: it keeps its name here.
+const PARAKEET_FP32: &str = "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3";
+const OMNI_300M_FP32: &str = "csukuangfj/sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-2025-11-12";
+const OMNI_1B_FP32: &str = "csukuangfj2/sherpa-onnx-omnilingual-asr-1600-languages-1B-ctc-v2-2026-02-05";
 const TAGGER: &str = "k2-fsa/sherpa-onnx-zipformer-small-audio-tagging-2024-04-15";
 
 /// Silero VAD v5 (MIT), as k2-fsa's maintainer publishes it for sherpa-onnx.
@@ -31,18 +36,18 @@ pub const VAD: File = File { repo: "csukuangfj/vad", path: "silero_vad_v5.onnx",
 pub enum Kind {
     /// whisper.cpp: words, with DTW word timings.
     Whisper,
-    /// A CTC phone recogniser run by sherpa-onnx: IPA phones with frame times.
+    /// A CTC phone recogniser: IPA phones with frame times.
     Phones,
-    /// Omnilingual ASR through sherpa-onnx: words from character CTC.
+    /// Omnilingual ASR: words from character CTC.
     Letters,
-    /// pyannote segmentation + a speaker embedding, run by sherpa-onnx.
+    /// pyannote segmentation + a speaker embedding (pyannote.rs).
     Speakers,
-    /// A NeMo transducer (Parakeet TDT) through sherpa-onnx: words from
+    /// A NeMo transducer (Parakeet TDT): words from
     /// word pieces, with token times and durations.
     Transducer,
-    /// An AudioSet tagger through sherpa-onnx: laughter, music, coughs.
+    /// An AudioSet tagger: laughter, music, coughs.
     Tags,
-    /// CREPE through ort: a second f0 track, drawn beside Praat's. It fills
+    /// CREPE: a second f0 track, drawn beside Praat's. It fills
     /// no tier, so the providers list leaves it out.
     Pitch,
     /// MMS-LID through ort: which language is spoken where (lid.rs).
@@ -109,6 +114,17 @@ pub struct Entry {
     pub size_mb: u32,
     /// whisper.cpp's alignment-head preset, which DTW word timing needs.
     pub dtw: whisper_rs::DtwModelPreset,
+    /// Versions in floating point for a GPU or the Neural Engine, which run
+    /// int8 models no faster than the CPU (runtime.rs). An optional second
+    /// download; the first file stands in for the model's first file.
+    pub accel: &'static [Variant],
+}
+
+/// A model in another precision ("fp32", "fp16").
+pub struct Variant {
+    pub precision: &'static str,
+    pub files: &'static [File],
+    pub size_mb: u32,
 }
 
 /// Short and opinionated. The first Whisper fits nearly every computer; the
@@ -118,69 +134,80 @@ pub struct Entry {
 pub fn catalogue() -> Vec<Entry> {
     use whisper_rs::DtwModelPreset as P;
     vec![
-        Entry { id: "whisper-base", kind: Kind::Whisper, size_mb: 142, dtw: P::Base, licence: "MIT",
+        Entry { id: "whisper-base", kind: Kind::Whisper, size_mb: 142, accel: &[], dtw: P::Base, licence: "MIT",
                 files: &[File { repo: WHISPER, path: "ggml-base.bin", local: "ggml-base.bin" }],
                 label: "Whisper base",
                 note: "Words. Small and quick. Good enough to try Lana out; misses more words in noisy or fast speech." },
-        Entry { id: "whisper-small", kind: Kind::Whisper, size_mb: 466, dtw: P::Small, licence: "MIT",
+        Entry { id: "whisper-small", kind: Kind::Whisper, size_mb: 466, accel: &[], dtw: P::Small, licence: "MIT",
                 files: &[File { repo: WHISPER, path: "ggml-small.bin", local: "ggml-small.bin" }],
                 label: "Whisper small",
                 note: "Words. A good balance on an ordinary laptop." },
-        Entry { id: "whisper-large-v3-turbo-q5", kind: Kind::Whisper, size_mb: 547, dtw: P::LargeV3Turbo, licence: "MIT",
+        Entry { id: "whisper-large-v3-turbo-q5", kind: Kind::Whisper, size_mb: 547, accel: &[], dtw: P::LargeV3Turbo, licence: "MIT",
                 files: &[File { repo: WHISPER, path: "ggml-large-v3-turbo-q5_0.bin", local: "ggml-large-v3-turbo-q5_0.bin" }],
                 label: "Whisper large-v3 turbo",
                 note: "Words. The most accurate here, especially for languages other than English. Slower without a fast processor." },
-        Entry { id: "omnilingual-300m", kind: Kind::Letters, size_mb: 365, dtw: P::Base, licence: "Apache 2.0",
+        Entry { id: "omnilingual-300m", kind: Kind::Letters, size_mb: 365, accel: &[Variant { precision: "fp32", size_mb: 1303, files: &[File { repo: OMNI_300M_FP32, path: "model.onnx", local: "model.fp32.onnx" }] }], dtw: P::Base, licence: "Apache 2.0",
                 files: &[File { repo: "csukuangfj/sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-int8-2025-11-12", path: "model.int8.onnx", local: "model.int8.onnx" },
                          File { repo: "csukuangfj/sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-int8-2025-11-12", path: "tokens.txt", local: "tokens.txt" }],
                 label: "Omnilingual 300M",
                 note: "Words in some 1600 languages (Meta, 2025), as plain lowercase text. It is not told the language, and for languages it knows little it can write in the wrong alphabet: in testing, Dargwa came out in Arabic and Latin letters. Good where the alphabet is unambiguous, such as Georgian." },
-        Entry { id: "omnilingual-1b", kind: Kind::Letters, size_mb: 1032, dtw: P::Base, licence: "Apache 2.0",
+        Entry { id: "omnilingual-1b", kind: Kind::Letters, size_mb: 1032, accel: &[Variant { precision: "fp32", size_mb: 3904, files: &[File { repo: OMNI_1B_FP32, path: "model.onnx", local: "model.fp32.onnx" },
+                                                                         File { repo: OMNI_1B_FP32, path: "model.weights", local: "model.weights" }] }], dtw: P::Base, licence: "Apache 2.0",
                 files: &[File { repo: "csukuangfj2/sherpa-onnx-omnilingual-asr-1600-languages-1B-ctc-v2-int8-2026-02-05", path: "model.int8.onnx", local: "model.int8.onnx" },
                          File { repo: "csukuangfj2/sherpa-onnx-omnilingual-asr-1600-languages-1B-ctc-v2-int8-2026-02-05", path: "tokens.txt", local: "tokens.txt" }],
                 label: "Omnilingual 1B",
                 note: "Words like Omnilingual 300M, with the same caveat about alphabets; more accurate on Georgian (2.2% character errors against 6.0% in testing). Needs 2 GB of memory while it runs." },
-        Entry { id: "parakeet-tdt-0.6b-v3", kind: Kind::Transducer, size_mb: 646, dtw: P::Base, licence: "CC BY 4.0",
+        Entry { id: "parakeet-tdt-0.6b-v3", kind: Kind::Transducer, size_mb: 646, accel: &[Variant { precision: "fp32", size_mb: 2477, files: &[File { repo: PARAKEET_FP32, path: "encoder.onnx", local: "encoder.fp32.onnx" },
+                                                                         File { repo: PARAKEET_FP32, path: "encoder.weights", local: "encoder.weights" }] }], dtw: P::Base, licence: "CC BY 4.0",
                 files: &[File { repo: PARAKEET, path: "encoder.int8.onnx", local: "encoder.int8.onnx" },
                          File { repo: PARAKEET, path: "decoder.int8.onnx", local: "decoder.int8.onnx" },
                          File { repo: PARAKEET, path: "joiner.int8.onnx", local: "joiner.int8.onnx" },
                          File { repo: PARAKEET, path: "tokens.txt", local: "tokens.txt" }],
                 label: "Parakeet v3",
                 note: "Words with punctuation in 25 European languages (NVIDIA, 2025), which it detects itself. No Georgian or Caucasian languages." },
-        Entry { id: "zipa-small", kind: Kind::Phones, size_mb: 71, dtw: P::Base, licence: "CC BY 4.0",
+        Entry { id: "zipa-small", kind: Kind::Phones, size_mb: 71, accel: &[], dtw: P::Base, licence: "CC BY 4.0",
                 files: &[File { repo: "anyspeech/zipa-small-crctc-500k", path: "model.int8.onnx", local: "model.int8.onnx" },
                          File { repo: "anyspeech/zipa-small-crctc-500k", path: "tokens.txt", local: "tokens.txt" }],
                 label: "ZIPA small",
                 note: "IPA phones read straight off the sound, in any language, with no dictionary. Small and fast." },
-        Entry { id: "zipa-large", kind: Kind::Phones, size_mb: 310, dtw: P::Base, licence: "CC BY 4.0",
+        Entry { id: "zipa-large", kind: Kind::Phones, size_mb: 310, accel: &[Variant { precision: "fp32", size_mb: 1205, files: &[File { repo: "anyspeech/zipa-large-crctc-500k", path: "model.onnx", local: "model.fp32.onnx" }] },
+                        Variant { precision: "fp16", size_mb: 604, files: &[File { repo: "anyspeech/zipa-large-crctc-500k", path: "model.fp16.onnx", local: "model.fp16.onnx" }] }], dtw: P::Base, licence: "CC BY 4.0",
                 files: &[File { repo: "anyspeech/zipa-large-crctc-500k", path: "model.int8.onnx", local: "model.int8.onnx" },
                          File { repo: "anyspeech/zipa-large-crctc-500k", path: "tokens.txt", local: "tokens.txt" }],
                 label: "ZIPA large",
                 note: "IPA phones, like ZIPA small. Larger; in testing it was not reliably better, so try small first." },
-        Entry { id: "speakers", kind: Kind::Speakers, size_mb: 36, dtw: P::Base, licence: "MIT (segmentation), CC BY 4.0 (voices)",
+        Entry { id: "speakers", kind: Kind::Speakers, size_mb: 36, accel: &[], dtw: P::Base, licence: "MIT (segmentation), CC BY 4.0 (voices)",
                 files: &[File { repo: SHERPA_SEG, path: "model.onnx", local: "segmentation.onnx" },
                          File { repo: SHERPA_EMB, path: "wespeaker_en_voxceleb_CAM++.onnx", local: "campplus.onnx" }],
                 label: "Speakers",
                 note: "Who is talking, by voice: fills the speaker tier, beside whichever recogniser runs." },
-        Entry { id: "sounds", kind: Kind::Tags, size_mb: 27, dtw: P::Base, licence: "Apache 2.0",
+        Entry { id: "sounds", kind: Kind::Tags, size_mb: 27, accel: &[], dtw: P::Base, licence: "Apache 2.0",
                 files: &[File { repo: TAGGER, path: "model.int8.onnx", local: "model.int8.onnx" },
                          File { repo: TAGGER, path: "class_labels_indices.csv", local: "labels.csv" }],
                 label: "Sounds",
                 note: "Laughter, music, coughs, breathing and other sounds that are not words, from the 527 AudioSet classes: fills an events tier." },
-        Entry { id: "crepe-tiny", kind: Kind::Pitch, size_mb: 2, dtw: P::Base, licence: "MIT",
+        Entry { id: "crepe-tiny", kind: Kind::Pitch, size_mb: 2, accel: &[], dtw: P::Base, licence: "MIT",
                 files: &[File { repo: CREPE, path: "tiny.onnx", local: "model.onnx" }],
                 label: "CREPE tiny",
                 note: "A second f0 track, read from the waveform by a network rather than by autocorrelation, drawn beside Praat's: where the two part, in creak or noise, look closer. Agreed with Praat's median f0 on both demo clips; about 5x real time." },
-        Entry { id: "crepe-small", kind: Kind::Pitch, size_mb: 7, dtw: P::Base, licence: "MIT",
+        Entry { id: "crepe-small", kind: Kind::Pitch, size_mb: 7, accel: &[], dtw: P::Base, licence: "MIT",
                 files: &[File { repo: CREPE, path: "small.onnx", local: "model.onnx" }],
                 label: "CREPE small",
                 note: "CREPE, larger and slower (about 2.5x real time); try tiny first." },
-        Entry { id: "langid-mms-1024", kind: Kind::Lid, size_mb: 975, dtw: P::Base, licence: super::mms::LICENCE,
+        Entry { id: "langid-mms-1024", kind: Kind::Lid, size_mb: 975, accel: &[], dtw: P::Base, licence: super::mms::LICENCE,
                 files: &[File { repo: "Xenova/mms-lid-1024", path: "onnx/model_quantized.onnx", local: "model.int8.onnx" },
                          File { repo: "Xenova/mms-lid-1024", path: "config.json", local: "config.json" }],
                 label: "MMS-LID 1024",
                 note: "Spoken language identification in 1,024 languages (Meta, 2023): fills the language tier of a recording marked as codeswitching, a few seconds at a time, so each stretch can be read in its own language. Non-commercial." },
     ]
+}
+
+/// A model's accelerator variant downloads and deletes under its id with
+/// this added: "zipa-small+gpu".
+pub const ACCEL_SUFFIX: &str = "+gpu";
+
+pub fn accel_id(id: &str) -> String {
+    format!("{id}{ACCEL_SUFFIX}")
 }
 
 pub fn find(id: &str) -> Option<Entry> {
@@ -231,6 +258,27 @@ impl Models {
         self.file(e, f)
     }
 
+    /// The variant this computer's accelerator would use, by its preference
+    /// (runtime::float_preference), installed or not.
+    pub fn variant<'a>(&self, e: &'a Entry) -> Option<&'a Variant> {
+        super::runtime::float_preference().iter().find_map(|p| e.accel.iter().find(|v| v.precision == *p))
+    }
+
+    fn variant_installed(&self, e: &Entry, v: &Variant) -> bool {
+        v.files.iter().all(|f| self.file(e, f).is_file())
+    }
+
+    /// The file a model's engine is given: its accelerator variant when the
+    /// accelerator is in use and the variant is here, else its first file.
+    pub fn model_file(&self, e: &Entry) -> PathBuf {
+        if super::runtime::wants_float() {
+            if let Some(v) = self.variant(e).filter(|v| self.variant_installed(e, v)) {
+                return self.file(e, &v.files[0]);
+            }
+        }
+        self.path(e)
+    }
+
     pub fn is_installed(&self, e: &Entry) -> bool {
         e.files.iter().all(|f| self.file(e, f).is_file())
     }
@@ -242,6 +290,7 @@ impl Models {
     /// The catalogue as the settings screen shows it.
     pub fn list(&self) -> Value {
         let downloads = self.downloads.lock().unwrap().clone();
+        let accelerated = super::runtime::has_accelerator();
         let entries: Vec<Value> = catalogue()
             .iter()
             .map(|e| {
@@ -256,6 +305,12 @@ impl Models {
                     "downloading": d.filter(|d| d.error.is_none()).map(|d| json!({ "done": d.done, "total": d.total })),
                     "error": d.and_then(|d| d.error.clone())
                         .or_else(|| (e.kind == Kind::Whisper).then(super::whisper_supported).and_then(Result::err)),
+                    "accel": self.variant(e).filter(|_| accelerated).map(|v| {
+                        let d = downloads.get(&accel_id(e.id));
+                        json!({ "precision": v.precision, "size_mb": v.size_mb, "installed": self.variant_installed(e, v),
+                                "downloading": d.filter(|d| d.error.is_none()).map(|d| json!({ "done": d.done, "total": d.total })),
+                                "error": d.and_then(|d| d.error.clone()) })
+                    }),
                 })
             })
             .collect();
@@ -263,8 +318,19 @@ impl Models {
     }
 
     pub fn delete(&self, id: &str) -> Result<(), String> {
+        if let Some(id) = id.strip_suffix(ACCEL_SUFFIX) {
+            let e = find(id).ok_or("no such model")?;
+            for v in e.accel {
+                for f in v.files {
+                    let p = self.file(&e, f);
+                    let _ = std::fs::remove_file(part_of(&p));
+                    let _ = std::fs::remove_file(&p);
+                }
+            }
+            return Ok(());
+        }
         let e = find(id).ok_or("no such model")?;
-        for f in e.files {
+        for f in e.accel.iter().flat_map(|v| v.files.iter()).chain(e.files) {
             let p = self.file(&e, f);
             let _ = std::fs::remove_file(part_of(&p));
             match std::fs::remove_file(&p) {
@@ -281,7 +347,13 @@ impl Models {
 
     /// Start a download in the background. Returns at once; poll `list()`.
     pub fn start(&self, id: &str) -> Result<(), String> {
-        let e = find(id).ok_or("no such model")?;
+        let (base, accel) = match id.strip_suffix(ACCEL_SUFFIX) { Some(b) => (b, true), None => (id, false) };
+        let e = find(base).ok_or("no such model")?;
+        let files: &'static [File] = if accel {
+            self.variant(&e).ok_or("This computer has no accelerator that version is for.")?.files
+        } else {
+            e.files
+        };
         if e.kind.non_commercial() && !self.mms_accepted() {
             return Err(format!("{} is for non-commercial use only: accept its licence first.", e.label));
         }
@@ -295,7 +367,7 @@ impl Models {
         let me = self.clone();
         let id = id.to_owned();
         tokio::spawn(async move {
-            let result = me.fetch(&e).await;
+            let result = me.fetch(&e, &id, files).await;
             let mut dl = me.downloads.lock().unwrap();
             match result {
                 Ok(()) => {
@@ -321,10 +393,10 @@ impl Models {
     /// HuggingFace publishes for it before it is renamed into place, so a
     /// truncated or corrupted download is never mistaken for a model. Progress
     /// is reported over all of a model's files together.
-    async fn fetch(&self, e: &Entry) -> Result<(), String> {
+    async fn fetch(&self, e: &Entry, id: &str, files: &'static [File]) -> Result<(), String> {
         let mut want = Vec::new();
         let mut lists: HashMap<&str, Value> = HashMap::new();
-        for f in e.files {
+        for f in files {
             if f.repo.starts_with("github:") {
                 let pin = source(f).1.ok_or_else(|| format!("{} has no pinned checksum.", f.path))?;
                 want.push((f, pin));
@@ -340,7 +412,7 @@ impl Models {
         for (f, (sha, size)) in want {
             let dest = self.file(e, f);
             if !dest.is_file() {
-                self.fetch_file(e.id, &source(f).0, &dest, &sha, size, before, total).await?;
+                self.fetch_file(id, &source(f).0, &dest, &sha, size, before, total).await?;
             }
             before += size;
         }

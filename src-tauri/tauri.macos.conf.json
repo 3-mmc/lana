@@ -1,0 +1,13 @@
+{
+  "bundle": {
+    "macOS": {
+      "frameworks": [
+        "onnxruntime/libonnxruntime.dylib"
+      ]
+    },
+    "resources": {
+      "onnxruntime/LICENSE": "onnxruntime/LICENSE",
+      "onnxruntime/ThirdPartyNotices.txt": "onnxruntime/ThirdPartyNotices.txt"
+    }
+  }
+}

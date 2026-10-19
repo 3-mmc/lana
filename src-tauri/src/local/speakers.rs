@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Who is talking: pyannote segmentation 3.0 and CAM++ speaker embeddings,
-// through sherpa-onnx. A port of the diarizer service Lana grew up with
+// run as pyannote.rs describes. A port of the diarizer service Lana grew up with
 // (diarize_server.py), keeping its two hard-won rules: a voice heard for under
 // two seconds is not a speaker of its own, and re-clustering takes a count,
 // never a threshold.
@@ -8,11 +8,8 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
-use sherpa_onnx::{
-    FastClusteringConfig, OfflineSpeakerDiarization, OfflineSpeakerDiarizationConfig,
-    OfflineSpeakerSegmentationModelConfig, OfflineSpeakerSegmentationPyannoteModelConfig,
-    SpeakerEmbeddingExtractor, SpeakerEmbeddingExtractorConfig,
-};
+
+use super::pyannote::{self, Embedder};
 
 pub const RATE: u32 = 16_000;
 /// When the count is inferred, a voice heard for less than this in the whole
@@ -50,42 +47,13 @@ pub struct Held {
     pub windows: Option<(Vec<(usize, f32, f32)>, Vec<Vec<f32>>)>,
 }
 
-fn embedding_config(m: &Models) -> SpeakerEmbeddingExtractorConfig {
-    SpeakerEmbeddingExtractorConfig {
-        model: Some(m.embedding.to_string_lossy().into_owned()),
-        num_threads: m.threads,
-        debug: false,
-        provider: Some("cpu".into()),
-    }
-}
-
 /// One full pass. `speakers` > 0 asks for exactly that many; otherwise the
 /// count comes from `threshold` (smaller splits more) and the brief-voice rule.
 pub fn diarize(m: &Models, samples: &[f32], speakers: i32, threshold: f32) -> Result<Vec<Turn>, String> {
-    let cfg = OfflineSpeakerDiarizationConfig {
-        segmentation: OfflineSpeakerSegmentationModelConfig {
-            pyannote: OfflineSpeakerSegmentationPyannoteModelConfig {
-                model: Some(m.segmentation.to_string_lossy().into_owned()),
-                ..Default::default()
-            },
-            num_threads: m.threads,
-            ..Default::default()
-        },
-        embedding: embedding_config(m),
-        clustering: FastClusteringConfig {
-            num_clusters: if speakers > 0 { speakers } else { -1 },
-            threshold,
-            ..Default::default()
-        },
-        min_duration_on: 0.3,
-        min_duration_off: 0.5,
-    };
-    let sd = OfflineSpeakerDiarization::create(&cfg).ok_or("sherpa-onnx could not load the speaker models")?;
-    let result = sd.process(samples).ok_or("speaker diarization failed")?;
-    let mut turns: Vec<Turn> = result
-        .sort_by_start_time()
+    let embedder = Embedder::load(&m.embedding, m.threads)?;
+    let mut turns: Vec<Turn> = pyannote::diarize(&m.segmentation, &embedder, m.threads, samples, speakers, threshold)?
         .into_iter()
-        .map(|s| Turn { start: r3(s.start), end: r3(s.end), speaker: s.speaker })
+        .map(|(start, end, speaker)| Turn { start: r3(start), end: r3(end), speaker })
         .collect();
     if speakers <= 0 {
         turns = absorb_brief_voices(turns);
@@ -247,15 +215,12 @@ pub fn recluster(m: &Models, held: &mut Held, speakers: usize) -> Result<(Vec<Tu
         return Ok((Vec::new(), false));
     }
     if held.windows.is_none() {
-        let ex = SpeakerEmbeddingExtractor::create(&embedding_config(m)).ok_or("sherpa-onnx could not load the voice model")?;
+        let ex = Embedder::load(&m.embedding, m.threads)?;
         let wins = windows_over(&held.turns);
         let mut vecs = Vec::with_capacity(wins.len());
         for &(_, a, b) in &wins {
             let (ia, ib) = ((a * RATE as f32) as usize, ((b * RATE as f32) as usize).min(held.samples.len()));
-            let st = ex.create_stream().ok_or("could not start a voice embedding")?;
-            st.accept_waveform(RATE as i32, &held.samples[ia.min(ib)..ib]);
-            st.input_finished();
-            vecs.push(ex.compute(&st).ok_or("a voice embedding failed")?);
+            vecs.push(ex.embed(&held.samples[ia.min(ib)..ib])?.ok_or("a voice window is too short")?);
         }
         held.windows = Some((wins, vecs));
     }

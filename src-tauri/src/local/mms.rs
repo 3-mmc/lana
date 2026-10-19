@@ -14,7 +14,7 @@
 //                                      adapter.<lang>.safetensors
 //   mms/<lang>/tokens.txt              that language's alphabet
 //
-// sherpa-onnx opens mms/<lang>/model.onnx, which names its weights by file:
+// ONNX Runtime opens mms/<lang>/model.onnx, which names its weights by file:
 // mms-base.bin and adapter.bin, beside it. So each language folder holds hard
 // links to the shared two (no extra space) and its own adapter.bin.
 //

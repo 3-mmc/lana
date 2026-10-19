@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// NVIDIA's Parakeet TDT 0.6B v3 (CC BY 4.0) through sherpa-onnx: words in 25
-// European languages, with punctuation, the language detected by the model.
+// NVIDIA's Parakeet TDT 0.6B v3 (CC BY 4.0), in sherpa-onnx's export: words
+// in 25 European languages, with punctuation, the language detected by the
+// model. Run here as sherpa-onnx 1.13.8 ran it (offline-recognizer-
+// transducer-nemo-impl.h, greedy TDT search), on Lana's own runtime.
 //
 // A TDT transducer predicts each token together with how many frames it
 // lasts, so a word's end comes from the model too, not only its start: that
 // is the difference from the CTC models, whose words run to the next spike.
 
-use std::path::Path;
+use std::{path::Path, sync::Mutex};
 
+use ort::{session::Session, value::Tensor};
 use serde_json::{json, Value};
-use sherpa_onnx::{OfflineRecognizer, OfflineRecognizerConfig, OfflineTransducerModelConfig};
+
+use super::{frames::Fbank, runtime::{self, Role}};
 
 /// The shortest a word may be, and how long the last word of a piece is taken
 /// to last when the model gave no duration for its last token.
@@ -17,46 +21,160 @@ const MIN_S: f64 = 0.02;
 const TAIL_S: f64 = 0.08;
 
 pub struct Parakeet {
-    rec: OfflineRecognizer,
+    encoder: Mutex<runtime::Model>,
+    net: Mutex<(Session, Session)>,
+    tokens: Vec<String>,
+    fbank: Fbank,
 }
 
 /// One word: text, start, end.
 pub type Word = (String, f64, f64);
 
+/// The encoder's output frames are 8 feature frames of 10 ms apart.
+const FRAME_S: f64 = 0.08;
+/// The prediction network: 2 LSTM layers of 640.
+const LAYERS: usize = 2;
+const HIDDEN: usize = 640;
+/// At most this many tokens on one frame before the search moves on.
+const MAX_TOKENS_PER_FRAME: usize = 5;
+
 impl Parakeet {
-    /// The model in `dir`, which holds the four files of its catalogue entry.
-    pub fn load(dir: &Path, threads: i32) -> Result<Self, String> {
-        let p = |f: &str| Some(dir.join(f).to_string_lossy().into_owned());
-        let mut cfg = OfflineRecognizerConfig::default();
-        cfg.model_config.transducer = OfflineTransducerModelConfig {
-            encoder: p("encoder.int8.onnx"),
-            decoder: p("decoder.int8.onnx"),
-            joiner: p("joiner.int8.onnx"),
-        };
-        cfg.model_config.tokens = p("tokens.txt");
-        cfg.model_config.model_type = Some("nemo_transducer".into());
-        cfg.model_config.num_threads = threads;
-        cfg.model_config.provider = Some("cpu".into());
-        let rec = OfflineRecognizer::create(&cfg).ok_or("sherpa-onnx could not load Parakeet")?;
-        Ok(Parakeet { rec })
+    /// The model whose encoder is `encoder` (int8, or its float variant for
+    /// an accelerator), with the other files of its catalogue entry beside it.
+    pub fn load(encoder: &Path, threads: i32) -> Result<Self, String> {
+        let dir = encoder.parent().ok_or("no model folder")?;
+        let text = std::fs::read_to_string(dir.join("tokens.txt")).map_err(|e| format!("tokens.txt: {e}"))?;
+        let mut tokens = Vec::new();
+        for line in text.lines().filter(|l| !l.is_empty()) {
+            let (tok, id) = line.rsplit_once(' ').ok_or("tokens.txt: a line without an id")?;
+            if id.parse::<usize>().ok() != Some(tokens.len()) {
+                return Err("tokens.txt is not in order".into());
+            }
+            // sentencepiece marks a word's start with ▁; sherpa-onnx hands
+            // it over as a space, and so does Lana.
+            tokens.push(tok.replace('▁', " "));
+        }
+        if tokens.last().map(String::as_str) != Some("<blk>") {
+            return Err("tokens.txt does not end with the blank <blk>".into());
+        }
+        let encoder = runtime::Model::load(encoder, Role::Heavy, threads)?;
+        let decoder = runtime::session(&dir.join("decoder.int8.onnx"), Role::Light, 1)?;
+        let joiner = runtime::session(&dir.join("joiner.int8.onnx"), Role::Light, 1)?;
+        Ok(Parakeet { encoder: Mutex::new(encoder), net: Mutex::new((decoder, joiner)), tokens, fbank: Fbank::librosa(128) })
     }
 
     /// The words of one piece of 16 kHz audio, at times `offset` seconds on
     /// and no later than `limit`.
-    pub fn words(&self, samples: &[f32], rate: u32, offset: f64, limit: f64) -> Vec<Word> {
-        let stream = self.rec.create_stream();
-        stream.accept_waveform(rate as i32, samples);
-        self.rec.decode(&stream);
-        let Some(r) = stream.get_result() else { return Vec::new() };
-        let times = r.timestamps.unwrap_or_default();
-        let lens = r.durations.unwrap_or_default();
-        let toks: Vec<(String, f64, Option<f64>)> = r.tokens.into_iter().enumerate()
-            .filter_map(|(i, t)| {
-                let at = *times.get(i)? as f64;
-                Some((t, offset + at, lens.get(i).map(|d| *d as f64).filter(|d| *d > 0.0)))
-            })
-            .collect();
-        words_of(&toks, limit)
+    pub fn words(&self, samples: &[f32], _rate: u32, offset: f64, limit: f64) -> Vec<Word> {
+        match self.tokens_of(samples) {
+            Ok(toks) => {
+                let toks: Vec<(String, f64, Option<f64>)> = toks.into_iter()
+                    .map(|(t, at, dur)| (t, offset + at, Some(dur).filter(|d| *d > 0.0)))
+                    .collect();
+                words_of(&toks, limit)
+            }
+            Err(e) => {
+                eprintln!("lana: Parakeet failed: {e}");
+                Vec::new()
+            }
+        }
+    }
+
+    /// Tokens with their start and duration in seconds.
+    fn tokens_of(&self, samples: &[f32]) -> Result<Vec<(String, f64, f64)>, String> {
+        let err = |e: ort::Error| format!("Parakeet: {e}");
+        let (frames, mut feats) = self.fbank.compute(samples);
+        if frames == 0 {
+            return Ok(Vec::new());
+        }
+        let bins = self.fbank.bins;
+        normalise_per_feature(&mut feats, frames, bins);
+        // (time, feature) -> (feature, time), as the encoder takes it.
+        let mut x = vec![0f32; frames * bins];
+        for t in 0..frames {
+            for f in 0..bins {
+                x[f * frames + t] = feats[t * bins + f];
+            }
+        }
+        let (enc, dim, len) = self.encoder.lock().unwrap().with(|encoder| {
+            let x = Tensor::from_array(([1usize, bins, frames], x.clone())).map_err(err)?;
+            let lens = Tensor::from_array(([1usize], vec![frames as i64])).map_err(err)?;
+            let out = encoder.run(ort::inputs![x, lens]).map_err(err)?;
+            let (shape, e) = out[0].try_extract_tensor::<f32>().map_err(err)?;
+            let (_, l) = out[1].try_extract_tensor::<i64>().map_err(err)?;
+            let (dim, t) = (shape[1] as usize, shape[2] as usize);
+            // (dim, time) -> (time, dim): one row per output frame.
+            let mut rows = vec![0f32; dim * t];
+            for d in 0..dim {
+                for i in 0..t {
+                    rows[i * dim + d] = e[d * t + i];
+                }
+            }
+            Ok((rows, dim, (l[0].max(0) as usize).min(t)))
+        })?;
+        let mut net = self.net.lock().unwrap();
+        let (decoder, joiner) = &mut *net;
+        let blank = self.tokens.len() - 1;
+        let vocab = self.tokens.len();
+        let mut state = (vec![0f32; LAYERS * HIDDEN], vec![0f32; LAYERS * HIDDEN]);
+        let mut pred = predict(decoder, blank, &mut state)?;
+        let mut out = Vec::new();
+        let (mut t, mut on_frame) = (0usize, 0usize);
+        while t < len {
+            let e = Tensor::from_array(([1usize, dim, 1], enc[t * dim..(t + 1) * dim].to_vec())).map_err(err)?;
+            let p = Tensor::from_array(([1usize, HIDDEN, 1], pred.clone())).map_err(err)?;
+            let o = joiner.run(ort::inputs![e, p]).map_err(err)?;
+            let (_, logits) = o[0].try_extract_tensor::<f32>().map_err(err)?;
+            let (tok, dur) = (&logits[..vocab], &logits[vocab..]);
+            let y = argmax(tok);
+            let mut skip = argmax(dur);
+            if y != blank {
+                out.push((self.tokens[y].clone(), t as f64 * FRAME_S, skip as f64 * FRAME_S));
+                pred = predict(decoder, y, &mut state)?;
+                on_frame += 1;
+            }
+            if skip > 0 {
+                on_frame = 0;
+            }
+            if on_frame >= MAX_TOKENS_PER_FRAME || (y == blank && skip == 0) {
+                on_frame = 0;
+                skip = 1;
+            }
+            t += skip;
+        }
+        Ok(out)
+    }
+}
+
+/// The prediction network after `token`: its output, with the LSTM state
+/// carried forward.
+fn predict(decoder: &mut Session, token: usize, state: &mut (Vec<f32>, Vec<f32>)) -> Result<Vec<f32>, String> {
+    let err = |e: ort::Error| format!("Parakeet: {e}");
+    let y = Tensor::from_array(([1usize, 1], vec![token as i32])).map_err(err)?;
+    let n = Tensor::from_array(([1usize], vec![1i32])).map_err(err)?;
+    let h = Tensor::from_array(([LAYERS, 1, HIDDEN], std::mem::take(&mut state.0))).map_err(err)?;
+    let c = Tensor::from_array(([LAYERS, 1, HIDDEN], std::mem::take(&mut state.1))).map_err(err)?;
+    let o = decoder.run(ort::inputs![y, n, h, c]).map_err(err)?;
+    state.0 = o[2].try_extract_tensor::<f32>().map_err(err)?.1.to_vec();
+    state.1 = o[3].try_extract_tensor::<f32>().map_err(err)?.1.to_vec();
+    Ok(o[0].try_extract_tensor::<f32>().map_err(err)?.1.to_vec())
+}
+
+/// The first index of the largest value.
+fn argmax(v: &[f32]) -> usize {
+    v.iter().enumerate().fold(0, |b, (i, x)| if *x > v[b] { i } else { b })
+}
+
+/// NeMo's per_feature normalisation: each band to zero mean and unit
+/// deviation over the piece (the deviation from centred values, plus 1e-5).
+fn normalise_per_feature(x: &mut [f32], frames: usize, bins: usize) {
+    for f in 0..bins {
+        let mean = (0..frames).map(|t| x[t * bins + f]).sum::<f32>() / frames as f32;
+        let var = (0..frames).map(|t| (x[t * bins + f] - mean).powi(2)).sum::<f32>() / frames as f32;
+        let inv = 1.0 / (var.sqrt() + 1e-5);
+        for t in 0..frames {
+            x[t * bins + f] = (x[t * bins + f] - mean) * inv;
+        }
     }
 }
 

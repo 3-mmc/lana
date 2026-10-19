@@ -13,7 +13,7 @@
 
 use std::{path::Path, sync::Mutex};
 
-use ort::{session::Session, value::Tensor};
+use ort::value::Tensor;
 
 pub const HOP_S: f64 = 0.01;
 const WINDOW: usize = 1024;
@@ -26,7 +26,7 @@ const BATCH: usize = 512;
 const STEP: usize = 12;
 
 pub struct Crepe {
-    session: Mutex<Session>,
+    model: Mutex<super::runtime::Model>,
 }
 
 pub struct Track {
@@ -40,11 +40,8 @@ fn cents(bin: f64) -> f64 {
 
 impl Crepe {
     pub fn load(model: &Path, threads: i32) -> Result<Self, String> {
-        let session = Session::builder(super::frames::environment()?)
-            .and_then(|b| b.with_intra_threads(threads.max(1) as usize).map_err(Into::into))
-            .and_then(|mut b| b.commit_from_file(model))
-            .map_err(|e| format!("could not load {}: {e}", model.display()))?;
-        Ok(Crepe { session: Mutex::new(session) })
+        let model = super::runtime::Model::load(model, super::runtime::Role::Heavy, threads)?;
+        Ok(Crepe { model: Mutex::new(model) })
     }
 
     /// f0 in Hz and periodicity every 10 ms of 16 kHz mono audio, frame i
@@ -54,7 +51,7 @@ impl Crepe {
         let n = x.len() / HOP + 1;
         let mut scores = Vec::with_capacity(n * BINS);
         let err = |e: ort::Error| format!("the pitch model failed: {e}");
-        let mut session = self.session.lock().unwrap();
+        let mut model = self.model.lock().unwrap();
         for first in (0..n).step_by(BATCH) {
             let count = BATCH.min(n - first);
             let mut frames = Vec::with_capacity(count * WINDOW);
@@ -69,10 +66,13 @@ impl Crepe {
                 let sd = (w.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / WINDOW as f32).sqrt().max(1e-10);
                 frames.extend(w.iter().map(|v| (v - mean) / sd));
             }
-            let t = Tensor::from_array(([count, WINDOW], frames)).map_err(err)?;
-            let out = session.run(ort::inputs!["frames" => t]).map_err(err)?;
-            let (_, p) = out[0].try_extract_tensor::<f32>().map_err(err)?;
-            scores.extend_from_slice(&p[..count * BINS]);
+            let p = model.with(|session| {
+                let t = Tensor::from_array(([count, WINDOW], frames.clone())).map_err(err)?;
+                let out = session.run(ort::inputs!["frames" => t]).map_err(err)?;
+                let (_, p) = out[0].try_extract_tensor::<f32>().map_err(err)?;
+                Ok(p[..count * BINS].to_vec())
+            })?;
+            scores.extend_from_slice(&p);
             if !on_progress((first + count) as f64 / n as f64) {
                 return Err("stopped".into());
             }

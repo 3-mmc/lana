@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// CTC recognisers run through sherpa-onnx: ZIPA (Zhu et al. 2025) for IPA
+// CTC recognisers (frames.rs runs them): ZIPA (Zhu et al. 2025) for IPA
 // phones, and Meta's Omnilingual ASR for words in some 1600 languages. Both
 // emit one symbol per frame with its time, which is what makes their
 // boundaries come from the model rather than from a separate aligner.
@@ -182,7 +182,7 @@ impl Ctc {
 
     /// Greedy CTC decoding: the likeliest allowed symbol in each frame, runs
     /// of one symbol merged, blanks dropped. A symbol's time is the first
-    /// frame of its run, as sherpa-onnx reports it.
+    /// frame of its run, as sherpa-onnx reported it.
     ///
     /// Its confidence is read at the frame of the run where the model was
     /// surest of it, as that symbol's share of the frame once the blank is
@@ -457,77 +457,6 @@ mod tests {
         for v in &mut x[rate * 27..rate * 27 + 800] { *v = 0.0; }
         let cut = cut_point(&x, 0, rate as u32);
         assert!((rate * 27..rate * 27 + 800).contains(&cut), "cut at {cut}");
-    }
-
-    /// Lana's own decoding against sherpa-onnx's on the demo clips, which must
-    /// agree symbol for symbol. Needs the models in D:\\Models\\lana-eval:
-    /// cargo test -- --ignored same_as_sherpa --nocapture
-    #[test]
-    #[ignore]
-    fn same_as_sherpa() {
-        use sherpa_onnx::{OfflineRecognizer, OfflineRecognizerConfig};
-        let models = Path::new("/mnt/d/Models/lana-eval");
-        for (dir, engine) in [("small", Engine::Zipa), ("large", Engine::Zipa), ("omni300", Engine::Omnilingual)] {
-            let (model, tokens) = (models.join(dir).join("model.int8.onnx"), models.join(dir).join("tokens.txt"));
-            let ours = Ctc::load(engine, &model, &tokens, 4).unwrap();
-            let mut cfg = OfflineRecognizerConfig::default();
-            let m = Some(model.to_string_lossy().into_owned());
-            match engine {
-                Engine::Zipa => cfg.model_config.zipformer_ctc.model = m,
-                Engine::Omnilingual => cfg.model_config.omnilingual.model = m,
-            }
-            cfg.model_config.tokens = Some(tokens.to_string_lossy().into_owned());
-            cfg.model_config.num_threads = 4;
-            let rec = OfflineRecognizer::create(&cfg).unwrap();
-            for clip in ["de-vinson", "ka-vinson"] {
-                let bytes = std::fs::read(format!("../web/demo/{clip}.wav")).unwrap();
-                let x = crate::local::audio::decode_16k_mono(bytes, "a.wav").unwrap();
-                let x = &x[..x.len().min(16_000 * 30)];
-                let t = std::time::Instant::now();
-                let mine: Vec<Sym> = ours.recognise(x, 16_000, None, |_, _| true).unwrap()
-                    .into_iter().filter(|s| s.text != " ").collect();
-                let took = t.elapsed();
-                let stream = rec.create_stream();
-                stream.accept_waveform(16_000, x);
-                rec.decode(&stream);
-                let r = stream.get_result().unwrap();
-                let scale = if engine == Engine::Zipa { 0.5 } else { 1.0 };
-                let theirs: Vec<(String, f64)> = r.tokens.iter().zip(r.timestamps.unwrap_or_default())
-                    .map(|(k, t)| (k.trim().trim_start_matches('▁').to_owned(), t as f64 * scale))
-                    .filter(|(k, _)| !k.is_empty() && !k.starts_with('<')).collect();
-                let a: String = mine.iter().map(|s| s.text.as_str()).collect();
-                let b: String = theirs.iter().map(|s| s.0.as_str()).collect();
-                let low = mine.iter().filter(|s| s.conf < 0.6).count();
-                println!("{dir} {clip}: {} vs {} symbols, {:?}, {low} below 0.6\n  ours   {}\n  sherpa {}", mine.len(), theirs.len(), took, &a.chars().take(70).collect::<String>(), &b.chars().take(70).collect::<String>());
-                for s in mine.iter().filter(|s| !s.alts.is_empty()).take(4) {
-                    println!("  {} {:.2} at {:.2}: {:?}", s.text, s.conf, s.at, s.alts);
-                }
-                // Lana's fbank matches lhotse's, which ZIPA was trained on, to
-                // 1.5e-4; sherpa-onnx's differs by as much again, enough to tip
-                // a phone the model is torn on (f/v once in 167 on de-vinson; 6 in 173 on
-                // the very quiet ka-vinson). ZIPA's own Python pipeline disagrees with
-                // both, at other such phones: these are coin flips, not a bug.
-                let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
-                let mut row: Vec<usize> = (0..=b.len()).collect();
-                for i in 1..=a.len() {
-                    let mut prev = row[0];
-                    row[0] = i;
-                    for j in 1..=b.len() {
-                        let cur = row[j];
-                        row[j] = (prev + (a[i - 1] != b[j - 1]) as usize).min(row[j] + 1).min(row[j - 1] + 1);
-                        prev = cur;
-                    }
-                }
-                println!("  differ by {} symbols", row[b.len()]);
-                assert!(row[b.len()] * 20 <= b.len().max(1), "{dir} {clip}");
-                if mine.len() != theirs.len() {
-                    continue;
-                }
-                for (m, t) in mine.iter().zip(&theirs) {
-                    assert!((m.at - t.1).abs() < 0.021, "{dir} {clip}: {} at {} vs {}", m.text, m.at, t.1);
-                }
-            }
-        }
     }
 
     /// Omnilingual on Common Voice clips, free and held to the language's

@@ -2,8 +2,9 @@
 // Recognition that runs inside Lana, with no server and no key: whisper.cpp,
 // Omnilingual ASR and Parakeet for words, ZIPA for IPA phones, pyannote with
 // CAM++ for speakers, an AudioSet tagger for other sounds, and Silero VAD to
-// cut the audio into pieces at pauses; everything but whisper.cpp through
-// sherpa-onnx.
+// cut the audio into pieces at pauses; everything but whisper.cpp on the
+// ONNX Runtime that runtime.rs loads, on the GPU or Neural Engine where there
+// is one.
 //
 // It presents itself to the page as one more provider ("lana", kind "builtin"),
 // answering the same progress / partial / cancel / recluster contract as the
@@ -12,15 +13,20 @@
 pub mod audio;
 pub mod models;
 pub mod ctc;
+pub mod runtime;
 pub mod frames;
 pub mod align;
 pub mod lid;
 pub mod pitch;
 pub mod mms;
 pub mod parakeet;
+pub mod gpupack;
+pub mod pyannote;
 pub mod speakers;
 pub mod tags;
 pub mod vad;
+#[cfg(test)]
+mod golden;
 
 use std::{
     sync::{
@@ -88,6 +94,12 @@ pub struct Local {
 impl Local {
     pub fn new(models: Models) -> Self {
         vad::use_model(models.vad_path());
+        runtime::cache_in(models.dir.join("cache"));
+        runtime::prune();
+        runtime::prefer(models.dir.join(runtime::GPU_PACK));
+        if let Some(c) = read_compute(&models.dir) {
+            runtime::set_compute(c);
+        }
         Local {
             models,
             job: Default::default(),
@@ -241,7 +253,7 @@ impl Local {
 
     fn run_ctc(&self, entry: &models::Entry, bytes: Vec<u8>, filename: &str, language: Option<&str>) -> Result<Value, String> {
         let engine = if entry.kind == Kind::Letters { ctc::Engine::Omnilingual } else { ctc::Engine::Zipa };
-        let (model, tokens) = (self.models.named(entry, "model.int8.onnx"), self.models.named(entry, "tokens.txt"));
+        let (model, tokens) = (self.models.model_file(entry), self.models.named(entry, "tokens.txt"));
         // Omnilingual is not told the language; its alphabet is the only hold.
         let language = language.filter(|_| engine == ctc::Engine::Omnilingual);
         self.run_ctc_at(engine, &model, &tokens, entry.id, bytes, filename, language)
@@ -325,7 +337,7 @@ impl Local {
                 return Err(format!("{} is not downloaded.", entry.label));
             }
             let engine = if entry.kind == Kind::Letters { ctc::Engine::Omnilingual } else { ctc::Engine::Zipa };
-            ctc::Ctc::load(engine, &self.models.named(&entry, "model.int8.onnx"), &self.models.named(&entry, "tokens.txt"), threads())?
+            ctc::Ctc::load(engine, &self.models.model_file(&entry), &self.models.named(&entry, "tokens.txt"), threads())?
         };
         let mut c = c;
         c.lag = ctc::lag_of(id);
@@ -493,8 +505,7 @@ impl Local {
             j.total = duration;
         }
         self.stage("loading model");
-        let dir = self.models.path(entry);
-        let rec = parakeet::Parakeet::load(dir.parent().ok_or("no model folder")?, threads())?;
+        let rec = parakeet::Parakeet::load(&self.models.model_file(entry), threads())?;
         self.stage("recognising words");
         let t = Instant::now();
         let mut words = Vec::new();
@@ -645,6 +656,10 @@ impl Local {
     /// more than it saves.
     fn context(&self, entry: &models::Entry, path: &std::path::Path) -> Result<WhisperContext, String> {
         let mut params = WhisperContextParameters::default();
+        // whisper.cpp's own GPU backend (Metal on macOS; Vulkan in a build
+        // with the whisper-vulkan feature) follows the same setting as the
+        // ONNX models.
+        params.use_gpu(runtime::compute() != runtime::Compute::Cpu);
         params.dtw_parameters = DtwParameters {
             mode: DtwMode::ModelPreset { model_preset: preset(entry.id) },
             ..Default::default()
@@ -970,8 +985,58 @@ pub fn router(local: Local) -> Router {
         .route("/api/local/align", post(align_labels))
         .route("/api/local/search", post(search_phones))
         .route("/api/local/pitch", post(pitch_track))
+        .route("/api/local/compute", get(compute_status).put(compute_set))
+        .route("/api/local/gpu-pack", post(gpu_pack_get).delete(gpu_pack_delete))
         .layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD))
         .with_state(local)
+}
+
+/// The processor setting, kept in the models folder beside what it applies to.
+fn compute_file(dir: &std::path::Path) -> std::path::PathBuf {
+    dir.join("compute.json")
+}
+
+fn read_compute(dir: &std::path::Path) -> Option<runtime::Compute> {
+    let v: Value = serde_json::from_slice(&std::fs::read(compute_file(dir)).ok()?).ok()?;
+    runtime::Compute::parse(v["compute"].as_str()?)
+}
+
+/// The runtime, the accelerator it offers, the setting, where each model
+/// loaded so far ran, and the GPU pack.
+async fn compute_status(State(l): State<Local>) -> Json<Value> {
+    let mut v = tokio::task::spawn_blocking(runtime::describe).await.unwrap_or_else(|e| json!({ "error": e.to_string() }));
+    v["gpu_pack"] = gpupack::status(&l.models);
+    Json(v)
+}
+
+async fn gpu_pack_get(State(l): State<Local>) -> Response {
+    match gpupack::start(&l.models) {
+        Ok(()) => Json(json!({ "ok": true })).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn gpu_pack_delete(State(l): State<Local>) -> Response {
+    match gpupack::delete(&l.models) {
+        Ok(()) => Json(json!({ "ok": true })).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// `{"compute": "auto" | "cpu"}`. Models load per job, so the next job uses
+/// it; the network re-timing keeps is dropped so it reloads too.
+async fn compute_set(State(l): State<Local>, Json(body): Json<Value>) -> Response {
+    let Some(c) = body["compute"].as_str().and_then(runtime::Compute::parse).filter(|c| *c != runtime::Compute::Gpu) else {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "compute is \"auto\" or \"cpu\"" }))).into_response();
+    };
+    if let Err(e) = std::fs::create_dir_all(&l.models.dir)
+        .and_then(|_| std::fs::write(compute_file(&l.models.dir), json!({ "compute": c.name() }).to_string()))
+    {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
+    }
+    runtime::set_compute(c);
+    *l.net.lock().unwrap() = None;
+    Json(runtime::describe()).into_response()
 }
 
 async fn list_models(State(l): State<Local>) -> Json<Value> {

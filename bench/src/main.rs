@@ -24,7 +24,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use local::{models, Local, Models, Request};
+use local::{models, runtime, Local, Models, Request};
 use serde_json::{json, Value};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -109,7 +109,10 @@ fn run(args: &[String]) -> Result<(), String> {
         None => println!("Lana's models folder was not found, so models are downloaded to {}", own_dir.display()),
     }
 
-    let full = if args.iter().any(|a| a == "--full") {
+    // --models a,b: just those, by catalogue id (mms-<code> for MMS).
+    let chosen: Option<Vec<String>> = args.iter().position(|a| a == "--models").and_then(|i| args.get(i + 1))
+        .map(|l| l.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect());
+    let full = if chosen.is_some() || args.iter().any(|a| a == "--full") {
         true
     } else if args.iter().any(|a| a == "--quick") {
         false
@@ -120,12 +123,14 @@ fn run(args: &[String]) -> Result<(), String> {
         ask("\nWhich test? [1/2, default 1] ").trim() == "2"
     };
 
-    let mut ids: Vec<String> = if full {
+    let mut ids: Vec<String> = if let Some(c) = &chosen {
+        c.clone()
+    } else if full {
         models::catalogue().iter().map(|e| e.id.to_string()).collect()
     } else {
         QUICK.iter().map(|s| s.to_string()).collect()
     };
-    if full {
+    if full && chosen.is_none() {
         let accepted_already = lana.as_ref().is_some_and(|m| m.mms_accepted());
         let include = args.iter().any(|a| a == "--mms") || accepted_already || {
             println!("\nMMS (Meta) is licensed CC BY-NC 4.0: non-commercial use only.");
@@ -138,6 +143,15 @@ fn run(args: &[String]) -> Result<(), String> {
 
     let (plan, fetched_any) = locate(&ids, lana.as_ref(), &own)?;
 
+    // --compute cpu,auto: each model on each, so the accelerator can be
+    // weighed against the CPU on the same computer. Auto by default, which
+    // is what the app does.
+    let computes: Vec<runtime::Compute> = match args.iter().position(|a| a == "--compute").and_then(|i| args.get(i + 1)) {
+        Some(list) => list.split(',').map(|c| runtime::Compute::parse(c.trim()).ok_or(format!("--compute takes cpu, auto or gpu, not {c}")))
+            .collect::<Result<_, _>>()?,
+        None => vec![runtime::Compute::Auto],
+    };
+
     let machine = machine();
     println!("\nThis computer: {} · {} · {} cores · {} GB memory",
              machine["os"].as_str().unwrap_or("?"), machine["cpu"].as_str().unwrap_or("?"),
@@ -146,11 +160,13 @@ fn run(args: &[String]) -> Result<(), String> {
 
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut results = Vec::new();
-    for (id, dir) in &plan {
-        print!("{id:<28} ");
+    for ((id, dir), compute) in plan.iter().flat_map(|p| computes.iter().map(move |c| (p, c))) {
+        let label = if computes.len() > 1 { format!("{id} [{}]", compute.name()) } else { id.clone() };
+        print!("{label:<28} ");
         let _ = std::io::stdout().flush();
         let out = Command::new(&exe)
             .args(["--child", id, &dir.to_string_lossy()])
+            .env("LANA_BENCH_COMPUTE", compute.name())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
@@ -162,7 +178,7 @@ fn run(args: &[String]) -> Result<(), String> {
             None => {
                 let err = String::from_utf8_lossy(&out.stderr);
                 let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("no output");
-                json!({ "model": id, "ok": false, "exit": out.status.code(), "error": last })
+                json!({ "model": id, "compute": compute.name(), "ok": false, "exit": out.status.code(), "error": last })
             }
         };
         print_row(&r);
@@ -315,6 +331,9 @@ fn fetch(m: &Models, id: &str) -> Result<(), String> {
 /// One model over its clips, in this process. Prints one JSON line.
 fn child(id: &str, dir: &Path) {
     let local = Local::new(Models::new(dir.to_path_buf()));
+    // After Local::new, which reads the app's own setting from the folder.
+    let compute = std::env::var("LANA_BENCH_COMPUTE").ok().and_then(|c| runtime::Compute::parse(&c)).unwrap_or(runtime::Compute::Auto);
+    runtime::set_compute(compute);
     let clips = clips_for(id);
     let mut runs = Vec::new();
     let mut error = None;
@@ -361,6 +380,9 @@ fn child(id: &str, dir: &Path) {
     let (audio, secs) = warm.first().map_or((0.0, 0.0), |r| (r["audio_seconds"].as_f64().unwrap_or(0.0), r["seconds"].as_f64().unwrap_or(0.0)));
     let result = json!({
         "model": id,
+        "compute": compute.name(),
+        // The runtime, the accelerator, and where each of the model's files ran.
+        "runtime": runtime::describe(),
         "ok": error.is_none(),
         "error": error,
         "cold_seconds": runs.first().map(|r| r["seconds"].clone()),

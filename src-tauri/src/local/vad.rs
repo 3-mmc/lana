@@ -13,7 +13,9 @@ use std::{
     sync::Mutex,
 };
 
-use sherpa_onnx::{SileroVadModelConfig, VadModelConfig, VoiceActivityDetector};
+use ort::{session::Session, value::Tensor};
+
+use super::runtime::{self, Role};
 
 /// Where the VAD model is, set once by Local::new. A global rather than an
 /// argument so that every caller of `pieces` (Whisper here, the CTC path,
@@ -88,46 +90,170 @@ pub fn speech(samples: &[f32], rate: u32) -> Option<Vec<Range<usize>>> {
 }
 
 fn detect(path: &Path, samples: &[f32], rate: u32) -> Option<Vec<Range<usize>>> {
-    // Silero v5 works on 512-sample windows at 16 kHz, which is all Lana
-    // gives it (audio::decode_16k_mono).
-    const WINDOW: usize = 512;
-    let cfg = VadModelConfig {
-        silero_vad: SileroVadModelConfig {
-            model: Some(path.to_string_lossy().into_owned()),
-            threshold: 0.5,
-            // A pause of 0.25 s is enough to cut in; shorter gaps inside a
-            // word (stop closures) must not count as pauses.
-            min_silence_duration: 0.25,
-            min_speech_duration: 0.2,
-            window_size: WINDOW as i32,
-            // sherpa-onnx ends a stretch of speech that runs this long at the
-            // next dip it can find, which gives a 30 s piece a place to cut
-            // in fast continuous speech too.
-            max_speech_duration: 20.0,
-        },
-        sample_rate: rate as i32,
-        num_threads: 1,
-        provider: Some("cpu".into()),
-        ..Default::default()
-    };
-    // The buffer holds the stretch being read, not the recording: segments
-    // are taken out as they finish, and none runs past max_speech_duration.
-    let vad = VoiceActivityDetector::create(&cfg, 60.0)?;
-    let mut out = Vec::new();
-    let mut take = |vad: &VoiceActivityDetector| {
-        while let Some(seg) = vad.front() {
-            let a = seg.start().max(0) as usize;
-            out.push(a..(a + seg.n().max(0) as usize).min(samples.len()));
-            vad.pop();
+    let session = match runtime::session(path, Role::Light, 1) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("lana: VAD unavailable: {e}");
+            return None;
         }
     };
-    for chunk in samples.chunks(WINDOW) {
-        vad.accept_waveform(chunk);
-        take(&vad);
+    let mut vad = Vad::new(Silero { session, state: vec![0.0; 2 * 128], rate: rate as i64 }, rate);
+    for chunk in samples.chunks(SHIFT) {
+        if let Err(e) = vad.accept(chunk) {
+            eprintln!("lana: VAD failed: {e}");
+            return None;
+        }
     }
     vad.flush();
-    take(&vad);
-    Some(out)
+    Some(vad.found.into_iter().map(|r| r.start..r.end.min(samples.len())).collect())
+}
+
+// Silero v5 reads 512 new samples at a time at 16 kHz (all Lana gives it,
+// audio::decode_16k_mono), each with the 64 before them for context.
+const SHIFT: usize = 512;
+const WINDOW: usize = SHIFT + 64;
+const THRESHOLD: f32 = 0.5;
+/// A pause of 0.25 s is enough to cut in; shorter gaps inside a word (stop
+/// closures) must not count as pauses.
+const MIN_SILENCE_S: f32 = 0.25;
+const MIN_SPEECH_S: f32 = 0.2;
+/// A stretch of speech that runs this long is ended at the next dip that can
+/// be found (a shorter pause at a higher threshold), which gives a 30 s piece
+/// a place to cut in fast continuous speech too.
+const MAX_SPEECH_S: f32 = 20.0;
+const LONG_MIN_SILENCE_S: f32 = 0.1;
+const LONG_THRESHOLD: f32 = 0.9;
+
+/// The model and its recurrent state, carried from window to window.
+struct Silero {
+    session: Session,
+    state: Vec<f32>,
+    rate: i64,
+}
+
+impl Silero {
+    fn prob(&mut self, window: &[f32]) -> Result<f32, String> {
+        let err = |e: ort::Error| e.to_string();
+        let x = Tensor::from_array(([1usize, window.len()], window.to_vec())).map_err(err)?;
+        let state = Tensor::from_array(([2usize, 1, 128], std::mem::take(&mut self.state))).map_err(err)?;
+        let sr = Tensor::from_array(([1usize], vec![self.rate])).map_err(err)?;
+        let out = self.session.run(ort::inputs!["input" => x, "state" => state, "sr" => sr]).map_err(err)?;
+        self.state = out["stateN"].try_extract_tensor::<f32>().map_err(err)?.1.to_vec();
+        Ok(out["output"].try_extract_tensor::<f32>().map_err(err)?.1[0])
+    }
+}
+
+/// sherpa-onnx's VoiceActivityDetector over Silero, which Lana used before
+/// it ran models itself, and whose cuts the padding in `split` was tuned to: the same
+/// hysteresis, the same widening of a stretch's start by two windows and
+/// the minimum speech length, the same end at the start of the pause that
+/// closed it. Sample positions count from the start of the recording; `head`
+/// is where sherpa's buffer began, which a stretch never starts before.
+struct Vad {
+    model: Silero,
+    rate: f32,
+    last: Vec<f32>,
+    head: usize,
+    tail: usize,
+    start: Option<usize>,
+    triggered: bool,
+    temp_start: usize,
+    temp_end: usize,
+    found: Vec<Range<usize>>,
+}
+
+impl Vad {
+    fn new(model: Silero, rate: u32) -> Self {
+        Vad { model, rate: rate as f32, last: Vec::new(), head: 0, tail: 0, start: None,
+              triggered: false, temp_start: 0, temp_end: 0, found: Vec::new() }
+    }
+
+    fn samples(&self, s: f32) -> usize {
+        (self.rate * s) as usize
+    }
+
+    fn accept(&mut self, chunk: &[f32]) -> Result<(), String> {
+        let long = self.tail - self.head > self.samples(MAX_SPEECH_S);
+        let (min_silence, threshold) = if long { (LONG_MIN_SILENCE_S, LONG_THRESHOLD) } else { (MIN_SILENCE_S, THRESHOLD) };
+        let (min_silence, min_speech) = (self.samples(min_silence), self.samples(MIN_SPEECH_S));
+        self.last.extend_from_slice(chunk);
+        if self.last.len() < WINDOW {
+            return Ok(());
+        }
+        let k = (self.last.len() - WINDOW) / SHIFT + 1;
+        let mut speech = false;
+        for i in 0..k {
+            self.tail += SHIFT;
+            let p = self.model.prob(&self.last[i * SHIFT..i * SHIFT + WINDOW])?;
+            speech |= self.is_speech(p, threshold, min_silence, min_speech);
+        }
+        self.last.drain(..k * SHIFT);
+        let lead = 2 * WINDOW + min_speech;
+        if speech {
+            self.start.get_or_insert(self.tail.saturating_sub(lead).max(self.head));
+            return Ok(());
+        }
+        if let Some(start) = self.start.take() {
+            let end = self.tail.saturating_sub(min_silence);
+            if end > start {
+                self.found.push(start..end);
+            }
+            self.head = self.head.max(end);
+        } else {
+            self.head = self.head.max(self.tail.saturating_sub(lead));
+        }
+        Ok(())
+    }
+
+    /// One window's verdict, with Silero's hysteresis: speech starts once the
+    /// probability has stayed above the threshold for `min_speech` samples,
+    /// and stops once it has stayed below a lower one for `min_silence`.
+    fn is_speech(&mut self, p: f32, threshold: f32, min_silence: usize, min_speech: usize) -> bool {
+        let at = self.tail;
+        if p > threshold && self.temp_end != 0 {
+            self.temp_end = 0;
+        }
+        if p > threshold && self.temp_start == 0 {
+            self.temp_start = at;
+            return false;
+        }
+        if p > threshold && !self.triggered {
+            if at - self.temp_start < min_speech {
+                return false;
+            }
+            self.triggered = true;
+            return true;
+        }
+        if p < threshold && !self.triggered {
+            self.temp_start = 0;
+            self.temp_end = 0;
+            return false;
+        }
+        if p > (threshold - 0.15).max(0.01) && self.triggered {
+            return true;
+        }
+        if p < threshold && self.triggered {
+            if self.temp_end == 0 {
+                self.temp_end = at;
+            }
+            if at - self.temp_end < min_silence {
+                return true;
+            }
+            self.temp_start = 0;
+            self.temp_end = 0;
+            self.triggered = false;
+        }
+        false
+    }
+
+    /// Speech still going at the end runs to the end.
+    fn flush(&mut self) {
+        if let Some(start) = self.start.take() {
+            if self.tail > start {
+                self.found.push(start..self.tail);
+            }
+        }
+    }
 }
 
 /// The cutting itself, apart from the model so it can be tested. `speech` is

@@ -74,7 +74,7 @@ jobs:
       # through Ninja inside a developer prompt. /EHsc because cmake-rs passes
       # clang-cl no exception flag; the CMP0091 policy because whisper.cpp's old
       # cmake_minimum_required otherwise ignores the runtime choice and builds
-      # /MD, which cannot link with sherpa-onnx's /MT.
+      # /MD, which cannot link with the rest of the app's /MT (crt-static).
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
 
@@ -100,6 +100,23 @@ jobs:
       - name: praat-wasm
         shell: bash
         run: bash scripts/fetch-praat-wasm.sh
+
+      # The ONNX Runtime library the built-in models run on, bundled beside the
+      # app (CoreML on macOS, DirectML on Windows, CPU on Linux).
+      - name: ONNX Runtime
+        shell: bash
+        run: bash scripts/fetch-onnxruntime.sh
+
+      # Microsoft's onnxruntime.dll is built against the shared Visual C++
+      # runtime, which not every Windows has: those four go beside it, as
+      # Microsoft allows (app-local deployment), and local/runtime.rs loads them.
+      - name: Visual C++ runtime beside onnxruntime.dll
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          for f in vcruntime140.dll vcruntime140_1.dll msvcp140.dll msvcp140_1.dll; do
+            cp "/c/Windows/System32/$f" src-tauri/onnxruntime/
+          done
 
       - name: Tauri CLI
         run: cargo install tauri-cli --locked --version "^2"
@@ -130,7 +147,8 @@ jobs:
 
       # lana-bench, the timing tool for calibrating model recommendations. An
       # artifact only, never attached to a release. Archived because artifact
-      # zips drop the executable bit on macOS and Linux.
+      # zips drop the executable bit on macOS and Linux. The ONNX Runtime
+      # library goes beside it, in onnxruntime/, where local/runtime.rs looks.
       - name: Build lana-bench
         shell: bash
         working-directory: bench
@@ -138,9 +156,11 @@ jobs:
           cargo build --release
           mkdir -p ../bench-dist
           if [ "$RUNNER_OS" = Windows ]; then
-            cp target/release/lana-bench.exe ../bench-dist/
+            mkdir -p ../bench-dist/lana-bench
+            cp target/release/lana-bench.exe ../bench-dist/lana-bench/
+            cp -r ../src-tauri/onnxruntime ../bench-dist/lana-bench/
           else
-            tar czf ../bench-dist/lana-bench-$RUNNER_OS.tar.gz -C target/release lana-bench
+            tar czf ../bench-dist/lana-bench-$RUNNER_OS.tar.gz -C target/release lana-bench -C ../../../src-tauri onnxruntime
           fi
 
       - uses: actions/upload-artifact@v4

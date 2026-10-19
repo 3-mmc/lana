@@ -23,7 +23,7 @@
 
 use std::{ops::Range, path::Path, sync::Mutex};
 
-use ort::{session::Session, value::Tensor};
+use ort::value::Tensor;
 use serde_json::{json, Value};
 
 pub const RATE: usize = 16_000;
@@ -34,7 +34,7 @@ const MIN_SPEECH_S: f64 = 0.5;
 const SWITCH: f32 = 3.0;
 
 pub struct Lid {
-    session: Mutex<Session>,
+    model: Mutex<super::runtime::Model>,
     labels: Vec<String>,
 }
 
@@ -68,11 +68,8 @@ impl Lid {
             let i: usize = k.parse().map_err(|_| "config.json: a label id is not a number")?;
             *labels.get_mut(i).ok_or("config.json: label ids are not 0..n")? = v.as_str().unwrap_or("").to_owned();
         }
-        let session = Session::builder(super::frames::environment()?)
-            .and_then(|b| b.with_intra_threads(threads.max(1) as usize).map_err(Into::into))
-            .and_then(|mut b| b.commit_from_file(model))
-            .map_err(|e| format!("could not load {}: {e}", model.display()))?;
-        Ok(Lid { session: Mutex::new(session), labels })
+        let model = super::runtime::Model::load(model, super::runtime::Role::Heavy, threads)?;
+        Ok(Lid { model: Mutex::new(model), labels })
     }
 
     /// The label indices for a list of Lana's language codes, and the codes
@@ -97,11 +94,13 @@ impl Lid {
     /// Logits for one window of 16 kHz audio, normalised as MMS was trained.
     fn logits(&self, x: &[f32]) -> Result<Vec<f32>, String> {
         let err = |e: ort::Error| format!("the language model failed: {e}");
-        let t = Tensor::from_array(([1usize, x.len()], normalised(x))).map_err(err)?;
-        let mut session = self.session.lock().unwrap();
-        let out = session.run(ort::inputs!["input_values" => t]).map_err(err)?;
-        let (_, lg) = out["logits"].try_extract_tensor::<f32>().map_err(err)?;
-        Ok(lg.to_vec())
+        let x = normalised(x);
+        self.model.lock().unwrap().with(|session| {
+            let t = Tensor::from_array(([1usize, x.len()], x.clone())).map_err(err)?;
+            let out = session.run(ort::inputs!["input_values" => t]).map_err(err)?;
+            let (_, lg) = out["logits"].try_extract_tensor::<f32>().map_err(err)?;
+            Ok(lg.to_vec())
+        })
     }
 
     /// The recording's language stretches. `speech` is where Silero VAD heard
