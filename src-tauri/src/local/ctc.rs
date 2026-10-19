@@ -54,6 +54,11 @@ const PAUSE_S: f64 = 0.35;
 /// How long the last phone of a group is taken to last.
 const TAIL_S: f64 = 0.08;
 
+/// How late a model puts its symbols (see `Ctc::lag`), by Lana's model id.
+pub fn lag_of(id: &str) -> f64 {
+    if id.starts_with("omnilingual-") || id.starts_with("mms-") { 0.04 } else { 0.0 }
+}
+
 pub struct Ctc {
     net: Net,
     pub engine: Engine,
@@ -62,6 +67,14 @@ pub struct Ctc {
     shown: Vec<Option<String>>,
     /// The symbols decoding may choose; None allows all.
     allowed: Option<Vec<bool>>,
+    /// How late the model puts a symbol, in seconds, taken off every time
+    /// it reports. It is the model's own (the same weights give the same
+    /// frames on any computer): against DoReCo's word onsets, which people
+    /// checked, Omnilingual 300M re-timed runs 40–47 ms late in each of four
+    /// languages and MMS (eng) 43–55 ms, while ZIPA's median is 0
+    /// (lana-bench --eval). Taking 40 ms off moved Omnilingual from 21% to
+    /// 50% of word onsets within 20 ms.
+    pub lag: f64,
 }
 
 /// A recogniser's frames for one piece, kept for search and re-timing.
@@ -91,7 +104,7 @@ impl Ctc {
                 _ => Some(sym.trim().trim_start_matches('▁').to_owned()).filter(|t| !t.is_empty() && !t.starts_with('<')),
             };
         }
-        Ok(Ctc { net, engine, shown, allowed: None })
+        Ok(Ctc { net, engine, shown, allowed: None, lag: 0.0 })
     }
 
     /// Hold decoding to these letters (and their capitals), plus the word
@@ -154,6 +167,11 @@ impl Ctc {
         self.net.log_probs(samples)
     }
 
+    /// The time of frame `frame` of a piece that starts at `offset`.
+    pub fn at(&self, offset: f64, frame: usize) -> f64 {
+        (offset + frame as f64 * FRAME_S - self.lag).max(0.0)
+    }
+
     pub fn symbols(&self) -> &[Option<String>] {
         &self.shown
     }
@@ -195,7 +213,7 @@ impl Ctc {
                 alts.sort_by(|a, b| b.1.total_cmp(&a.1));
                 alts.truncate(3);
             }
-            out.push(Sym { text, at: offset + first as f64 * FRAME_S, conf, alts });
+            out.push(Sym { text, at: self.at(offset, first), conf, alts });
         };
         for t in 0..m.t {
             let row = m.row(t);

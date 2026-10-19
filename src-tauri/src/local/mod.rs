@@ -259,6 +259,7 @@ impl Local {
         }
         self.stage("loading model");
         let mut rec = ctc::Ctc::load(engine, model, tokens, threads())?;
+        rec.lag = ctc::lag_of(id);
         let alphabet = language.and_then(|l| ctc::alphabet(l).map(|a| (l, a)));
         if let Some((_, a)) = alphabet {
             rec.hold_to(a);
@@ -326,6 +327,8 @@ impl Local {
             let engine = if entry.kind == Kind::Letters { ctc::Engine::Omnilingual } else { ctc::Engine::Zipa };
             ctc::Ctc::load(engine, &self.models.named(&entry, "model.int8.onnx"), &self.models.named(&entry, "tokens.txt"), threads())?
         };
+        let mut c = c;
+        c.lag = ctc::lag_of(id);
         let c = Arc::new(c);
         *self.net.lock().unwrap() = Some((id.to_owned(), c.clone()));
         Ok(c)
@@ -355,10 +358,11 @@ impl Local {
         let a = (start - CONTEXT_S).max(0.0);
         let b = (end + CONTEXT_S).min(duration);
         let m = rec.frames(&samples[(a * rate) as usize..(b * rate) as usize])?;
-        let f0 = ((start - a) / ctc::FRAME_S).ceil() as usize;
-        let f1 = ((end - a) / ctc::FRAME_S).floor() as usize;
+        // A model that runs late hears [start, end] that much later.
+        let f0 = ((start + rec.lag - a) / ctc::FRAME_S).ceil() as usize;
+        let f1 = ((end + rec.lag - a) / ctc::FRAME_S).floor() as usize;
         let m = m.slice(f0, f1);
-        let at = |f: usize| a + (f0 + f) as f64 * ctc::FRAME_S;
+        let at = |f: usize| rec.at(a, f0 + f);
         let words = rec.engine == ctc::Engine::Omnilingual;
         let space = rec.symbols().iter().position(|s| s.as_deref() == Some(" "));
         let mut seq = Vec::new();

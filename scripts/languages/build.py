@@ -7,12 +7,15 @@ Javanese is "jw", Hawaiian and Cantonese have none), and whether MMS has an
 adapter for it, and other names it is searched by (";"-separated): SIL's name
 index, plus the everyday names the standards leave out, such as "Taiwanese"
 for Min Nan or "Farsi" for Persian. A language is listed if any recogniser in Lana can use the
-code, which is every 639-1 language plus every MMS language.
+code, which is every 639-1 language, every MMS language, and every language
+MMS-LID can tell (mms_lid_1024.txt, the labels of facebook/mms-lid-1024). A
+code SIL has since retired (Western Magar, mrd, merged into mgp in 2026) keeps
+the name it had, from SIL's retirements table, since the model still says it.
 
-usage: build.py <SIL iso-639-3.tab> <SIL iso-639-3_Name_Index.tab> <mms_languages.json> <out.json>
+usage: build.py <SIL iso-639-3.tab> <SIL iso-639-3_Name_Index.tab> <mms_languages.json> <out.json> <SIL iso-639-3_Retirements.tab>
 The SIL tables: https://iso639-3.sil.org/code_tables/download_tables
 """
-import csv, json, sys
+import csv, json, os, sys
 
 # Whisper's language tokens (openai/whisper tokenizer.py, LANGUAGES), keyed by
 # the ISO 639-3 code of the language each stands for.
@@ -55,8 +58,11 @@ MAIN_VARIETY = {'cmn': 'zh', 'arb': 'ar', 'pes': 'fa', 'zsm': 'ms', 'swh': 'sw',
                 'nob': 'no', 'ekk': 'et', 'lvs': 'lv', 'plt': 'mg', 'npi': 'ne', 'ory': 'or', 'azj': 'az',
                 'ydd': 'yi', 'gaz': 'om', 'quz': 'qu', 'gug': 'gn', 'als': 'sq', 'pbu': 'ps', 'tgk': 'tg'}
 
-tab, index, mms_path, out = sys.argv[1:5]
+tab, index, mms_path, out, retired = sys.argv[1:6]
 sil = {r['Id']: r for r in csv.DictReader(open(tab, encoding='utf-8'), delimiter='\t')}
+for r in csv.DictReader(open(retired, encoding='utf-8'), delimiter='\t'):
+    sil.setdefault(r['Id'], {'Ref_Name': r['Ref_Name'], 'Part1': ''})
+lid = open(os.path.join(os.path.dirname(__file__), 'mms_lid_1024.txt'), encoding='utf-8').read().split()
 # MMS names are the friendlier ones ("Avar (Avaric)"); a code with several
 # adapters (one per script or dialect) is one language here.
 mms = {}
@@ -64,7 +70,7 @@ for code, name in json.load(open(mms_path, encoding='utf-8')):
     base = code.split('-')[0]
     if base not in mms or '-' not in code:
         mms[base] = name if '-' not in code else sil.get(base, {}).get('Ref_Name', name)
-codes = set(mms) | {k for k, r in sil.items() if r['Part1']} | set(WHISPER)
+codes = set(mms) | {k for k, r in sil.items() if r['Part1']} | set(WHISPER) | set(lid)
 others = {}
 for r in csv.DictReader(open(index, encoding='utf-8'), delimiter='\t'):
     others.setdefault(r['Id'], []).append(r['Print_Name'])

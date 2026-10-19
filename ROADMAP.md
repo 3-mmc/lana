@@ -50,6 +50,9 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
       oss/dar told the pair 63–82%; 1.3–1.6× real time, 1.6 GB peak
 - [x] **Routing**: a word run on a codeswitching recording is read stretch by stretch in each stretch's
       language (Whisper code, Omnilingual alphabet, MMS adapter when installed)
+- [x] **Names for every language ID code**: the 500 MMS-LID codes the language list lacked come from
+      SIL's ISO 639-3 table (and its retirements table for mrd, Western Magar, merged into mgp in 2026),
+      so they show by name and can be typed by name; 1,218 → 1,718 languages, existing rows unchanged
 
 ### Analysis aids
 - [x] **Search by example**: select a stretch, find similar ones (DTW over ZIPA posteriors)
@@ -78,7 +81,9 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
       in Sanzhi Dargwa, Svan, Nǁng and Southern English. Re-timing with ZIPA small puts 56% of
       phone onsets within 20 ms of DoReCo's (86% within 50 ms; spread evenly: 13%), ZIPA large
       47%; free reading F1 at 20 ms 0.60 (small) / 0.51 (large); phone error rate 56% / 51%.
-      Omnilingual's word onsets run about 40 ms late (21–25% within 20 ms)
+      Omnilingual's word onsets ran 40–47 ms late in every language (21–25% within 20 ms); the lag is
+      the model's, so Lana now takes 40 ms off Omnilingual and MMS times: Omnilingual 300M re-timing
+      21% → 50% within 20 ms, free F1 0.15 → 0.34; MMS eng 17% → 45%
 
 ## Later (noted, not started)
 
@@ -105,8 +110,7 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
   ZIPA fine-tune); train adapters inside Lana after that
 - **ZIPA fine-tune for Georgian** with grapheme-to-IPA targets that keep ejectives
 - **Spoken language ID, later steps**: language ID inside lana-bench; context across stretch
-  boundaries when routing (each stretch is now read alone, and MMS reloads per stretch); names for
-  the ~500 MMS-LID codes Lana's language list lacks
+  boundaries when routing (each stretch is now read alone, and MMS reloads per stretch)
 - **VoxLingua107 ECAPA** (Apache, 85 MB, 107 languages; no official ONNX, export it ourselves):
   sliding 2–3 s windows to find where the language changes, with MMS-LID or Whisper's
   `lang_detect` deciding each stretch between change points
