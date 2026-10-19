@@ -41,6 +41,16 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
       alternatives one click away), pinyin → Wade-Giles, Zhuyin (bopomofo), Gwoyeu Romatzyh
       and IPA by syllable table; POJ ↔ Tâi-lô for Min Nan (MMS `nan` writes POJ/Tâi-lô)
 
+### Codeswitching and speakers (asked 2026-10-18)
+- [x] **Per-recording toggles**: "contains multiple speakers" (with the number, if known) drives the
+      speaker tier; "contains codeswitching" (with the languages, if known) adds a language tier
+- [x] **Spoken language ID**: MMS-LID 1024 (NC, behind the MMS acceptance), 3 s windows every 1 s,
+      each classified on its own, Viterbi with a switch cost; candidates restricted to the languages
+      given. Measured on spliced FLEURS/Common Voice: ka→de switch within 0.38 s, 98.6% of time right;
+      oss/dar told the pair 63–82%; 1.3–1.6× real time, 1.6 GB peak
+- [x] **Routing**: a word run on a codeswitching recording is read stretch by stretch in each stretch's
+      language (Whisper code, Omnilingual alphabet, MMS adapter when installed)
+
 ### Analysis aids
 - [x] **Search by example**: select a stretch, find similar ones (DTW over ZIPA posteriors)
 - [x] **Voice quality**: H1–H2, CPP, HNR from Praat, with an optional creaky/breathy/modal
@@ -58,10 +68,10 @@ behind the list is in `.agent-memory/` (see `lana-analysis-roadmap`).
 - **Training bundle**: export corrected tiers + audio as a training package (MMS adapter,
   ZIPA fine-tune); train adapters inside Lana after that
 - **ZIPA fine-tune for Georgian** with grapheme-to-IPA targets that keep ejectives
-- **Spoken language ID** per window, routing code-switched stretches to the right model
-  (MMS-LID, NC; or VoxLingua107 ECAPA, Apache) — ONNX exports to verify
+- **Spoken language ID, later steps**: VoxLingua107 ECAPA (Apache) as a non-NC alternative; language
+  ID inside lana-bench; context across stretch boundaries when routing (each stretch is now read alone)
 - **Diarization**: pyannote community-1 (licence to verify) or 3D-Speaker ERes2Net
-  embeddings; expected-speaker-count field; overlap tier from the segmentation output
+  embeddings; overlap tier from the segmentation output
 - **Qwen3-ASR** (52 languages; timestamps need its forced aligner)
 - **Ejective / glottalisation detector** on ZIPA encoder features
 - **Evaluation**: DoReCo phone-aligned corpus as reference; boundary-timing metric
