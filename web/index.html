@@ -292,6 +292,13 @@
   .langlist .head{cursor:default;color:var(--dim2);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
   .langlist .head:hover{background:none}
   #langNote{padding:0 9px 7px}
+  .setup{display:grid;grid-template-columns:minmax(0,1fr);gap:3px;padding:2px 9px 7px}
+  .setup label{font-size:12px}
+  /* Each field under its toggle, always there (greyed while off), so a tick moves nothing. */
+  .setup input:not([type]),.setup input.num{margin-left:22px;width:calc(100% - 22px);box-sizing:border-box}
+  .setup input:disabled{opacity:.45}
+  /* One line, always there: what it says changes as languages are typed. */
+  #csNote{margin:0 0 3px 22px;height:14px;line-height:14px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
   #langNote button{margin-left:4px}
   .meta .warn{color:var(--warn)}
   .ctxmenu{position:fixed;z-index:80;min-width:210px;padding:4px 0;font-size:12px;background:var(--raise);
@@ -561,6 +568,11 @@
         <div class="mgalso" data-also="speakers"></div>
       </div>
       <div class="mgsec">
+        <div class="mghead">Languages <span>— which language is spoken where, for the language tier of a codeswitching recording</span><span class="inuse" data-use="lang"></span></div>
+        <div data-kind="lid"></div>
+        <div class="mgalso" data-also="lid"></div>
+      </div>
+      <div class="mgsec">
         <div class="mghead">Sounds <span>— laughter, music, coughs, for the events tier</span><span class="inuse" data-use="event"></span></div>
         <div data-kind="tags"></div>
         <div class="mgalso" data-also="tags"></div>
@@ -777,6 +789,16 @@
       <button class="tiny" id="langClear" title="Let the models detect the language" hidden>×</button>
     </div>
     <div class="meta" id="langNote" hidden></div>
+    <!-- What the linguist knows about this recording, kept with its annotation. -->
+    <div class="setup">
+      <label title="Run spoken language identification first: a language tier shows which language is spoken where, and each stretch is read by the word model in its own language"><input type="checkbox" id="csOn"> Recording contains codeswitching</label>
+      <input id="csLangs" placeholder="languages, if known: kat, rus" autocomplete="off" spellcheck="false"
+             title="The languages that occur, by code or name, separated by commas. Language ID then chooses only among these; blank lets it choose among all it knows.">
+      <div class="meta" id="csNote"></div>
+      <label title="Fill the speaker tier: who is talking, by voice"><input type="checkbox" id="spkOn"> Recording contains multiple speakers</label>
+      <input id="spkN" class="num" placeholder="how many, if known" autocomplete="off"
+             title="How many speakers to find. Blank lets the clustering decide from the threshold; a number forces exactly that many, which is what you want whenever you know the recording.">
+    </div>
     <div class="track" data-track="word">
       <div class="top">
         <span class="name">Word tier</span>
@@ -812,16 +834,25 @@
         <select id="mdSpeaker"><option value="">(none)</option></select>
       </div>
       <div class="row tight" style="padding:4px 0 0;border:0">
-        <label for="spkN">speakers</label>
-        <input id="spkN" size="3" class="num" placeholder="auto"
-               title="How many speakers to find. Blank lets the clustering decide from the threshold; a number forces exactly that many, which is what you want whenever you know the recording.">
         <label for="spkTh">threshold</label>
         <input id="spkTh" size="4" class="num" value="0.7"
-               title="Clustering threshold, used only when the count is blank. Smaller splits more. This argument decides the answer: on one ten-minute recording 0.5 gave sixteen speakers and 1.1 gave two.">
+               title="Clustering threshold, used only when the number of speakers is blank. Smaller splits more. This argument decides the answer: on one ten-minute recording 0.5 gave sixteen speakers and 1.1 gave two.">
         <button class="tiny" id="spkRe" disabled
-                title="Re-partition the turns this recording already produced into the speaker count above, without reading the audio again. The service keeps the recording, so this costs a fraction of a full pass and nothing at all after the first one. A turn that has to be split gains a boundary at window resolution, which is coarser than a full pass would give.">re-cluster</button>
+                title="Re-partition the turns this recording already produced into the number of speakers given above, without reading the audio again. The service keeps the recording, so this costs a fraction of a full pass and nothing at all after the first one. A turn that has to be split gains a boundary at window resolution, which is coarser than a full pass would give.">re-cluster</button>
       </div>
       <div class="meta" id="mtSpeaker">who is talking, by voice</div>
+    </div>
+    <div class="track" data-track="lang" id="trkLang" hidden>
+      <div class="top">
+        <span class="name">Language tier</span>
+        <span class="sp"></span>
+        <span class="state" id="stLang" data-s="empty">no model</span>
+        <button class="tiny" id="reLang" title="Run this tier only">⟲</button>
+      </div>
+      <div class="row tight" style="padding:5px 0 0;border:0">
+        <select id="mdLang"><option value="">(none)</option></select>
+      </div>
+      <div class="meta" id="mtLang">which language is spoken where</div>
     </div>
     <div class="track" data-track="event" id="trkEvent" hidden>
       <div class="top">
@@ -1340,7 +1371,7 @@ const TIERS = [
     gist: 'IPA read off the acoustics' },
   { key: 'speaker', role: 'speakers', label: 'speakers',
     sel: 'mdSpeaker', st: 'stSpeaker', mt: 'mtSpeaker', rerun: 'reSpeaker',
-    row: 'trkSpeaker', cfg: 'speakerModel', optional: true, concurrent: true,
+    row: 'trkSpeaker', cfg: 'speakerModel', optional: true, concurrent: true, toggle: 'multi',
     gist: 'who is talking, by voice' },
   /* Sounds that are not words (laughter, music, coughs), from a tagger that
      names a window at a time: its boundaries are a second apart at best. */
@@ -1348,6 +1379,13 @@ const TIERS = [
     sel: 'mdEvent',   st: 'stEvent',   mt: 'mtEvent',   rerun: 'reEvent',
     row: 'trkEvent', cfg: 'eventModel', optional: true,
     gist: 'sounds that are not words, to the nearest second' },
+  /* Which language is spoken where, from spoken language ID (MMS-LID). Run
+     only for a recording marked as codeswitching; its stretches then decide
+     the language each word model reads them in (see "routing"). */
+  { key: 'lang',    role: 'lid',      label: 'language',
+    sel: 'mdLang',    st: 'stLang',    mt: 'mtLang',    rerun: 'reLang',
+    row: 'trkLang', cfg: 'lidModel', optional: true, toggle: 'cs',
+    gist: 'which language is spoken where' },
 ];
 const TKEYS = TIERS.map(t => t.key);
 const tierOf = k => TIERS.find(t => t.key === k);
@@ -1355,9 +1393,12 @@ const tierOf = k => TIERS.find(t => t.key === k);
 /* Tiers worth showing: the always-on ones, plus any optional tier that has a
    model chosen, has intervals already, or has a model available to choose. */
 function shownTiers() {
-  return TIERS.filter(t => !t.optional || S.tracks[t.key].model ||
-                           S.tracks[t.key].items.length ||
-                           NET.models.some(m => m.role === t.role));
+  /* A tier behind one of the recording's toggles (multiple speakers,
+     codeswitching) is shown when the toggle is on or it already holds
+     intervals; its model choice alone does not show it. */
+  return TIERS.filter(t => !t.optional || S.tracks[t.key].items.length ||
+                           (t.toggle ? S.setup[t.toggle]
+                             : S.tracks[t.key].model || NET.models.some(m => m.role === t.role)));
 }
 
 /* The clusterer's speaker numbers are zero-based and arbitrary until the
@@ -1415,6 +1456,9 @@ const LANG = {
 const Q = { items: [], seq: 0, main: null, side: null };
 
 const S = {
+  /* What the linguist says about this recording (the Recognition panel's two
+     toggles), saved with its annotation: see setupDefaults. */
+  setup: { multi: false, spk: '', cs: false, langs: '' },
   praat: null, sound: null, audio: null, ctx: null, src: null,
   name: 'audio', dur: 0,
   win: [0, 0],          // visible / analysed window
@@ -1551,6 +1595,7 @@ $('file').addEventListener('change', async ev => {
   renderQueue();
   for (const k of TKEYS) S.tracks[k].edited = false;
   S.extra = []; S.notes = []; S.warnings = []; S.undo = []; S.redo = []; S.selectedItem = null; TRI.cur = null;
+  S.setup = setupDefaults(); renderSetup();
   NOTES.current = null; renderNotes();
   if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
   S.file = { name: f.name, size: f.size };
@@ -3134,7 +3179,7 @@ function fillModelSelects() {
 function langStyle(model) {
   if (!model) return 'none';
   if (/^mms-/.test(model)) return 'fixed';
-  if (/^zipa|^(speakers|diarize)$/.test(model)) return 'none';
+  if (/^zipa|^langid|^(speakers|diarize)$/.test(model)) return 'none';
   // Omnilingual is told the language so that Lana can hold it to the
   // language's alphabet; it reads the language itself either way.
   if (model === 'mms' || model === 'owsm' || /^omnilingual/.test(model)) return 'iso3';
@@ -3274,15 +3319,20 @@ function renderPlan() {
     if (warn) bits.push(`<span class="warn">${esc(warn)}</span>`);
     $(T.mt).innerHTML = bits.join(' · ');
   }
-  const wm = S.tracks.word.model, pm = S.tracks.phone.model, sm = S.tracks.speaker.model, em = S.tracks.event.model;
-  $('planNote').textContent = !wm && !pm && !sm && !em
+  const wm = S.tracks.word.model, pm = S.tracks.phone.model, em = S.tracks.event.model;
+  // The speaker and language tiers run only when the recording is marked so.
+  const sm = S.setup.multi ? S.tracks.speaker.model : '', lm = S.setup.cs ? S.tracks.lang.model : '';
+  $('planNote').textContent = !wm && !pm && !sm && !em && !lm
     ? 'No model chosen. Everything except recognition works without one, including an empty TextGrid to annotate by hand.'
     : (wm && wm === pm)
       ? `${wm} fills both tiers in one pass, so it runs once.`
       : wm && pm ? `${wm} runs first and fills the word tier; ${pm} follows for the phone tier.`
       : wm || pm ? `Only the ${wm ? 'word' : 'phone'} tier will be filled${sm ? ', beside the speaker tier' : ''}${em ? (sm ? ' and the events tier' : ', beside the events tier') : ''}.`
       : sm ? 'Only the speaker tier will be filled: turns and their boundaries, with nothing said in them.'
-      : 'Only the events tier will be filled.';
+      : em ? 'Only the events tier will be filled.'
+      : 'Only the language tier will be filled.';
+  if (S.setup.cs && S.tracks.lang.model && (wm || pm))
+    $('planNote').textContent += ' Language ID runs first; then each of its stretches is read in its own language.';
   /* Worth saying out loud, because it is the one thing here that does not
      queue: the diarizer holds no GPU, so it starts at the same moment the
      recogniser does rather than after it. */
@@ -3298,10 +3348,11 @@ function renderPlan() {
     $('planNote').textContent +=
       ` ${pt.source} returned per-word boundaries — choose it for the word tier too.`;
   /* Run stays live while a job runs: a click then adds to the queue. */
-  $('run').disabled = !S.audio || (!wm && !pm && !sm && !em);
+  $('run').disabled = !S.audio || (!wm && !pm && !sm && !em && !lm);
   $('run').textContent = Q.items.some(x => x.state === 'queued' || x.state === 'running')
     ? 'Add to queue' : 'Run recognition';
   if (LANG.rows.length) renderLanguage();
+  renderSetup();
   $('spkRe').disabled = !canRecluster();
   updateTierInfo();
 }
@@ -3339,10 +3390,90 @@ for (const T of TIERS) {
     NET.onchange?.();
   });
 }
-$('spkN').value = CFG.spkCount; $('spkTh').value = CFG.spkThreshold;
-$('spkN').addEventListener('input', () => { $('spkRe').disabled = !canRecluster(); });
-$('spkN').addEventListener('change', () => { CFG.spkCount = $('spkN').value.trim(); saveCfg(); });
+$('spkTh').value = CFG.spkThreshold;
 $('spkTh').addEventListener('change', () => { CFG.spkThreshold = $('spkTh').value.trim(); saveCfg(); });
+
+/* ------------------------------------------------- the recording's setup
+   Two things a linguist knows about a recording before any model runs, and
+   that change what is worth running: whether more than one person speaks
+   (the speaker tier, with the number if known) and whether it switches
+   between languages (the language tier, with the languages if known). Both
+   are kept with the recording's annotation, not as a preference.
+
+   A recording with nothing saved starts from the last choice made, and before
+   any choice from what the settings already did: the speaker tier ran
+   whenever a speaker model was chosen, so it still does. The old global
+   speaker count, if one was set, becomes the starting number. */
+function setupDefaults() {
+  return { multi: CFG.spkMulti ?? !!S.tracks.speaker.model, spk: CFG.spkCount || '', cs: false, langs: '' };
+}
+
+/* The languages typed for a codeswitching recording, as ISO 639-3 codes, and
+   whatever could not be read as a language. Codes of any kind and names both
+   work ("ka, Russian", "kat, rus"). */
+function setupLangs(text = S.setup.langs) {
+  const codes = [], unknown = [];
+  for (const raw of String(text || '').split(/[,;/]+/)) {
+    const q = raw.trim();
+    if (!q) continue;
+    const r = LANG.find(q) || LANG.rows.find(r => r[2].toLowerCase() === q.toLowerCase()) ||
+              (/^[a-z]{3}$/i.test(q) ? [q.toLowerCase()] : null);
+    if (r) { if (!codes.includes(r[0])) codes.push(r[0]); } else unknown.push(q);
+  }
+  return { codes, unknown };
+}
+
+/* A tier behind a toggle that is turned on with no model chosen gets the
+   first model that can fill it, so one tick is all it takes. */
+function pickModelFor(key) {
+  const T = tierOf(key);
+  if (S.tracks[key].model) return;
+  const m = NET.models.find(m => m.role === T.role && NET.prov(m.provider)?.ready !== false);
+  if (!m) return;
+  $(T.sel).value = modelKey(m);
+  $(T.sel).dispatchEvent(new Event('change'));
+}
+
+function renderSetup() {
+  const st = S.setup;
+  $('spkOn').checked = !!st.multi; $('csOn').checked = !!st.cs;
+  // Only when different: rewriting the field under the caret moves the caret.
+  if ($('spkN').value !== (st.spk || '')) $('spkN').value = st.spk || '';
+  if ($('csLangs').value !== (st.langs || '')) $('csLangs').value = st.langs || '';
+  $('spkN').disabled = !st.multi; $('csLangs').disabled = !st.cs;
+  let note = '';
+  if (st.cs) {
+    const { codes, unknown } = setupLangs();
+    const lid = S.tracks.lang.model;
+    note = !lid ? (NET.models.some(m => m.role === 'lid') ? 'choose a language ID model for the language tier'
+                   : 'language ID needs MMS-LID: download it under ⚙ Recognisers → Languages')
+      : codes.length ? `language ID chooses among ${codes.map(c => LANG.name(c)).join(', ')}`
+      : 'language ID chooses among all the languages it knows';
+    if (unknown.length) note += ` · not a language: ${unknown.join(', ')}`;
+  }
+  $('csNote').textContent = note;
+  $('csNote').title = note;
+}
+
+function setupChanged() {
+  renderSetup(); renderPlan(); drawTiers();
+  PROJ.dirty();
+}
+$('spkOn').addEventListener('change', () => {
+  S.setup.multi = CFG.spkMulti = $('spkOn').checked; saveCfg();
+  if (S.setup.multi) pickModelFor('speaker');
+  setupChanged();
+});
+$('spkN').addEventListener('input', () => { S.setup.spk = $('spkN').value.trim(); $('spkRe').disabled = !canRecluster(); });
+$('spkN').addEventListener('change', () => { S.setup.spk = $('spkN').value.trim(); PROJ.dirty(); });
+$('csOn').addEventListener('change', () => {
+  S.setup.cs = $('csOn').checked;
+  if (S.setup.cs) pickModelFor('lang');
+  setupChanged();
+});
+$('csLangs').addEventListener('input', () => { S.setup.langs = $('csLangs').value; renderSetup(); });
+$('csLangs').addEventListener('change', () => { S.setup.langs = $('csLangs').value.trim(); PROJ.dirty(); });
+LANG.load().then(renderSetup);
 $('asrsize').value = CFG.size;
 $('asrsize').addEventListener('change', () => { CFG.size = $('asrsize').value; saveCfg(); });
 $('theme').value = CFG.theme || 'graphite';
@@ -3401,7 +3532,7 @@ function itemsFrom(cues, kind) {
       // to align: the label is the speaker, and the boundaries are the answer.
       if (c.speaker != null)
         out.push({ start: +c.start, end: +c.end, text: spkName(c.speaker) });
-    } else if (kind === 'word' || kind === 'event') {
+    } else if (kind === 'word' || kind === 'event' || kind === 'lang') {
       if (ws.length) for (const w of ws) out.push(doubtFrom({ start: +w.start, end: +w.end, text: w.text || '' }, w.conf, w.alts));
       else {
         const txt = (c.plain ?? c.text ?? '').trim();
@@ -3497,7 +3628,8 @@ function assignTrack(key, cues, source, state) {
     t.note = { phone: 'this model returned no phone labels',
                word: 'this model returned no word timings',
                speaker: 'this model found no speech to attribute',
-               event: 'no sounds besides speech were heard' }[key] || '';
+               event: 'no sounds besides speech were heard',
+               lang: 'no speech to tell the language of' }[key] || '';
   else if (cueLevel)
     t.note = 'cue-level intervals: the model timed segments, not words';
   stampSpeakers();
@@ -3642,10 +3774,13 @@ function applyCues(cues, source, state, claims) {
   /* A sound tagger's cues carry their label as a word, marked `event`: they
      are not a transcription and never fill the word tier or the transcript. */
   const hasEvents = cues.some(c => c.event != null);
-  const hasWords = !hasEvents && cues.some(c => (c.words || []).length || (c.plain ?? c.text ?? '').trim());
+  // Language ID's stretches likewise carry their language as a word.
+  const hasLangs = cues.some(c => c.lang != null);
+  const hasWords = !hasEvents && !hasLangs && cues.some(c => (c.words || []).length || (c.plain ?? c.text ?? '').trim());
   const hasSpeakers = cues.some(c => c.speaker != null);
   const targets = claims || [...(hasWords ? ['word'] : []), ...(hasPhones ? ['phone'] : []),
-                             ...(hasSpeakers ? ['speaker'] : []), ...(hasEvents ? ['event'] : [])];
+                             ...(hasSpeakers ? ['speaker'] : []), ...(hasEvents ? ['event'] : []),
+                             ...(hasLangs ? ['lang'] : [])];
   for (const k of targets) {
     if (k === 'phone' && !hasPhones && state === 'partial') continue;
     /* A finished tier is never replaced by a partial one. The poller awaits its
@@ -3767,6 +3902,8 @@ function buildJobs(only) {
   for (const k of want) {
     const { model, provider } = S.tracks[k];
     if (!model) continue;
+    // A tier behind a toggle runs only when the recording is marked so.
+    if (!only && tierOf(k).toggle && !S.setup[tierOf(k).toggle]) continue;
     if (tierOf(k).concurrent) out.push({ model, provider, claims: [k], concurrent: true });
     else gpu.push({ k, model, provider });
   }
@@ -3777,6 +3914,9 @@ function buildJobs(only) {
     if (same) same.claims.push(g.k);
     else out.push({ model: g.model, provider: g.provider, claims: [g.k] });
   }
+  // Language ID first: the word tier's stretches are read by its languages.
+  const lid = out.findIndex(j => j.claims.includes('lang'));
+  if (lid > 0) out.unshift(...out.splice(lid, 1));
   return out;
 }
 
@@ -3866,6 +4006,8 @@ async function runJob(job) {
   } else {
     const lang = langCodeFor(job.model, job.language);
     if (lang) fd.append('language', lang);
+    // Language ID chooses among the languages given for the recording.
+    if (job.claims.includes('lang') && job.lidLangs?.length) fd.append('language', job.lidLangs.join(','));
     if (job.size && sizeApplies(job.model)) fd.append('asr_model', job.size);
   }
 
@@ -3945,10 +4087,11 @@ function enqueue(only, span) {
   }
   if (!jobs.length) { status('choose a model for at least one tier', true); return; }
   const file = fileKey(), size = $('asrsize').value;
-  const spkN = $('spkN').value.trim(), spkTh = $('spkTh').value.trim();
+  const spkN = S.setup.spk || '', spkTh = $('spkTh').value.trim();
+  const lidLangs = setupLangs().codes;
   for (const job of jobs) {
     Object.assign(job, { id: ++Q.seq, state: 'queued', file, language: CFG.language || '',
-                         size, spkN, spkTh, pct: null, note: '' });
+                         size, spkN, spkTh, lidLangs, pct: null, note: '' });
     Q.items.push(job);
     for (const k of job.claims)
       if (!['running', 'partial'].includes(S.tracks[k].state)) setTrackState(k, 'queued', '');
@@ -3984,7 +4127,66 @@ async function runQueued(job) {
   pushUndo(snap());
   if (replacing.length)
     status(`running replaces your edits on the ${replacing.map(k => tierOf(k).label).join(' and ')} tier — Undo brings them back`);
-  await runJob(job);
+  const parts = routeParts(job);
+  if (!parts) { await runJob(job); return; }
+  /* One run per language stretch, each in its own language, one after the
+     other in this job's slot. The job reports on the last part's outcome;
+     a stretch that fails leaves its part of the tier as it was. */
+  const fails = [];
+  job.byLang = true;
+  for (const [i, p] of parts.entries()) {
+    if (job.file !== fileKey() || job.stopped) break;
+    job.note = `stretch ${i + 1} of ${parts.length}: ${LANG.name(p.language)}`;
+    renderQueue();
+    const part = { ...job, ...p, routed: true };
+    await runJob(part);
+    if (part.state !== 'done') fails.push(`${f2(p.span[0])}–${f2(p.span[1])} s: ${part.note || part.state}`);
+    if (part.state === 'cancelled') { job.stopped = true; break; }
+  }
+  job.state = job.stopped ? 'cancelled' : fails.length === parts.length ? 'failed' : 'done';
+  const missing = [...new Set(parts.filter(p => p.missing).map(p => LANG.name(p.language)))];
+  job.note = `${parts.length} stretch${parts.length === 1 ? '' : 'es'} by language` +
+    (fails.length ? ` · ${fails.length} failed` : '') +
+    (missing.length ? ` · no MMS for ${missing.join(', ')} here, read with ${job.model}` : '');
+  for (const k of job.claims) if (S.tracks[k].state === 'done') {
+    S.tracks[k].source = `${job.model} by language`;
+    if (missing.length) S.tracks[k].note = `MMS for ${missing.join(', ')} is not on this computer (⚙ Recognisers → Words → MMS)`;
+  }
+  renderPlan();
+}
+
+/* Routing: for a recording marked as codeswitching, a run over the whole
+   recording is cut at the language tier's boundaries, and each stretch is
+   read in its language: Whisper and the services by their language code,
+   Omnilingual held to that language's alphabet, and MMS by the MMS model for
+   that language when it is on this computer (else the one chosen, said so).
+   ZIPA, Parakeet and the speaker and events tiers take no language and run
+   once, as before. Stretches the tier leaves between its intervals (pauses)
+   are split at their middle. Null when the job runs as it is. */
+function routeParts(job) {
+  if (job.span || job.routed || job.concurrent || !S.setup.cs) return null;
+  if (!job.claims.some(k => k === 'word' || k === 'phone')) return null;
+  const style = langStyle(job.model);
+  if (style === 'none') return null;
+  const st = S.tracks.lang.items.filter(it => (it.text || '').trim());
+  if (!st.length) return null;
+  const runs = [];
+  for (const it of st) {
+    const lang = it.text.trim(), last = runs[runs.length - 1];
+    if (last && last.language === lang) last.span[1] = it.end;
+    else runs.push({ language: lang, span: [it.start, it.end] });
+  }
+  runs[0].span[0] = 0;
+  runs[runs.length - 1].span[1] = S.dur;
+  for (let i = 1; i < runs.length; i++) {
+    const mid = (runs[i - 1].span[1] + runs[i].span[0]) / 2;
+    runs[i - 1].span[1] = runs[i].span[0] = mid;
+  }
+  for (const r of runs) if (style === 'fixed') {
+    const m = mmsModelFor(r.language);
+    if (m) { r.model = m.id; r.provider = m.provider || ''; } else r.missing = true;
+  }
+  return runs;
 }
 
 async function settle() {
@@ -4018,7 +4220,10 @@ function renderQueue() {
   const lab = { queued: 'waiting', running: 'running', done: 'done', failed: 'failed', cancelled: 'cancelled' };
   $('queueList').innerHTML = shown.map(j => {
     const tiers = j.claims.map(k => tierOf(k).label).join(' + ') + (j.span ? ` (${f2(j.span[0])}–${f2(j.span[1])} s)` : '');
-    const lang = j.concurrent || j.claims.every(k => k === 'event') ? '' : (j.language ? LANG.name(j.language) : 'language detected');
+    const lang = j.concurrent || j.claims.every(k => k === 'event') ? ''
+      : j.claims.includes('lang') ? (j.lidLangs?.length ? j.lidLangs.map(LANG.name).join(' / ') : 'any language')
+      : j.byLang ? 'each stretch in its language'
+      : (j.language ? LANG.name(j.language) : 'language detected');
     const st = j.state === 'running' && j.pct != null ? `${j.pct.toFixed(0)}%` : lab[j.state];
     const act = j.state === 'queued' ? 'remove' : j.state === 'running' ? 'stop' : '';
     return `<div class="qrow" data-id="${j.id}" data-s="${j.state}">
@@ -4049,6 +4254,7 @@ $('reWord').addEventListener('click', () => enqueue('word'));
 $('rePhone').addEventListener('click', () => enqueue('phone'));
 $('reSpeaker').addEventListener('click', () => enqueue('speaker'));
 $('reEvent').addEventListener('click', () => enqueue('event'));
+$('reLang').addEventListener('click', () => enqueue('lang'));
 $('spkRe').addEventListener('click', reclusterSpeakers);
 
 /* ------------------------------------------------------- for a paper */
@@ -5074,7 +5280,7 @@ function setActiveLane(key, redraw = true) {
 function fillSegWhich() {
   // The table always shows the tier the edit keys act on.
   const el = $('segWhich'), cur = S.activeLane;
-  const opts = [...TIERS.map(T => [T.key, { word: 'words', phone: 'phones', speaker: 'speakers', event: 'events' }[T.key]]),
+  const opts = [...TIERS.map(T => [T.key, { word: 'words', phone: 'phones', speaker: 'speakers', event: 'events', lang: 'languages' }[T.key]]),
                 ...S.extra.map(x => [x.key, x.label])];
   const html = opts.map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join('');
   if (el.innerHTML !== html) el.innerHTML = html;
@@ -6284,7 +6490,8 @@ function importTextGrid(tg, filename) {
     for (const [k, re] of [['word', /^(words?|orth\w*|transcri\w*|wort\w*)\b/],
                            ['phone', /^(phones?|phonemes?|segments?|ipa|phon\w*)\b/],
                            ['speaker', /^(speakers?|spk|turns?|voices?)\b/],
-                           ['event', /^(events?|sounds?)\b/]])
+                           ['event', /^(events?|sounds?)\b/],
+                           ['lang', /^(languages?|lang|lid)\b/]])
       if (!used.has(k) && re.test(n)) { used.add(k); return k; }
     return null;
   };
@@ -6341,6 +6548,7 @@ function annotationData() {
                                items: plain(x.items) })),
     notes: S.notes.map(({ start, end, text, tag, tier }) => ({ start, end, text, tag, ...(tier ? { tier } : {}) })),
     ...(S.warnings.length ? { warnings: S.warnings } : {}),
+    setup: { ...S.setup },
     transcript: S.transcript,
   };
 }
@@ -6365,8 +6573,17 @@ function applyAnnotation(d) {
   S.notes = tidyNotes(d.notes);
   S.warnings = (d.warnings || []).filter(w => w && isFinite(w.start)).map(w => ({ ...w }));
   S.transcript = d.transcript || [];
+  applySetup(d);
   S.selectedItem = null;
   if (!lanes().some(l => l.key === S.activeLane)) S.activeLane = 'word';
+}
+/* The recording's toggles from a saved annotation; a file from before they
+   existed keeps the defaults. */
+function applySetup(d) {
+  const st = d && d.setup;
+  if (!st || typeof st !== 'object') return;
+  S.setup = { ...setupDefaults(), ...st };
+  renderSetup();
 }
 
 $('openAnn').addEventListener('click', () => {
@@ -6578,6 +6795,8 @@ const PROJ = {
     if (!PROJ.key) return false;
     let d;
     try { d = await STORE.get('annotations', PROJ.key); } catch { return false; }
+    // The toggles count even before anything is on the tiers.
+    if (d && d.format === ANN_FORMAT) { applySetup(d); renderPlan(); }
     if (!d || !(d.tiers || []).some(t => (t.items || []).length) && !(d.extra || []).length && !(d.notes || []).length) return false;
     try { applyAnnotation(d); } catch { return false; }
     stampSpeakers();
@@ -6650,7 +6869,7 @@ const PRESETS = {
     hint: 'Only needed if the server asks for one. Press “Test connection” to list its models.',
   },
 };
-const ROLE_NAMES = { words: 'words', phones: 'phones (IPA)', both: 'words + phones', speakers: 'speakers', tags: 'sounds (events)' };
+const ROLE_NAMES = { words: 'words', phones: 'phones (IPA)', both: 'words + phones', speakers: 'speakers', tags: 'sounds (events)', lid: 'languages' };
 /* Which of a server's models to tick by default. A gateway lists its language
    models too, and transcribing with one of those just fails. */
 const SPEECHY = /whisper|asr|ipa|mms|owsm|diariz|transcri|speech|parakeet|canary|wav2vec|xeus|buckeye/i;
@@ -6741,7 +6960,7 @@ const DESK = {
     LANG.load().then(renderLanguage);
     $('asrsize').value = CFG.size || 'medium';
     $('nameTiers').checked = !!CFG.nameTiers;
-    $('spkN').value = CFG.spkCount || ''; $('spkTh').value = CFG.spkThreshold || '0.7';
+    $('spkTh').value = CFG.spkThreshold || '0.7';
     showFollow();
     for (const T of TIERS) if (!S.tracks[T.key].model) {
       S.tracks[T.key].model = CFG[T.cfg] || '';
@@ -6775,6 +6994,7 @@ const DESK = {
     const GROUPS = [['words', 'For the word tier', 'orthographic transcription'],
                     ['phones', 'For the phone tier', 'IPA, in any language'],
                     ['speakers', 'For the speaker tier', 'who is talking'],
+                    ['lid', 'For the language tier', 'which language is spoken where'],
                     ['tags', 'For the events tier', 'sounds that are not words'],
                     ['pitch', 'Beside Praat\'s f0', 'a second pitch track']];
     const row = m => {
@@ -6783,6 +7003,8 @@ const DESK = {
       const right = m.installed
         ? `<span class="chip live">ready</span><button class="tiny" data-lc="delete">Delete</button>`
         : d ? `<span class="lcbar"><i style="width:${pct}%"></i></span><span class="hint num">${pct}%</span>`
+        // A non-commercial model asks for the same acceptance as MMS, once for both.
+        : m.nc && !m.accepted ? `<button class="tiny" data-lc="accept" title="Accept ${esc(m.licence)} (non-commercial use only) and download">I accept: non-commercial use only · ${mb(m.size_mb)}</button>`
         : `${m.error ? `<span class="lcerr">${esc(m.error)}</span>` : ''}<button class="tiny" data-lc="get">${m.error ? 'Try again' : 'Download'} · ${mb(m.size_mb)}</button>`;
       return `<div class="mgrow" data-id="${esc(m.id)}">
         <div class="who"><b>${esc(m.label)}</b>` +
@@ -7189,7 +7411,12 @@ $('lcList').addEventListener('click', async e => {
     return;
   }
   btn.disabled = true;
-  const r = await fetch(apiUrl(`/local/models/${enc(id)}`), { method: btn.dataset.lc === 'get' ? 'POST' : 'DELETE' });
+  if (btn.dataset.lc === 'accept') {
+    const a = await fetch(apiUrl('/local/mms/accept'), { method: 'POST' });
+    if (!a.ok) { status((await a.json().catch(() => ({}))).error || `error ${a.status}`, true); return DESK.loadLocal(); }
+    DESK.loadMms();
+  }
+  const r = await fetch(apiUrl(`/local/models/${enc(id)}`), { method: btn.dataset.lc === 'delete' ? 'DELETE' : 'POST' });
   if (!r.ok) status((await r.json().catch(() => ({}))).error || `error ${r.status}`, true);
   await DESK.loadLocal();
 });

@@ -45,6 +45,8 @@ pub enum Kind {
     /// CREPE through ort: a second f0 track, drawn beside Praat's. It fills
     /// no tier, so the providers list leaves it out.
     Pitch,
+    /// MMS-LID through ort: which language is spoken where (lid.rs).
+    Lid,
 }
 
 impl Kind {
@@ -56,7 +58,15 @@ impl Kind {
             Kind::Speakers => "speakers",
             Kind::Tags => "tags",
             Kind::Pitch => "pitch",
+            Kind::Lid => "lid",
         }
+    }
+
+    /// Whether the model is under a non-commercial licence, which the user
+    /// accepts once in the settings before it downloads (the same acceptance
+    /// as MMS, from the same publisher under the same licence; see mms.rs).
+    pub fn non_commercial(self) -> bool {
+        self == Kind::Lid
     }
 }
 
@@ -103,7 +113,8 @@ pub struct Entry {
 
 /// Short and opinionated. The first Whisper fits nearly every computer; the
 /// last one is the best of these and still under 600 MB thanks to quantisation.
-/// Every model here may be used for any purpose, commercial work included.
+/// Every model here may be used for any purpose, commercial work included,
+/// except MMS-LID (non-commercial, behind the same acceptance as MMS).
 pub fn catalogue() -> Vec<Entry> {
     use whisper_rs::DtwModelPreset as P;
     vec![
@@ -164,6 +175,11 @@ pub fn catalogue() -> Vec<Entry> {
                 files: &[File { repo: CREPE, path: "small.onnx", local: "model.onnx" }],
                 label: "CREPE small",
                 note: "CREPE, larger and slower (about 2.5x real time); try tiny first." },
+        Entry { id: "langid-mms-1024", kind: Kind::Lid, size_mb: 975, dtw: P::Base, licence: super::mms::LICENCE,
+                files: &[File { repo: "Xenova/mms-lid-1024", path: "onnx/model_quantized.onnx", local: "model.int8.onnx" },
+                         File { repo: "Xenova/mms-lid-1024", path: "config.json", local: "config.json" }],
+                label: "MMS-LID 1024",
+                note: "Spoken language identification in 1,024 languages (Meta, 2023): fills the language tier of a recording marked as codeswitching, a few seconds at a time, so each stretch can be read in its own language. Non-commercial." },
     ]
 }
 
@@ -234,6 +250,8 @@ impl Models {
                     "id": e.id, "label": e.label, "note": e.note, "size_mb": e.size_mb,
                     "kind": e.kind.role(),
                     "licence": e.licence,
+                    "nc": e.kind.non_commercial(),
+                    "accepted": !e.kind.non_commercial() || self.mms_accepted(),
                     "installed": self.is_installed(e),
                     "downloading": d.filter(|d| d.error.is_none()).map(|d| json!({ "done": d.done, "total": d.total })),
                     "error": d.and_then(|d| d.error.clone())
@@ -264,6 +282,9 @@ impl Models {
     /// Start a download in the background. Returns at once; poll `list()`.
     pub fn start(&self, id: &str) -> Result<(), String> {
         let e = find(id).ok_or("no such model")?;
+        if e.kind.non_commercial() && !self.mms_accepted() {
+            return Err(format!("{} is for non-commercial use only: accept its licence first.", e.label));
+        }
         {
             let mut dl = self.downloads.lock().unwrap();
             if dl.get(id).is_some_and(|d| d.error.is_none()) {

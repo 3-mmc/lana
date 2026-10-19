@@ -14,6 +14,7 @@ pub mod models;
 pub mod ctc;
 pub mod frames;
 pub mod align;
+pub mod lid;
 pub mod pitch;
 pub mod mms;
 pub mod parakeet;
@@ -109,7 +110,8 @@ impl Local {
             .installed()
             .iter()
             .filter(|e| e.kind != Kind::Pitch)
-            .map(|e| json!({ "id": e.id, "role": e.kind.role(), "label": format!("{} (on this computer)", e.label) }))
+            .map(|e| json!({ "id": e.id, "role": e.kind.role(),
+                             "label": format!("{} (on this computer{})", e.label, if e.kind.non_commercial() { ", non-commercial" } else { "" }) }))
             .collect();
         // One word model per MMS language on this computer.
         for code in self.models.mms_installed() {
@@ -206,6 +208,7 @@ impl Local {
             Kind::Phones | Kind::Letters => me.run_ctc(&entry, req.bytes, &req.filename, req.language.as_deref()),
             Kind::Transducer => me.run_parakeet(&entry, req.bytes, &req.filename),
             Kind::Tags => me.run_tags(&entry, req.bytes, &req.filename),
+            Kind::Lid => me.run_lid(&entry, req.bytes, &req.filename, req.language.as_deref()),
             _ => me.run(&entry, &path, req.bytes, &req.filename, req.language.as_deref()),
         })
     }
@@ -532,6 +535,39 @@ impl Local {
         self.done_cues.lock().unwrap().extend(cues.iter().cloned());
         let text = events.iter().map(|e| e.0.as_str()).collect::<Vec<_>>().join(", ");
         Ok(json!({ "text": text, "duration": round3(duration), "cues": cues }))
+    }
+
+    /// Language ID over the recording, a window at a time (lid.rs). For this
+    /// model `language` is the languages the linguist expects, comma
+    /// separated; the classifier then chooses among those alone.
+    fn run_lid(&self, entry: &models::Entry, bytes: Vec<u8>, filename: &str, languages: Option<&str>) -> Result<Value, String> {
+        let samples = audio::decode_16k_mono(bytes, filename)?;
+        let duration = samples.len() as f64 / lid::RATE as f64;
+        if let Some(j) = self.job.lock().unwrap().as_mut() {
+            j.total = duration;
+        }
+        self.stage("loading model");
+        let model = lid::Lid::load(&self.models.named(entry, "model.int8.onnx"), &self.models.named(entry, "config.json"), threads())?;
+        let codes: Vec<String> = languages.unwrap_or("").split(',').map(|c| c.trim().to_owned()).filter(|c| !c.is_empty()).collect();
+        let (cand, unknown) = model.candidates(&codes);
+        self.stage("telling languages apart");
+        let t = Instant::now();
+        let speech = vad::speech(&samples, lid::RATE as u32);
+        let (pct, cancel) = (self.percent.clone(), self.cancel.clone());
+        let found = model.stretches(&samples, speech.as_deref(), &cand, |done| {
+            pct.store((done / duration.max(1e-3) * 100.0).clamp(0.0, 100.0) as u64, Ordering::Relaxed);
+            !cancel.load(Ordering::Relaxed)
+        })?;
+        eprintln!("lana: {} found {} language stretches in {duration:.1} s of audio in {:.1} s ({} candidates)",
+                  entry.id, found.len(), t.elapsed().as_secs_f64(), cand.len());
+        let cues = lid::cues(&found);
+        self.done_cues.lock().unwrap().extend(cues.iter().cloned());
+        let mut langs: Vec<&str> = found.iter().map(|s| s.lang.as_str()).collect();
+        langs.dedup();
+        let warnings: Vec<Value> = unknown.iter()
+            .map(|c| json!({ "start": 0.0, "end": round3(duration), "reason": format!("{} does not know the language '{c}'", entry.label) }))
+            .collect();
+        Ok(json!({ "text": langs.join(", "), "duration": round3(duration), "cues": cues, "warnings": warnings }))
     }
 
     fn speaker_models(&self, entry: &models::Entry) -> speakers::Models {
