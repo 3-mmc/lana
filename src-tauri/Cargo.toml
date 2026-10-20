@@ -36,6 +36,9 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # the app and loaded at run time (local/runtime.rs, scripts/fetch-onnxruntime.sh).
 ort = { version = "=2.0.0-rc.14", default-features = false, features = ["std", "load-dynamic", "api-24"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# The speed test (local/speedtest.rs) reports the processor and memory, and
+# each child's peak memory.
+sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 
 [features]
 # whisper.cpp on the GPU through Vulkan, for Windows and Linux. Off by
@@ -67,7 +70,9 @@ ort = { version = "=2.0.0-rc.14", default-features = false, features = ["cuda"] 
 # CoreML. Untested until a Mac build.
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.16", features = ["metal"] }
+libc = "0.2"
 ort = { version = "=2.0.0-rc.14", default-features = false, features = ["coreml"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 ort = { version = "=2.0.0-rc.14", default-features = false, features = ["directml"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }

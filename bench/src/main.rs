@@ -20,68 +20,26 @@ mod eval;
 use std::{
     io::{BufRead, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
     time::{Duration, Instant},
 };
 
-use local::{models, runtime, Local, Models, Request};
+use local::{
+    models, runtime,
+    speedtest::{machine, round3, run_child, unix_now, MMS_LANGS},
+    Models,
+};
 use serde_json::{json, Value};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Lana's bundle identifier, which names its data folder on every platform.
 const APP_ID: &str = "io.github.threemmc.lana";
 
-struct Clip {
-    id: &'static str,
-    file: &'static str,
-    bytes: &'static [u8],
-    /// Two-letter code for Whisper.
-    lang: &'static str,
-    reference: &'static str,
-}
-
-const CLIPS: &[Clip] = &[
-    Clip {
-        id: "ka", file: "ka-vinson.wav", lang: "ka",
-        bytes: include_bytes!("../../web/demo/ka-vinson.wav"),
-        reference: "ანტარქტიკის უმაღლესი მთები, ვინსონის მასივი, რომლის უმაღლესი მწვერვალი, ვინსონის მთა მდებარეობს 4892 მეტრზე, განლაგებულია სენტინელის ქედის ჩრდილოეთ ნაწილში.",
-    },
-    Clip {
-        id: "de", file: "de-vinson.wav", lang: "de",
-        bytes: include_bytes!("../../web/demo/de-vinson.wav"),
-        reference: "Der nördliche Teil oder die Sentinel Range hat die höchsten Berge der Antarktis, das Vinson-Massiv, dessen höchster Gipfel mit 4892 m Höhe der Mount Vinson ist.",
-    },
-    Clip {
-        id: "dar", file: "dar-48608859.mp3", lang: "",
-        bytes: include_bytes!("../clips/dar-48608859.mp3"),
-        reference: "ГӀяйшатлира ухьа бархьбатур, лацла бяхӀлизибси кьасиличиб липӀ-липӀбикӀуси чирагъла шала ахъбуциб.",
-    },
-];
-
 const QUICK: &[&str] = &["zipa-small", "whisper-base", "speakers"];
-/// MMS languages tested in the full run, one per clip it can read.
-const MMS_LANGS: &[(&str, &str)] = &[("dar", "dar"), ("kat", "ka")];
-
-/// Which clips a model is run on, a clip it reads well first. The first is run twice: once from a cold
-/// start, once warm, so loading and steady speed can be told apart.
-fn clips_for(model: &str) -> Vec<&'static Clip> {
-    let ids: &[&str] = match model {
-        m if m.starts_with("whisper") => &["de", "ka"],
-        // Parakeet knows no Georgian; the ka run shows what it does instead.
-        "parakeet-tdt-0.6b-v3" => &["de", "ka"],
-        "sounds" => &["de", "ka"],
-        "mms-dar" => &["dar"],
-        "mms-kat" => &["ka"],
-        "speakers" => &["de", "ka"],
-        _ => &["de", "ka", "dar"],
-    };
-    ids.iter().map(|id| CLIPS.iter().find(|c| c.id == *id).unwrap()).collect()
-}
-
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--child") {
-        child(&args[2], Path::new(&args[3]));
+        let compute = std::env::var("LANA_BENCH_COMPUTE").ok().and_then(|c| runtime::Compute::parse(&c)).unwrap_or(runtime::Compute::Auto);
+        println!("{}", local::speedtest::measure(&args[2], Path::new(&args[3]), compute));
         return;
     }
     let pause = !args.iter().any(|a| a == "--no-pause");
@@ -164,23 +122,7 @@ fn run(args: &[String]) -> Result<(), String> {
         let label = if computes.len() > 1 { format!("{id} [{}]", compute.name()) } else { id.clone() };
         print!("{label:<28} ");
         let _ = std::io::stdout().flush();
-        let out = Command::new(&exe)
-            .args(["--child", id, &dir.to_string_lossy()])
-            .env("LANA_BENCH_COMPUTE", compute.name())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .map_err(|e| e.to_string())?;
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        let parsed = stdout.lines().rev().find_map(|l| serde_json::from_str::<Value>(l).ok());
-        let r = match parsed {
-            Some(v) => v,
-            None => {
-                let err = String::from_utf8_lossy(&out.stderr);
-                let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("no output");
-                json!({ "model": id, "compute": compute.name(), "ok": false, "exit": out.status.code(), "error": last })
-            }
-        };
+        let r = run_child(&exe, "--child", id, dir, *compute, None, &std::sync::atomic::AtomicBool::new(false));
         print_row(&r);
         results.push(r);
     }
@@ -328,147 +270,6 @@ fn fetch(m: &Models, id: &str) -> Result<(), String> {
     }
 }
 
-/// One model over its clips, in this process. Prints one JSON line.
-fn child(id: &str, dir: &Path) {
-    let local = Local::new(Models::new(dir.to_path_buf()));
-    // After Local::new, which reads the app's own setting from the folder.
-    let compute = std::env::var("LANA_BENCH_COMPUTE").ok().and_then(|c| runtime::Compute::parse(&c)).unwrap_or(runtime::Compute::Auto);
-    runtime::set_compute(compute);
-    let clips = clips_for(id);
-    let mut runs = Vec::new();
-    let mut error = None;
-    // The first clip twice: cold, then warm.
-    let order: Vec<(&Clip, bool)> = std::iter::once((clips[0], true)).chain(clips.iter().map(|c| (*c, false))).collect();
-    // LANA_BENCH_FILE reads that recording in place of each clip, to try a
-    // model on other audio (with LANA_BENCH_DUMP to see what it returned).
-    let own = std::env::var_os("LANA_BENCH_FILE").map(PathBuf::from);
-    for (clip, cold) in order {
-        let t = Instant::now();
-        let (code, v) = local.transcribe(Request {
-            model: id.into(),
-            bytes: own.as_ref().map_or_else(|| clip.bytes.to_vec(), |p| std::fs::read(p).unwrap_or_default()),
-            filename: own.as_ref().map_or_else(|| clip.file.into(), |p| p.to_string_lossy().into_owned()),
-            language: (!clip.lang.is_empty() && id.starts_with("whisper")).then(|| clip.lang.into()),
-            speakers: None,
-            threshold: None,
-        });
-        let secs = t.elapsed().as_secs_f64();
-        if code != 200 {
-            error = Some(v["error"].as_str().unwrap_or("failed").to_string());
-            break;
-        }
-        let audio = v["duration"].as_f64().unwrap_or(0.0);
-        let text = v["text"].as_str().unwrap_or("").to_string();
-        if std::env::var_os("LANA_BENCH_DUMP").is_some() {
-            eprintln!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
-        }
-        let words = id.starts_with("whisper") || id.starts_with("omnilingual") || id.starts_with("mms-") || id.starts_with("parakeet");
-        runs.push(json!({
-            "clip": clip.id, "cold": cold, "audio_seconds": audio, "seconds": round3(secs),
-            "x_realtime": round3(audio / secs.max(1e-6)),
-            "cer": words.then(|| round3(cer(clip.reference, &text, clip.id == "dar"))),
-            "speakers": v.get("speakers"),
-            "warnings": v.get("warnings").filter(|w| w.as_array().is_some_and(|a| !a.is_empty())),
-            "text": if id == "speakers" { Value::Null } else { json!(text) },
-        }));
-    }
-    // The headline speed is the warm run of the first clip, which is always
-    // one the model can read. A model given a language it does not know can
-    // loop on its own output (Whisper small spent 42 s on 15 s of Georgian),
-    // which says nothing about the hardware; those runs stay in `runs`.
-    let warm: Vec<&Value> = runs.iter().filter(|r| r["cold"] == json!(false)).collect();
-    let (audio, secs) = warm.first().map_or((0.0, 0.0), |r| (r["audio_seconds"].as_f64().unwrap_or(0.0), r["seconds"].as_f64().unwrap_or(0.0)));
-    let result = json!({
-        "model": id,
-        "compute": compute.name(),
-        // The runtime, the accelerator, and where each of the model's files ran.
-        "runtime": runtime::describe(),
-        "ok": error.is_none(),
-        "error": error,
-        "cold_seconds": runs.first().map(|r| r["seconds"].clone()),
-        "warm_seconds": warm.first().map(|r| r["seconds"].clone()),
-        "x_realtime": (secs > 0.0).then(|| round3(audio / secs)),
-        "peak_mb": peak_rss() / 1_048_576,
-        "vad": local.models.vad_path().is_file(),
-        "runs": runs,
-    });
-    println!("{result}");
-}
-
-/// Character error rate, after lowercasing and dropping punctuation, so the
-/// numbers compare spelling rather than formatting. Digits are kept: a model
-/// that writes "4892" as words is charged for it, the same on every computer.
-fn cer(reference: &str, hyp: &str, palochka: bool) -> f64 {
-    let norm = |s: &str| {
-        let s: String = s.to_lowercase().chars().map(|c| {
-            let c = if palochka && matches!(c, 'ӏ' | 'Ӏ' | 'i' | 'l' | '1') { 'ӏ' } else { c };
-            if c.is_alphanumeric() || c == 'ӏ' { c } else { ' ' }
-        }).collect();
-        s.split_whitespace().collect::<Vec<_>>().join(" ").chars().collect::<Vec<char>>()
-    };
-    let (r, h) = (norm(reference), norm(hyp));
-    let mut prev: Vec<usize> = (0..=h.len()).collect();
-    for (i, rc) in r.iter().enumerate() {
-        let mut cur = vec![i + 1; h.len() + 1];
-        for (j, hc) in h.iter().enumerate() {
-            cur[j + 1] = (prev[j] + usize::from(rc != hc)).min(prev[j + 1] + 1).min(cur[j] + 1);
-        }
-        prev = cur;
-    }
-    prev[h.len()] as f64 / r.len().max(1) as f64
-}
-
-fn round3(x: f64) -> f64 {
-    (x * 1000.0).round() / 1000.0
-}
-
-fn machine() -> Value {
-    use sysinfo::System;
-    let mut sys = System::new();
-    sys.refresh_memory();
-    sys.refresh_cpu_all();
-    let cpu = sys.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_default();
-    json!({
-        "os": System::long_os_version().unwrap_or_else(|| std::env::consts::OS.into()),
-        "kernel": System::kernel_version(),
-        "arch": std::env::consts::ARCH,
-        "cpu": cpu,
-        "logical_cores": sys.cpus().len(),
-        "physical_cores": System::physical_core_count(),
-        "memory_gb": ((sys.total_memory() as f64 / 1_073_741_824.0) * 10.0).round() / 10.0,
-        "available_memory_gb": ((sys.available_memory() as f64 / 1_073_741_824.0) * 10.0).round() / 10.0,
-        // Lana leaves one core free for the interface; see local::threads().
-        "threads_used": std::thread::available_parallelism().map_or(4, |n| n.get().saturating_sub(1).clamp(1, 8)),
-        "whisper_backend": if cfg!(target_os = "macos") { "metal" } else { "cpu" },
-    })
-}
-
-/// This process's peak resident memory, in bytes.
-#[cfg(target_os = "linux")]
-fn peak_rss() -> u64 {
-    std::fs::read_to_string("/proc/self/status").ok()
-        .and_then(|s| s.lines().find(|l| l.starts_with("VmHWM:")).map(String::from))
-        .and_then(|l| l.split_whitespace().nth(1).and_then(|k| k.parse::<u64>().ok()))
-        .map_or(0, |kb| kb * 1024)
-}
-
-#[cfg(target_os = "macos")]
-fn peak_rss() -> u64 {
-    // ru_maxrss is in bytes on macOS (kilobytes on Linux).
-    let mut u: libc::rusage = unsafe { std::mem::zeroed() };
-    unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut u) };
-    u.ru_maxrss as u64
-}
-
-#[cfg(windows)]
-fn peak_rss() -> u64 {
-    use windows_sys::Win32::System::{ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS}, Threading::GetCurrentProcess};
-    let mut c: PROCESS_MEMORY_COUNTERS = unsafe { std::mem::zeroed() };
-    c.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-    unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) };
-    c.PeakWorkingSetSize as u64
-}
-
 /// Lana's data folder, as Tauri's app_data_dir names it on each platform.
 fn app_data_dir() -> Option<PathBuf> {
     if cfg!(windows) {
@@ -506,9 +307,6 @@ fn dir_size(p: &Path) -> u64 {
     }).sum())
 }
 
-fn unix_now() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
-}
 
 fn ask(q: &str) -> String {
     print!("{q}");

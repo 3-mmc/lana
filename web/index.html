@@ -354,6 +354,13 @@
   .mghead span{text-transform:none;letter-spacing:0;color:var(--dim2)}
   .mgrow .who em{display:block;font-style:normal;color:var(--dim);font-size:11px;white-space:normal}
   .lcbar{width:120px;height:4px;background:var(--sunken);border-radius:2px;overflow:hidden}
+  .speedbox{padding:6px 10px;border-bottom:1px solid var(--line2);font-size:12px}
+  .speedbox summary{cursor:pointer;color:var(--dim)}
+  .speedbox p{margin:6px 0;color:var(--dim)}
+  .speedbox table{border-collapse:collapse;margin:6px 0;font-size:11px}
+  .speedbox td,.speedbox th{padding:2px 8px 2px 0;text-align:left;font-weight:normal}
+  .speedbox th{color:var(--dim)}
+  .speedbox .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0}
   .mgrow .who em.lcaccel{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:4px}
   .lcbar i{display:block;height:100%;background:var(--accent);transition:width .4s linear}
   .lcerr{color:var(--err);font-size:11px;max-width:260px}
@@ -646,6 +653,12 @@
       <div class="mghead">Processor <span>— where the built-in models run</span></div>
     </div>
     <div id="compRow" class="mgrow"></div>
+    <!-- For the people helping test Lana: measures the downloaded models and
+         hands over a file to email (local/speedtest.rs). Out of the way. -->
+    <details id="speedBox" class="speedbox">
+      <summary>Speed test — help Lana's developer by measuring this computer</summary>
+      <div id="speedBody"></div>
+    </details>
   </fieldset>
 
   <fieldset id="fsDirect">
@@ -7097,6 +7110,50 @@ const DESK = {
     if (pd) DESK.gpTimer = setTimeout(() => DESK.loadCompute(), 1000);
   },
 
+  /* The speed test: each downloaded model on two short recordings, on the
+     processor and, where it has a GPU version, on the GPU. The results are
+     saved to Downloads and offered as an email; nothing is sent by Lana. */
+  async loadSpeed() {
+    let j;
+    try {
+      const r = await fetch(apiUrl('/local/speedtest'), { cache: 'no-store' });
+      if (!r.ok) return;
+      j = await r.json();
+    } catch { return; }
+    const f = (x, d = 2) => typeof x === 'number' ? x.toFixed(d) : '–';
+    const table = !j.rows.length ? '' : `<table><tr><th>model</th><th>on</th><th>warm s</th><th>× real time</th><th>MB</th></tr>` +
+      j.rows.map(r => `<tr><td>${esc(r.model)}${r.compute === 'auto' ? ' (GPU version)' : ''}</td>` + (r.ok
+        ? `<td>${esc(r.on || '')}</td><td class="num">${f(r.warm_seconds)}</td><td class="num">${f(r.x_realtime, 1)}</td><td class="num">${r.peak_mb ?? '–'}</td>`
+        : `<td colspan="4" class="lcerr">${esc(r.error || 'failed')}</td>`) + '</tr>').join('') + '</table>';
+    let html;
+    if (j.running) {
+      const pct = j.total ? Math.floor(j.rows.length / j.total * 100) : 0;
+      html = `<div class="row"><span class="lcbar"><i style="width:${pct}%"></i></span>
+        <span class="hint">${j.rows.length + 1} of ${j.total}: ${esc(j.current || '')}</span>
+        <button class="tiny" data-sp="cancel">Stop</button></div>
+        <p>Please leave Lana and other programs idle until it finishes.</p>${table}`;
+    } else if (j.file) {
+      html = `<p>Done. The results are saved as <b>${esc(j.file.split(/[\\/]/).pop())}</b> in ${esc(j.file.replace(/[\\/][^\\/]*$/, ''))}.</p>${table}
+        <div class="row"><button class="tiny primary" data-sp="email">Email the results</button>
+        <button class="tiny" data-sp="show">Show the file</button>
+        <button class="tiny" data-sp="start">Run again</button></div>
+        <p>The email opens in your mail program with a summary; attach the saved file before sending.</p>`;
+    } else {
+      const n = j.plan.length;
+      html = `<p>Runs each model you have downloaded on two short recordings, on the processor and, for models
+        with a GPU version, on the GPU, and saves the timings to a file you can email. It measures only
+        speed and memory, with Lana's own demo recordings; nothing is sent unless you send it.</p>` +
+        (n ? `<p>It will measure: ${j.plan.map(esc).join(', ')}. Allow about ${Math.max(1, Math.round(n * 0.75))}–${n * 2} minutes.</p>`
+           : `<p class="lcerr">Download at least one model above first.</p>`) +
+        (j.error ? `<p class="lcerr">${esc(j.error)}</p>` : '') + table +
+        `<div class="row"><button class="tiny primary" data-sp="start" ${n && !j.busy ? '' : 'disabled'}>Start the speed test</button>
+        ${j.busy ? '<span class="hint">A recogniser is running; wait for it to finish.</span>' : ''}</div>`;
+    }
+    $('speedBody').innerHTML = html;
+    clearTimeout(DESK.spTimer);
+    if (j.running) DESK.spTimer = setTimeout(() => DESK.loadSpeed(), 1000);
+  },
+
   /* MMS: a licence step, the shared part, and the languages. Each language is
      its own small download, so the list is searchable rather than a wall of
      1,198 buttons. Languages a researcher returns to can be pinned. */
@@ -7432,6 +7489,17 @@ $('mmsBox').addEventListener('click', async e => {
   if (r && !r.ok) status((await r.json().catch(() => ({}))).error || `error ${r.status}`, true);
   if (act === 'add') { DESK.mmsQuery = ''; }
   await DESK.loadMms();
+});
+$('speedBox').addEventListener('toggle', () => { if ($('speedBox').open) DESK.loadSpeed(); });
+$('speedBody').addEventListener('click', async e => {
+  const act = e.target.closest('button[data-sp]')?.dataset.sp;
+  if (!act) return;
+  const path = { start: '/local/speedtest', cancel: '/local/speedtest/cancel', show: '/local/speedtest/show', email: '/local/speedtest/email' }[act];
+  const r = await fetch(apiUrl(path), { method: 'POST' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) status(j.error || `error ${r.status}`, true);
+  else if (act === 'email') status(`opened an email to ${j.to}`);
+  DESK.loadSpeed();
 });
 $('compRow').addEventListener('click', async e => {
   const act = e.target.closest('button[data-gp]')?.dataset.gp;

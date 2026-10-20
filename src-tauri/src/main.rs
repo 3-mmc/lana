@@ -32,6 +32,17 @@ fn main() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
 
+    // The speed test in the settings runs each model in a copy of this
+    // program (local/speedtest.rs), which answers with one line of JSON and
+    // exits without a window.
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some(local::speedtest::CHILD_FLAG) && args.len() >= 4 {
+        let compute = std::env::var("LANA_BENCH_COMPUTE").ok().and_then(|c| local::runtime::Compute::parse(&c))
+            .unwrap_or(local::runtime::Compute::Auto);
+        println!("{}", local::speedtest::measure(&args[2], std::path::Path::new(&args[3]), compute));
+        return;
+    }
+
     // LANA_SERVE_ONLY=<port>: the embedded server with no window, from the source
     // tree. For scripts/parity-test.py and CI; not something a user sees.
     if let Some(port) = std::env::var_os("LANA_SERVE_ONLY") {

@@ -136,7 +136,8 @@ fn library() -> Option<PathBuf> {
         dirs.push(exe.join("lib"));
         dirs.push(exe.join("../Resources/onnxruntime"));
         dirs.push(exe.join("../Frameworks"));
-        dirs.push(exe.join("../lib/lana-desktop/onnxruntime"));
+        // .deb and AppImage: resources go to usr/lib/<productName>.
+        dirs.push(exe.join("../lib/Lana/onnxruntime"));
     }
     dirs.into_iter().map(|d| d.join(LIBRARY)).find(|p| p.is_file())
 }
@@ -257,6 +258,12 @@ fn accelerator(l: &Loaded) -> Option<(&'static str, ExecutionProviderDispatch)> 
 fn quantised(path: &Path) -> bool {
     let name = path.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
     name.contains("int8") || name.contains("quantized") || path.with_file_name("mms-base.bin").exists()
+}
+
+/// The library this process runs on, once loaded: the speed test hands it to
+/// its child processes so they measure the same runtime.
+pub fn library_path() -> Option<PathBuf> {
+    loaded().ok().map(|l| l.library.clone())
 }
 
 /// Whether this computer has an accelerator Lana can use, whatever the

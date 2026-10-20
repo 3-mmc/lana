@@ -23,6 +23,7 @@ pub mod parakeet;
 pub mod gpupack;
 pub mod pyannote;
 pub mod speakers;
+pub mod speedtest;
 pub mod tags;
 pub mod vad;
 #[cfg(test)]
@@ -89,6 +90,8 @@ pub struct Local {
     /// one recording with one model.
     audio: Arc<Mutex<Option<(String, Arc<Vec<f32>>)>>>,
     net: Arc<Mutex<Option<(String, Arc<ctc::Ctc>)>>>,
+    /// The speed test in the settings, if one has run.
+    speed: speedtest::Test,
 }
 
 impl Local {
@@ -112,6 +115,7 @@ impl Local {
             kept: Default::default(),
             audio: Default::default(),
             net: Default::default(),
+            speed: Default::default(),
         }
     }
 
@@ -987,6 +991,10 @@ pub fn router(local: Local) -> Router {
         .route("/api/local/pitch", post(pitch_track))
         .route("/api/local/compute", get(compute_status).put(compute_set))
         .route("/api/local/gpu-pack", post(gpu_pack_get).delete(gpu_pack_delete))
+        .route("/api/local/speedtest", get(speed_status).post(speed_start))
+        .route("/api/local/speedtest/cancel", post(speed_cancel))
+        .route("/api/local/speedtest/show", post(speed_show))
+        .route("/api/local/speedtest/email", post(speed_email))
         .layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD))
         .with_state(local)
 }
@@ -1007,6 +1015,100 @@ async fn compute_status(State(l): State<Local>) -> Json<Value> {
     let mut v = tokio::task::spawn_blocking(runtime::describe).await.unwrap_or_else(|e| json!({ "error": e.to_string() }));
     v["gpu_pack"] = gpupack::status(&l.models);
     Json(v)
+}
+
+// ------------------------------------------------------------ speed test
+
+/// Where finished speed tests go to be sent: whoever runs one is asked to
+/// email it here.
+const SPEED_TEST_EMAIL: &str = "geblerkt@gmail.com";
+
+/// The test's progress and results, and what it would measure.
+async fn speed_status(State(l): State<Local>) -> Json<Value> {
+    let mut v = l.speed.json();
+    let plan = tokio::task::spawn_blocking({
+        let m = l.models.clone();
+        move || speedtest::plan(&m)
+    }).await.unwrap_or_default();
+    v["plan"] = json!(plan.iter().map(|(id, c)| format!("{id} [{}]", c.name())).collect::<Vec<_>>());
+    v["busy"] = json!(l.job.lock().unwrap().is_some());
+    Json(v)
+}
+
+async fn speed_start(State(l): State<Local>) -> Response {
+    if l.job.lock().unwrap().is_some() {
+        return (StatusCode::CONFLICT, Json(json!({ "error": "A recogniser is running; try again when it has finished." }))).into_response();
+    }
+    match l.speed.start(l.models.clone(), downloads_dir()) {
+        Ok(()) => Json(json!({ "ok": true })).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn speed_cancel(State(l): State<Local>) -> Json<Value> {
+    l.speed.cancel();
+    Json(json!({ "ok": true }))
+}
+
+/// Show the saved results in Finder, Explorer or the file manager.
+async fn speed_show(State(l): State<Local>) -> Response {
+    let Some(file) = l.speed.status.lock().unwrap().file.clone() else {
+        return (StatusCode::NOT_FOUND, Json(json!({ "error": "No results saved yet." }))).into_response();
+    };
+    let r = if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg("-R").arg(&file).spawn()
+    } else if cfg!(windows) {
+        std::process::Command::new("explorer").arg(format!("/select,{}", file.display())).spawn()
+    } else {
+        std::process::Command::new("xdg-open").arg(file.parent().unwrap_or(&file)).spawn()
+    };
+    match r {
+        Ok(_) => Json(json!({ "ok": true })).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Could not show the file: {e}") }))).into_response(),
+    }
+}
+
+/// A new email in the user's mail program, addressed and with the results
+/// summed up in its body. A link cannot attach a file, so the body asks for
+/// the saved file to be attached.
+async fn speed_email(State(l): State<Local>) -> Response {
+    let (report, file) = {
+        let s = l.speed.status.lock().unwrap();
+        (s.report.clone(), s.file.clone())
+    };
+    let Some(report) = report else {
+        return (StatusCode::NOT_FOUND, Json(json!({ "error": "No results yet." }))).into_response();
+    };
+    let name = file.as_ref().and_then(|f| f.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let body = format!("{}\nPlease attach {name} from your Downloads folder before sending.\n", speedtest::summary(&report));
+    let url = format!("mailto:{SPEED_TEST_EMAIL}?subject={}&body={}", url_encode("Lana speed test"), url_encode(&body));
+    let r = if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(&url).spawn()
+    } else if cfg!(windows) {
+        std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", &url]).spawn()
+    } else {
+        std::process::Command::new("xdg-open").arg(&url).spawn()
+    };
+    match r {
+        Ok(_) => Json(json!({ "ok": true, "to": SPEED_TEST_EMAIL })).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Could not open your email program: {e}") }))).into_response(),
+    }
+}
+
+/// The Downloads folder, where people look for a file they are asked to
+/// send; the home folder if there is none.
+fn downloads_dir() -> std::path::PathBuf {
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    Some(home.join("Downloads")).filter(|d| d.is_dir()).unwrap_or(home)
+}
+
+/// Percent-encoding for a mailto link: everything but unreserved characters.
+fn url_encode(s: &str) -> String {
+    s.bytes().map(|b| match b {
+        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+        _ => format!("%{b:02X}"),
+    }).collect()
 }
 
 async fn gpu_pack_get(State(l): State<Local>) -> Response {
