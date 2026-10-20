@@ -131,7 +131,12 @@ pub fn measure(id: &str, dir: &Path, compute: runtime::Compute) -> Value {
         "cold_seconds": runs.first().map(|r| r["seconds"].clone()),
         "warm_seconds": warm.first().map(|r| r["seconds"].clone()),
         "x_realtime": (secs > 0.0).then(|| round3(audio / secs)),
-        "peak_mb": peak_rss() / 1_048_576,
+        // Native Mac models run in a separate process. Report both process
+        // high-water marks and their conservative sum, not just the broker.
+        "peak_mb": (peak_rss() + super::mac_models::peak_bytes()) / 1_048_576,
+        "parent_peak_mb": peak_rss() / 1_048_576,
+        "native_peak_mb": super::mac_models::peak_bytes() / 1_048_576,
+        "memory_method": if super::mac_models::peak_bytes() > 0 { "sum of process high-water marks" } else { "process high-water mark" },
         "vad": local.models.vad_path().is_file(),
         "runs": runs,
     })
@@ -180,15 +185,30 @@ pub fn run_child(exe: &Path, child_flag: &str, id: &str, dir: &Path, compute: ru
     let stdout = std::fs::read_to_string(&out_path).unwrap_or_default();
     let stderr = std::fs::read_to_string(&err_path).unwrap_or_default();
     let _ = std::fs::remove_dir_all(&scratch);
-    match stdout.lines().rev().find_map(|l| serde_json::from_str::<Value>(l).ok()) {
-        Some(v) => v,
-        None => {
+    child_result(id, compute, &stdout, &stderr, status)
+}
+
+fn child_result(id: &str, compute: runtime::Compute, stdout: &str, stderr: &str, status: std::process::ExitStatus) -> Value {
+    let mut result = match stdout.lines().rev().filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .find(|v| v["model"].as_str() == Some(id) && v["ok"].is_boolean()) {
+        Some(v) if status.success() => v,
+        _ => {
             let last = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("no output");
-            let mut v = failed(last.to_string());
+            let mut v = json!({ "model": id, "compute": compute.name(), "ok": false, "error": last });
             v["exit"] = json!(status.code());
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::ExitStatusExt;
+                v["signal"] = json!(status.signal());
+            }
+            v["stdout"] = json!(stdout);
             v
         }
-    }
+    };
+    // The actual compiler error precedes the final abort assertion. Keep all
+    // stderr, including successful runs that fell back from an accelerator.
+    result["stderr"] = json!(stderr);
+    result
 }
 
 /// Character error rate, after lowercasing and dropping punctuation, so the
@@ -287,7 +307,8 @@ pub fn plan(m: &Models) -> Vec<(String, runtime::Compute)> {
             continue; // fills no tier; transcribe does not run it
         }
         out.push((e.id.to_string(), runtime::Compute::Cpu));
-        if accelerated && m.variant(&e).is_some_and(|v| v.files.iter().all(|f| m.file(&e, f).is_file())) {
+        if (accelerated && m.variant(&e).is_some_and(|v| v.files.iter().all(|f| m.file(&e, f).is_file())))
+            || (cfg!(target_os = "macos") && e.kind == models::Kind::Whisper) {
             out.push((e.id.to_string(), runtime::Compute::Auto));
         }
     }
@@ -426,6 +447,28 @@ pub fn summary(report: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn child_abort_preserves_full_compiler_error_and_signal() {
+        use std::os::unix::process::ExitStatusExt;
+        let stderr = "error: contracting dimensions differ 1 & 1024\nnote: tensor<1x1x1xf32>\nfailed assertion\n";
+        let v = child_result("omnilingual-300m", runtime::Compute::Auto, "", stderr, std::process::ExitStatus::from_raw(6));
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["signal"], 6);
+        assert_eq!(v["stderr"], stderr);
+        assert_eq!(v["error"], "failed assertion");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn successful_cpu_fallback_keeps_its_diagnostics() {
+        use std::os::unix::process::ExitStatusExt;
+        let stdout = "log line\n{\"model\":\"zipa-large\",\"ok\":true}\n";
+        let v = child_result("zipa-large", runtime::Compute::Auto, stdout, "accelerator refused model", std::process::ExitStatus::from_raw(0));
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["stderr"], "accelerator refused model");
+    }
 
     #[test]
     fn cer_ignores_case_and_punctuation() {

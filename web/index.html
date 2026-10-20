@@ -7027,17 +7027,16 @@ const DESK = {
         // A non-commercial model asks for the same acceptance as MMS, once for both.
         : m.nc && !m.accepted ? `<button class="tiny" data-lc="accept" title="Accept ${esc(m.licence)} (non-commercial use only) and download">I accept: non-commercial use only · ${mb(m.size_mb)}</button>`
         : `${m.error ? `<span class="lcerr">${esc(m.error)}</span>` : ''}<button class="tiny" data-lc="get">${m.error ? 'Try again' : 'Download'} · ${mb(m.size_mb)}</button>`;
-      // The same model in floating point, for this computer's GPU or Neural
-      // Engine: int8 models run no faster there than on the processor.
+      // Optional accelerator weights, selected for this computer's runtime.
       const a = m.installed && m.accel, ad = a && a.downloading;
       const apct = ad && ad.total ? Math.floor(ad.done / ad.total * 100) : 0;
-      const accel = !a ? '' : `<em class="lcaccel">GPU version (${esc(a.precision)}): ` + (a.installed
+      const accel = !a ? '' : `<em class="lcaccel">${esc(a.label || 'GPU version (' + a.precision + ')')}: ` + (a.installed
         ? `<span class="chip live">ready</span><button class="tiny" data-lc="delete" data-accel>Delete</button>`
         : ad ? `<span class="lcbar"><i style="width:${apct}%"></i></span><span class="hint num">${apct}%</span>`
-        : `${a.error ? `<span class="lcerr">${esc(a.error)}</span>` : 'faster on the GPU, a second download. '}<button class="tiny" data-lc="get" data-accel>${a.error ? 'Try again' : 'Download'} · ${mb(a.size_mb)}</button>`) + '</em>';
+        : `${a.error ? `<span class="lcerr">${esc(a.error)}</span>` : 'optional acceleration, a separate download. '}<button class="tiny" data-lc="get" data-accel>${a.error ? 'Try again' : 'Download'} · ${mb(a.size_mb)}</button>`) + '</em>';
       return `<div class="mgrow" data-id="${esc(m.id)}">
         <div class="who"><b>${esc(m.label)}</b>` +
-        `<em>${esc(m.note)}${m.licence ? ` Licence: ${esc(m.licence)}.` : ''}</em>${accel}</div>${right}</div>`;
+        `<em>${esc(m.note)}${m.licence ? ` Licence: ${esc(m.licence)}.` : ''}</em>${m.accel_note ? `<em>${esc(m.accel_note)}</em>` : ''}${accel}</div>${right}</div>`;
     };
     // Each tier's section in the settings gets the built-in models for it.
     const known = new Set(GROUPS.map(g => g[0]));
@@ -7122,7 +7121,7 @@ const DESK = {
     } catch { return; }
     const f = (x, d = 2) => typeof x === 'number' ? x.toFixed(d) : '–';
     const table = !j.rows.length ? '' : `<table><tr><th>model</th><th>on</th><th>warm s</th><th>× real time</th><th>MB</th></tr>` +
-      j.rows.map(r => `<tr><td>${esc(r.model)}${r.compute === 'auto' ? ' (GPU version)' : ''}</td>` + (r.ok
+      j.rows.map(r => `<tr><td>${esc(r.model)}${r.compute === 'auto' ? ' (Automatic)' : ' (CPU)'}</td>` + (r.ok
         ? `<td>${esc(r.on || '')}</td><td class="num">${f(r.warm_seconds)}</td><td class="num">${f(r.x_realtime, 1)}</td><td class="num">${r.peak_mb ?? '–'}</td>`
         : `<td colspan="4" class="lcerr">${esc(r.error || 'failed')}</td>`) + '</tr>').join('') + '</table>';
     let html;
@@ -7140,8 +7139,8 @@ const DESK = {
         <p>The email opens in your mail program with a summary; attach the saved file before sending.</p>`;
     } else {
       const n = j.plan.length;
-      html = `<p>Runs each model you have downloaded on two short recordings, on the processor and, for models
-        with a GPU version, on the GPU, and saves the timings to a file you can email. It measures only
+      html = `<p>Runs each model you have downloaded on short recordings, on the CPU and, where available,
+        with acceleration enabled, and saves the timings to a file you can email. It measures only
         speed and memory, with Lana's own demo recordings; nothing is sent unless you send it.</p>` +
         (n ? `<p>It will measure: ${j.plan.map(esc).join(', ')}. Allow about ${Math.max(1, Math.round(n * 0.75))}–${n * 2} minutes.</p>`
            : `<p class="lcerr">Download at least one model above first.</p>`) +
@@ -7185,10 +7184,8 @@ const DESK = {
     };
     if (!m.accepted) {
       box.innerHTML = `<div class="gate">
-        <div><b>MMS</b> (Meta, 2023) recognises words in more than 1,150 languages, among them Avar, Chechen,
-          Dargwa, Georgian and Ossetian. In Lana's tests it was by far the most accurate model here for
-          languages of the Caucasus: about 10% of characters wrong on Dargwa, where the next best got
-          two thirds wrong.</div>
+        <div><b>MMS</b> (Meta, 2023) recognises words in more than 1,150 languages,
+          using a separate adapter for each language.</div>
         <div class="lic"><strong>Non-commercial licence (${esc(m.licence)}).</strong> You may use MMS, and the
           transcriptions it makes, for research, teaching, documentation and other non-commercial work.
           You may not use it for paid or commercial projects. Tiers it fills are labelled with its name, so

@@ -150,13 +150,13 @@ pub fn catalogue() -> Vec<Entry> {
                 files: &[File { repo: "csukuangfj/sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-int8-2025-11-12", path: "model.int8.onnx", local: "model.int8.onnx" },
                          File { repo: "csukuangfj/sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-int8-2025-11-12", path: "tokens.txt", local: "tokens.txt" }],
                 label: "Omnilingual 300M",
-                note: "Words in some 1600 languages (Meta, 2025), as plain lowercase text. It is not told the language, and for languages it knows little it can write in the wrong alphabet: in testing, Dargwa came out in Arabic and Latin letters. Good where the alphabet is unambiguous, such as Georgian." },
+                note: "Words in some 1600 languages (Meta, 2025), as plain lowercase text. Recognition can use the wrong alphabet for languages it knows less well." },
         Entry { id: "omnilingual-1b", kind: Kind::Letters, size_mb: 1032, accel: &[Variant { precision: "fp32", size_mb: 3904, files: &[File { repo: OMNI_1B_FP32, path: "model.onnx", local: "model.fp32.onnx" },
                                                                          File { repo: OMNI_1B_FP32, path: "model.weights", local: "model.weights" }] }], dtw: P::Base, licence: "Apache 2.0",
                 files: &[File { repo: "csukuangfj2/sherpa-onnx-omnilingual-asr-1600-languages-1B-ctc-v2-int8-2026-02-05", path: "model.int8.onnx", local: "model.int8.onnx" },
                          File { repo: "csukuangfj2/sherpa-onnx-omnilingual-asr-1600-languages-1B-ctc-v2-int8-2026-02-05", path: "tokens.txt", local: "tokens.txt" }],
                 label: "Omnilingual 1B",
-                note: "Words like Omnilingual 300M, with the same caveat about alphabets; more accurate on Georgian (2.2% character errors against 6.0% in testing). Needs 2 GB of memory while it runs." },
+                note: "Words like Omnilingual 300M, with a larger model and the same caveat about alphabets. Needs 2 GB of memory while it runs." },
         Entry { id: "parakeet-tdt-0.6b-v3", kind: Kind::Transducer, size_mb: 646, accel: &[Variant { precision: "fp32", size_mb: 2477, files: &[File { repo: PARAKEET_FP32, path: "encoder.onnx", local: "encoder.fp32.onnx" },
                                                                          File { repo: PARAKEET_FP32, path: "encoder.weights", local: "encoder.weights" }] }], dtw: P::Base, licence: "CC BY 4.0",
                 files: &[File { repo: PARAKEET, path: "encoder.int8.onnx", local: "encoder.int8.onnx" },
@@ -164,7 +164,7 @@ pub fn catalogue() -> Vec<Entry> {
                          File { repo: PARAKEET, path: "joiner.int8.onnx", local: "joiner.int8.onnx" },
                          File { repo: PARAKEET, path: "tokens.txt", local: "tokens.txt" }],
                 label: "Parakeet v3",
-                note: "Words with punctuation in 25 European languages (NVIDIA, 2025), which it detects itself. No Georgian or Caucasian languages." },
+                note: "Words with punctuation in 25 European languages (NVIDIA, 2025), which it detects itself." },
         Entry { id: "zipa-small", kind: Kind::Phones, size_mb: 71, accel: &[], dtw: P::Base, licence: "CC BY 4.0",
                 files: &[File { repo: "anyspeech/zipa-small-crctc-500k", path: "model.int8.onnx", local: "model.int8.onnx" },
                          File { repo: "anyspeech/zipa-small-crctc-500k", path: "tokens.txt", local: "tokens.txt" }],
@@ -261,6 +261,9 @@ impl Models {
     /// The variant this computer's accelerator would use, by its preference
     /// (runtime::float_preference), installed or not.
     pub fn variant<'a>(&self, e: &'a Entry) -> Option<&'a Variant> {
+        if cfg!(target_os = "macos") {
+            return super::mac_files::variant(e.id).filter(|_| super::mac_models::available(e.id));
+        }
         super::runtime::float_preference().iter().find_map(|p| e.accel.iter().find(|v| v.precision == *p))
     }
 
@@ -271,7 +274,7 @@ impl Models {
     /// The file a model's engine is given: its accelerator variant when the
     /// accelerator is in use and the variant is here, else its first file.
     pub fn model_file(&self, e: &Entry) -> PathBuf {
-        if super::runtime::wants_float() {
+        if super::runtime::wants_float() || (cfg!(target_os = "macos") && super::runtime::compute() != super::runtime::Compute::Cpu) {
             if let Some(v) = self.variant(e).filter(|v| self.variant_installed(e, v)) {
                 return self.file(e, &v.files[0]);
             }
@@ -308,9 +311,13 @@ impl Models {
                     "accel": self.variant(e).filter(|_| accelerated).map(|v| {
                         let d = downloads.get(&accel_id(e.id));
                         json!({ "precision": v.precision, "size_mb": v.size_mb, "installed": self.variant_installed(e, v),
+                                "label": if cfg!(target_os = "macos") { format!("Mac acceleration ({})", v.precision) } else { format!("GPU version ({})", v.precision) },
                                 "downloading": d.filter(|d| d.error.is_none()).map(|d| json!({ "done": d.done, "total": d.total })),
                                 "error": d.and_then(|d| d.error.clone()) })
                     }),
+                    "accel_note": if cfg!(target_os = "macos") && e.id.starts_with("omnilingual") && !super::mac_models::available(e.id) {
+                        Some("Runs on the CPU. MLX acceleration requires macOS 15 or later and the bundled Mac runner.")
+                    } else { None },
                 })
             })
             .collect();
@@ -320,7 +327,7 @@ impl Models {
     pub fn delete(&self, id: &str) -> Result<(), String> {
         if let Some(id) = id.strip_suffix(ACCEL_SUFFIX) {
             let e = find(id).ok_or("no such model")?;
-            for v in e.accel {
+            for v in e.accel.iter().chain(super::mac_files::variant(e.id)) {
                 for f in v.files {
                     let p = self.file(&e, f);
                     let _ = std::fs::remove_file(part_of(&p));
@@ -330,7 +337,7 @@ impl Models {
             return Ok(());
         }
         let e = find(id).ok_or("no such model")?;
-        for f in e.accel.iter().flat_map(|v| v.files.iter()).chain(e.files) {
+        for f in e.accel.iter().chain(super::mac_files::variant(e.id)).flat_map(|v| v.files.iter()).chain(e.files) {
             let p = self.file(&e, f);
             let _ = std::fs::remove_file(part_of(&p));
             match std::fs::remove_file(&p) {
@@ -492,8 +499,9 @@ impl Models {
     }
 
     /// A repository's file listing, which carries each file's SHA-256 and size.
+    /// Include subfolders: MMS-LID keeps its model in `onnx/`.
     async fn listing(&self, repo: &str) -> Result<Value, String> {
-        let url = format!("https://huggingface.co/api/models/{repo}/tree/main");
+        let url = format!("https://huggingface.co/api/models/{repo}/tree/main?recursive=true");
         self.http
             .get(&url)
             .send()

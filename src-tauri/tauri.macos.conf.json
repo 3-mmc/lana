@@ -6,6 +6,7 @@
       ]
     },
     "resources": {
+      "mac-models/": "mac-models/",
       "onnxruntime/LICENSE": "onnxruntime/LICENSE",
       "onnxruntime/ThirdPartyNotices.txt": "onnxruntime/ThirdPartyNotices.txt"
     }

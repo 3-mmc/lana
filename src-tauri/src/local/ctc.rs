@@ -87,6 +87,12 @@ impl Ctc {
     pub fn load(engine: Engine, model: &Path, tokens: &Path, threads: i32) -> Result<Self, String> {
         let input = if engine == Engine::Zipa { Input::Fbank } else { Input::Samples };
         let net = Net::load(model, input, threads)?;
+        if let Some(tokens) = net.native_tokens() {
+            let shown = tokens.into_iter().map(|s| {
+                if s.is_empty() || s.starts_with('<') { None } else { Some(s.replace('▁', " ")) }
+            }).collect();
+            return Ok(Ctc { net, engine, shown, allowed: None, lag: 0.0 });
+        }
         let text = std::fs::read_to_string(tokens).map_err(|e| format!("could not read {}: {e}", tokens.display()))?;
         let mut shown: Vec<Option<String>> = Vec::new();
         for line in text.lines().filter(|l| !l.is_empty()) {

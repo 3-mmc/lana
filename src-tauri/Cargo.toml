@@ -1,6 +1,6 @@
 [package]
 name = "lana-desktop"
-version = "0.2.0"
+version = "0.2.1"
 description = "Praat phonetic analysis with speech-recognised tiers, as a desktop app"
 license = "GPL-3.0-or-later"
 edition = "2021"
@@ -66,8 +66,8 @@ debug = false
 webkit2gtk = "2.0"
 ort = { version = "=2.0.0-rc.14", default-features = false, features = ["cuda"] }
 
-# Apple Silicon: whisper.cpp on the GPU through Metal, the ONNX models through
-# CoreML. Untested until a Mac build.
+# Apple Silicon: whisper.cpp uses Metal. ONNX stays on the CPU; optional
+# native Mac workers run Omnilingual on MLX and Parakeet on CoreML.
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.16", features = ["metal"] }
 libc = "0.2"

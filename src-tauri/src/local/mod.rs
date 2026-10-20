@@ -14,6 +14,8 @@ pub mod audio;
 pub mod models;
 pub mod ctc;
 pub mod runtime;
+pub mod mac_models;
+mod mac_files;
 pub mod frames;
 pub mod align;
 pub mod lid;
@@ -260,6 +262,20 @@ impl Local {
         let (model, tokens) = (self.models.model_file(entry), self.models.named(entry, "tokens.txt"));
         // Omnilingual is not told the language; its alphabet is the only hold.
         let language = language.filter(|_| engine == ctc::Engine::Omnilingual);
+        if mac_models::model_id(&model).is_some() {
+            match self.run_ctc_at(engine, &model, &tokens, entry.id, bytes.clone(), filename, language) {
+                Ok(out) => return Ok(out),
+                Err(_) if self.cancel.load(Ordering::Relaxed) => return Err("stopped".into()),
+                Err(e) => {
+                    eprintln!("lana: {} Mac acceleration failed; retrying int8 on the CPU: {e}", entry.id);
+                    runtime::record(&model, "CPU (Mac accelerator failed)");
+                    self.done_cues.lock().unwrap().clear();
+                    let mut out = self.run_ctc_at(engine, &self.models.path(entry), &tokens, entry.id, bytes, filename, language)?;
+                    out["warnings"] = json!([format!("Mac acceleration failed; used the int8 CPU model. {e}")]);
+                    return Ok(out);
+                }
+            }
+        }
         self.run_ctc_at(engine, &model, &tokens, entry.id, bytes, filename, language)
     }
 
@@ -341,7 +357,12 @@ impl Local {
                 return Err(format!("{} is not downloaded.", entry.label));
             }
             let engine = if entry.kind == Kind::Letters { ctc::Engine::Omnilingual } else { ctc::Engine::Zipa };
-            ctc::Ctc::load(engine, &self.models.model_file(&entry), &self.models.named(&entry, "tokens.txt"), threads())?
+            // Native Mac weights have their own vocabulary; corrections and
+            // search use the original ONNX vocabulary/frames. Keep the existing
+            // accelerator choice on other platforms.
+            let selected = self.models.model_file(&entry);
+            let selected = if mac_models::model_id(&selected).is_some() { self.models.path(&entry) } else { selected };
+            ctc::Ctc::load(engine, &selected, &self.models.named(&entry, "tokens.txt"), threads())?
         };
         let mut c = c;
         c.lag = ctc::lag_of(id);
@@ -502,6 +523,25 @@ impl Local {
     /// silence, but reading it is still time spent for nothing. The language
     /// is the model's own guess; it cannot be told one.
     fn run_parakeet(&self, entry: &models::Entry, bytes: Vec<u8>, filename: &str) -> Result<Value, String> {
+        let model = self.models.model_file(entry);
+        if mac_models::model_id(&model).is_some() {
+            match self.run_parakeet_at(entry, bytes.clone(), filename, &model) {
+                Ok(out) => return Ok(out),
+                Err(_) if self.cancel.load(Ordering::Relaxed) => return Err("stopped".into()),
+                Err(e) => {
+                    eprintln!("lana: Parakeet Mac acceleration failed; retrying int8 on the CPU: {e}");
+                    runtime::record(&model, "CPU (Mac accelerator failed)");
+                    self.done_cues.lock().unwrap().clear();
+                    let mut out = self.run_parakeet_at(entry, bytes, filename, &self.models.path(entry))?;
+                    out["warnings"] = json!([format!("Mac acceleration failed; used the int8 CPU model. {e}")]);
+                    return Ok(out);
+                }
+            }
+        }
+        self.run_parakeet_at(entry, bytes, filename, &model)
+    }
+
+    fn run_parakeet_at(&self, entry: &models::Entry, bytes: Vec<u8>, filename: &str, model: &std::path::Path) -> Result<Value, String> {
         let samples = audio::decode_16k_mono(bytes, filename)?;
         let rate = audio::WHISPER_RATE;
         let duration = samples.len() as f64 / rate as f64;
@@ -509,14 +549,19 @@ impl Local {
             j.total = duration;
         }
         self.stage("loading model");
-        let rec = parakeet::Parakeet::load(&self.models.model_file(entry), threads())?;
+        let mut native = if mac_models::model_id(model).is_some() { Some(mac_models::Worker::load(model)?) } else { None };
+        let rec = if native.is_none() { Some(parakeet::Parakeet::load(model, threads())?) } else { None };
         self.stage("recognising words");
         let t = Instant::now();
         let mut words = Vec::new();
         for p in vad::plan(&samples, rate, 30.0) {
             let (offset, end) = (p.range.start as f64 / rate as f64, p.range.end as f64 / rate as f64);
             if p.speech {
-                let piece = rec.words(&samples[p.range.clone()], rate, offset, end);
+                let piece = match native.as_mut() {
+                    Some(worker) if p.range.len() >= 400 => worker.words(&samples[p.range.clone()], offset, end)?,
+                    Some(_) => Vec::new(),
+                    None => rec.as_ref().unwrap().words(&samples[p.range.clone()], rate, offset, end),
+                };
                 self.done_cues.lock().unwrap().extend(parakeet::cues(&piece));
                 words.extend(piece);
             }
@@ -668,8 +713,13 @@ impl Local {
             mode: DtwMode::ModelPreset { model_preset: preset(entry.id) },
             ..Default::default()
         };
-        WhisperContext::new_with_params(path.to_str().ok_or("model path is not UTF-8")?, params)
-            .map_err(|e| format!("Could not load {}: {e}", entry.label))
+        let context = WhisperContext::new_with_params(path.to_str().ok_or("model path is not UTF-8")?, params)
+            .map_err(|e| format!("Could not load {}: {e}", entry.label))?;
+        runtime::record(path, if runtime::compute() == runtime::Compute::Cpu { "CPU" }
+            else if cfg!(target_os = "macos") { "Whisper (Metal enabled)" }
+            else if cfg!(feature = "whisper-vulkan") { "Whisper (Vulkan enabled)" }
+            else { "CPU" });
+        Ok(context)
     }
 
     /// Whisper over the recording in pieces of up to 30 s, cut at a pause.

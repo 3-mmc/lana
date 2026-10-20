@@ -7,7 +7,7 @@
 // accelerator, and a Linux computer with an NVIDIA card can swap in the CUDA
 // build later (the GPU pack, in the models folder) without a new Lana.
 //
-//   macOS     onnxruntime 1.30 with CoreML: the Neural Engine and the GPU
+//   macOS     onnxruntime 1.30, CPU; native Mac models in mac_models.rs
 //   Windows   onnxruntime 1.24 with DirectML: any DirectX 12 GPU
 //             (1.24.4 is the last DirectML build Microsoft published)
 //   Linux     onnxruntime 1.30, CPU; with the GPU pack, CUDA
@@ -64,6 +64,9 @@ pub enum Role {
     /// transducer's decoder and joiner, the speaker models): the CPU, where
     /// a call costs least.
     Light,
+    /// CAM++ voice embeddings: CPU only, with graph optimisation disabled
+    /// on Windows because the bundled ORT 1.24.4 corrupts their output.
+    SpeakerEmbedding,
 }
 
 struct State {
@@ -221,17 +224,11 @@ fn preload_beside(library: &Path, names: &[&str]) {
 fn accelerator(l: &Loaded) -> Option<(&'static str, ExecutionProviderDispatch)> {
     #[cfg(target_os = "macos")]
     {
-        use ort::ep::coreml::{ComputeUnits, ModelFormat};
-        let mut ep = ort::ep::CoreML::default()
-            .with_model_format(ModelFormat::MLProgram)
-            .with_compute_units(ComputeUnits::All);
-        if let Some(dir) = STATE.lock().unwrap().cache.clone().map(|d| d.join("coreml")) {
-            if std::fs::create_dir_all(&dir).is_ok() {
-                ep = ep.with_model_cache_dir(dir.display());
-            }
-        }
+        // Dynamic ONNX -> MLProgram lowering produces invalid MatMul shapes
+        // on the M3/Sonoma probe and aborts inside Apple's compiler. ONNX stays
+        // on the CPU; purpose-built native models run in mac_models workers.
         let _ = l;
-        return Some(("CoreML (Neural Engine and GPU)", ep.build().error_on_failure()));
+        return None;
     }
     #[cfg(target_os = "windows")]
     {
@@ -269,7 +266,8 @@ pub fn library_path() -> Option<PathBuf> {
 /// Whether this computer has an accelerator Lana can use, whatever the
 /// setting.
 pub fn has_accelerator() -> bool {
-    loaded().ok().and_then(accelerator).is_some()
+    cfg!(all(target_os = "macos", target_arch = "aarch64"))
+        || loaded().ok().and_then(accelerator).is_some()
 }
 
 /// Whether models in floating point would run on an accelerator now: there
@@ -293,7 +291,7 @@ pub fn float_preference() -> &'static [&'static str] {
 pub fn session(path: &Path, role: Role, threads: i32) -> Result<Session, String> {
     let l = loaded()?;
     let want = match compute() {
-        _ if role == Role::Light => Compute::Cpu,
+        _ if matches!(role, Role::Light | Role::SpeakerEmbedding) => Compute::Cpu,
         Compute::Auto if quantised(path) => Compute::Cpu,
         c => c,
     };
@@ -320,7 +318,7 @@ pub fn session(path: &Path, role: Role, threads: i32) -> Result<Session, String>
             None => {}
         }
     }
-    let s = cpu_session(path, threads)?;
+    let s = cpu_session(path, threads, role)?;
     record(path, "CPU");
     Ok(s)
 }
@@ -333,6 +331,7 @@ pub struct Model {
     session: Session,
     path: PathBuf,
     threads: i32,
+    role: Role,
     accelerated: bool,
 }
 
@@ -340,7 +339,7 @@ impl Model {
     pub fn load(path: &Path, role: Role, threads: i32) -> Result<Self, String> {
         let session = session(path, role, threads)?;
         let accelerated = STATE.lock().unwrap().used.get(&key(path)).is_some_and(|on| *on != "CPU");
-        Ok(Model { session, path: path.to_path_buf(), threads, accelerated })
+        Ok(Model { session, path: path.to_path_buf(), threads, role, accelerated })
     }
 
     /// Run `f` on the session. `f` builds the inputs itself and copies out
@@ -351,7 +350,7 @@ impl Model {
         match f(&mut self.session) {
             Err(e) if self.accelerated && compute() != Compute::Gpu => {
                 eprintln!("lana: {} failed on the accelerator, now on the CPU: {e}", self.path.display());
-                self.session = cpu_session(&self.path, self.threads)?;
+                self.session = cpu_session(&self.path, self.threads, self.role)?;
                 self.accelerated = false;
                 record(&self.path, "CPU (the accelerator failed it)");
                 f(&mut self.session)
@@ -370,13 +369,25 @@ impl Model {
 /// each saved copy would hold all of them. Not for models over
 /// SAVE_LIMIT either, where reading dominates: Parakeet's 650 MB encoder
 /// loads in 1.44 s instead of 2.22 s, for another 650 MB on disk.
-fn cpu_session(path: &Path, threads: i32) -> Result<Session, String> {
+fn cpu_session(path: &Path, threads: i32, role: Role) -> Result<Session, String> {
+    cpu_session_with_optimisation(path, threads, !(cfg!(target_os = "windows") && role == Role::SpeakerEmbedding))
+}
+
+fn cpu_session_with_optimisation(path: &Path, threads: i32, optimise: bool) -> Result<Session, String> {
+    use ort::session::builder::GraphOptimizationLevel;
     let l = loaded()?;
     let build = || Session::builder(&l.env).and_then(|b| b.with_intra_threads(threads.max(1) as usize).map_err(Into::into));
+    if !optimise {
+        // Basic also corrupts CAM++. Always read the original graph before
+        // looking up or saving a cache: a saved graph already contains the
+        // faulty transformations, which disabling optimisation cannot undo.
+        return build().and_then(|b| b.with_optimization_level(GraphOptimizationLevel::Disable).map_err(Into::into))
+            .and_then(|mut b| b.commit_from_file(path))
+            .map_err(|e| format!("could not load {}: {e}", path.display()));
+    }
     let plain = || build().and_then(|mut b| b.commit_from_file(path)).map_err(|e| format!("could not load {}: {e}", path.display()));
     let Some(saved) = optimised_copy(path) else { return plain() };
     if saved.is_file() {
-        use ort::session::builder::GraphOptimizationLevel;
         match build().and_then(|b| b.with_optimization_level(GraphOptimizationLevel::Disable).map_err(Into::into))
             .and_then(|mut b| b.commit_from_file(&saved))
         {
@@ -406,6 +417,50 @@ fn cpu_session(path: &Path, threads: i32) -> Result<Session, String> {
             plain()
         }
     }
+}
+
+/// Run with LANA_CAMPLUS_PROBE pointing to lana-models/out/camplus-windows.
+/// Uses the independently measured Linux 1.30 embedding as the reference.
+#[test]
+#[ignore = "requires the CAM++ probe model, features and reference embedding"]
+fn camplus_bypasses_optimised_cache() {
+    use ort::value::Tensor;
+    let probe = PathBuf::from(std::env::var_os("LANA_CAMPLUS_PROBE").expect("set LANA_CAMPLUS_PROBE"));
+    let path = probe.join("campplus.onnx");
+    let reference: Value = serde_json::from_slice(&std::fs::read(probe.join("linux-smoke.json")).unwrap()).unwrap();
+    let case = reference["cases"].as_array().unwrap().iter()
+        .find(|c| c["fixture"] == "de.fbank" && c["frames"] == 100 && c["threads"] == 4 && c["level"] == 0).unwrap();
+    let want: Vec<f32> = case["embedding"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap() as f32).collect();
+    let features: Vec<f32> = std::fs::read(probe.join("de.fbank")).unwrap()[..100 * 80 * 4]
+        .chunks_exact(4).map(|v| f32::from_le_bytes(v.try_into().unwrap())).collect();
+    let cache = std::env::temp_dir().join(format!("lana-camplus-cache-test-{}", std::process::id()));
+    let previous = STATE.lock().unwrap().cache.clone();
+    cache_in(cache.clone());
+    loaded().unwrap();
+    let saved = optimised_copy(&path).expect("CAM++ should normally be cacheable");
+    assert!(!saved.exists());
+    for populated in [false, true] {
+        if populated {
+            std::fs::create_dir_all(saved.parent().unwrap()).unwrap();
+            // An unusable cache must not be read, regenerated or overwritten.
+            std::fs::write(&saved, b"must bypass this old graph").unwrap();
+        }
+        let mut session = cpu_session_with_optimisation(&path, 4, false).unwrap();
+        let input = Tensor::from_array(([1usize, 100, 80], features.clone())).unwrap();
+        let output = session.run(ort::inputs!["feats" => input]).unwrap();
+        let got = output["embs"].try_extract_tensor::<f32>().unwrap().1;
+        assert_eq!(got.len(), want.len());
+        let dot: f32 = got.iter().zip(&want).map(|(a, b)| a * b).sum();
+        let norm = |v: &[f32]| v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        assert!(dot / (norm(got) * norm(&want)) > 0.99999, "CAM++ embedding changed");
+        if populated {
+            assert_eq!(std::fs::read(&saved).unwrap(), b"must bypass this old graph");
+        } else {
+            assert!(!saved.exists(), "unoptimised CAM++ must not create a cached graph");
+        }
+    }
+    STATE.lock().unwrap().cache = previous;
+    std::fs::remove_dir_all(cache).unwrap();
 }
 
 /// Delete optimised graphs unused for a month: those of deleted models, and
@@ -457,7 +512,7 @@ fn key(path: &Path) -> String {
         .map(|p| p.to_string_lossy()).collect::<Vec<_>>().join("/")
 }
 
-fn record(path: &Path, on: &'static str) {
+pub(crate) fn record(path: &Path, on: &'static str) {
     STATE.lock().unwrap().used.insert(key(path), on);
 }
 
@@ -469,7 +524,10 @@ pub fn describe() -> Value {
     let compute = s.compute.name();
     drop(s);
     let (library, accelerator, error) = match loaded() {
-        Ok(l) => (Some(l.library.display().to_string()), accelerator(l).map(|a| a.0), None),
+        Ok(l) => (Some(l.library.display().to_string()),
+            if super::mac_models::any_available() { Some("Apple Metal / Neural Engine (native models)") }
+            else if cfg!(all(target_os = "macos", target_arch = "aarch64")) { Some("Apple Metal (Whisper)") }
+            else { accelerator(l).map(|a| a.0) }, None),
         Err(e) => (None, None, Some(e)),
     };
     json!({ "compute": compute, "library": library, "accelerator": accelerator, "error": error, "models": used })

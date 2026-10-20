@@ -52,7 +52,7 @@ pub struct Embedder {
 
 impl Embedder {
     pub fn load(model: &Path, threads: i32) -> Result<Self, String> {
-        Ok(Embedder { model: Mutex::new(runtime::Model::load(model, Role::Light, threads)?) })
+        Ok(Embedder { model: Mutex::new(runtime::Model::load(model, Role::SpeakerEmbedding, threads)?) })
     }
 
     /// The embedding of some audio, or None if it is too short for a frame.

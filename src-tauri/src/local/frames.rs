@@ -43,19 +43,33 @@ pub enum Input {
 }
 
 pub struct Net {
-    model: Mutex<Model>,
+    model: Option<Mutex<Model>>,
+    native: Option<Mutex<super::mac_models::Worker>>,
     input: Input,
 }
 
 impl Net {
     pub fn load(model: &Path, input: Input, threads: i32) -> Result<Self, String> {
-        Ok(Net { model: Mutex::new(Model::load(model, Role::Heavy, threads)?), input })
+        if super::mac_models::model_id(model).is_some() {
+            return Ok(Net { model: None, native: Some(Mutex::new(super::mac_models::Worker::load(model)?)), input });
+        }
+        Ok(Net { model: Some(Mutex::new(Model::load(model, Role::Heavy, threads)?)), native: None, input })
+    }
+
+    pub fn native_tokens(&self) -> Option<Vec<String>> {
+        self.native.as_ref().and_then(|n| n.lock().unwrap().tokens.clone())
     }
 
     /// Log-probabilities for one piece of 16 kHz mono audio.
     pub fn log_probs(&self, samples: &[f32]) -> Result<Mat, String> {
+        if let Some(native) = &self.native {
+            if samples.len() < 400 { return Ok(Mat::default()); }
+            let mut mat = native.lock().unwrap().logits(&normalised(samples))?;
+            for row in mat.lp.chunks_mut(mat.v) { log_softmax(row); }
+            return Ok(mat);
+        }
         let err = |e: ort::Error| format!("the model failed: {e}");
-        let mut model = self.model.lock().unwrap();
+        let mut model = self.model.as_ref().unwrap().lock().unwrap();
         let mut m = match self.input {
             Input::Fbank => {
                 let (frames, feats) = fbank(samples);
