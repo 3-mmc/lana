@@ -2263,7 +2263,7 @@ dependencies = [
 
 [[package]]
 name = "lana-desktop"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "axum",
  "base64 0.22.1",
