@@ -1044,7 +1044,7 @@ pub fn router(local: Local) -> Router {
         .route("/api/local/speedtest", get(speed_status).post(speed_start))
         .route("/api/local/speedtest/cancel", post(speed_cancel))
         .route("/api/local/speedtest/show", post(speed_show))
-        .route("/api/local/speedtest/email", post(speed_email))
+        .route("/api/local/speedtest/share", get(speed_share_preview).post(speed_share))
         .layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD))
         .with_state(local)
 }
@@ -1069,8 +1069,8 @@ async fn compute_status(State(l): State<Local>) -> Json<Value> {
 
 // ------------------------------------------------------------ speed test
 
-/// Where finished speed tests go to be sent: whoever runs one is asked to
-/// email it here.
+/// Explicitly approved benchmark reports are forwarded to this inbox.
+/// FormSubmit requires the recipient to activate the inbox before delivery.
 const SPEED_TEST_EMAIL: &str = "geblerkt@gmail.com";
 
 /// The test's progress and results, and what it would measure.
@@ -1118,30 +1118,76 @@ async fn speed_show(State(l): State<Local>) -> Response {
     }
 }
 
-/// A new email in the user's mail program, addressed and with the results
-/// summed up in its body. A link cannot attach a file, so the body asks for
-/// the saved file to be attached.
-async fn speed_email(State(l): State<Local>) -> Response {
-    let (report, file) = {
+/// Local preview only: opening the dialog never contacts the email relay.
+async fn speed_share_preview(State(l): State<Local>) -> Response {
+    let s = l.speed.status.lock().unwrap();
+    let Some(report) = s.report.as_ref().filter(|_| !s.running) else {
+        return (StatusCode::NOT_FOUND, Json(json!({ "error": "Finish a speed test first." }))).into_response();
+    };
+    Json(json!({
+        "report_id": report["when"], "to": SPEED_TEST_EMAIL,
+        "payload": benchmark_message(report),
+    })).into_response()
+}
+
+fn benchmark_message(report: &Value) -> Value {
+    json!({
+        "_subject": "Lana benchmark report",
+        "_template": "table",
+        "_url": "https://openlana.app/",
+        "message": serde_json::to_string_pretty(&speedtest::shared_report(report)).unwrap_or_default(),
+    })
+}
+
+/// Consent applies only to the exact completed test shown in the preview.
+/// Rebuild from the local report; never relay arbitrary client-supplied data.
+fn approved_benchmark(report: Option<&Value>, body: &Value) -> Result<Value, &'static str> {
+    if body["consent"].as_bool() != Some(true) {
+        return Err("Agree to sharing this report first. Nothing was sent.");
+    }
+    let report = report.ok_or("No completed report is available. Nothing was sent.")?;
+    if report["when"].as_u64().is_none() || body["report_id"] != report["when"] {
+        return Err("The results have changed. Review the new report before sending it.");
+    }
+    Ok(benchmark_message(report))
+}
+
+async fn speed_share(State(l): State<Local>, Json(body): Json<Value>) -> Response {
+    let payload = {
         let s = l.speed.status.lock().unwrap();
-        (s.report.clone(), s.file.clone())
+        match approved_benchmark(s.report.as_ref().filter(|_| !s.running), &body) {
+            Ok(payload) => payload,
+            Err(error) => return (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response(),
+        }
     };
-    let Some(report) = report else {
-        return (StatusCode::NOT_FOUND, Json(json!({ "error": "No results yet." }))).into_response();
-    };
-    let name = file.as_ref().and_then(|f| f.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let body = format!("{}\nPlease attach {name} from your Downloads folder before sending.\n", speedtest::summary(&report));
-    let url = format!("mailto:{SPEED_TEST_EMAIL}?subject={}&body={}", url_encode("Lana speed test"), url_encode(&body));
-    let r = if cfg!(target_os = "macos") {
-        std::process::Command::new("open").arg(&url).spawn()
-    } else if cfg!(windows) {
-        std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", &url]).spawn()
-    } else {
-        std::process::Command::new("xdg-open").arg(&url).spawn()
-    };
-    match r {
-        Ok(_) => Json(json!({ "ok": true, "to": SPEED_TEST_EMAIL })).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Could not open your email program: {e}") }))).into_response(),
+    // No credentials, cookies, redirects, background retries or client IDs.
+    // A fresh checkbox is required on each opening of the review dialog.
+    let send = async {
+        let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(std::time::Duration::from_secs(25))
+            .user_agent(concat!("Lana benchmark sharing/", env!("CARGO_PKG_VERSION")))
+            .build().map_err(|_| "Could not prepare the report for sending.")?;
+        let response = http.post(format!("https://formsubmit.co/ajax/{SPEED_TEST_EMAIL}"))
+            .header(reqwest::header::ACCEPT, "application/json")
+            // Native clients need a stable form source for inbox activation.
+            .header(reqwest::header::ORIGIN, "https://openlana.app")
+            .header(reqwest::header::REFERER, "https://openlana.app/")
+            .json(&payload).send().await
+            .map_err(|_| "Delivery could not be confirmed. Check your connection. Lana will not retry automatically.")?;
+        if !response.status().is_success() {
+            return Err("The delivery service did not accept the report. You can save a copy instead.");
+        }
+        let result: Value = response.json().await
+            .map_err(|_| "The delivery service returned an unexpected reply. Delivery could not be confirmed.")?;
+        if result["success"] != json!(true) && result["success"] != json!("true") {
+            return Err("The delivery service did not accept the report. The developer may need to activate the inbox.");
+        }
+        Ok(())
+    }.await;
+    match send {
+        Ok(()) => Json(json!({ "ok": true, "to": SPEED_TEST_EMAIL })).into_response(),
+        Err(error) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": error }))).into_response(),
     }
 }
 
@@ -1151,14 +1197,6 @@ fn downloads_dir() -> std::path::PathBuf {
     let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
         .map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir);
     Some(home.join("Downloads")).filter(|d| d.is_dir()).unwrap_or(home)
-}
-
-/// Percent-encoding for a mailto link: everything but unreserved characters.
-fn url_encode(s: &str) -> String {
-    s.bytes().map(|b| match b {
-        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
-        _ => format!("%{b:02X}"),
-    }).collect()
 }
 
 async fn gpu_pack_get(State(l): State<Local>) -> Response {
@@ -1203,7 +1241,8 @@ async fn download_model(State(l): State<Local>, UrlPath(id): UrlPath<String>) ->
 }
 
 async fn delete_model(State(l): State<Local>, UrlPath(id): UrlPath<String>) -> Response {
-    if l.job.lock().unwrap().as_ref().is_some_and(|j| j.model == id) {
+    let base = id.strip_suffix(models::ACCEL_SUFFIX).unwrap_or(&id);
+    if l.job.lock().unwrap().as_ref().is_some_and(|j| j.model == base) {
         return (StatusCode::CONFLICT, Json(json!({ "error": "That model is transcribing right now." }))).into_response();
     }
     match l.models.delete(&id) {
@@ -1316,7 +1355,22 @@ async fn search_phones(State(l): State<Local>, form: Multipart) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use super::looping;
+    use super::{approved_benchmark, benchmark_message, looping};
+    use serde_json::json;
+
+    #[test]
+    fn benchmark_sharing_requires_fresh_explicit_consent_and_the_reviewed_report() {
+        let report = json!({ "when": 123, "tool": "lana", "machine": {}, "models": [] });
+        for body in [json!({}), json!({ "consent": false, "report_id": 123 }),
+            json!({ "consent": "true", "report_id": 123 }), json!({ "consent": true, "report_id": 122 })] {
+            assert!(approved_benchmark(Some(&report), &body).is_err());
+        }
+        assert!(approved_benchmark(None, &json!({ "consent": true, "report_id": 123 })).is_err());
+        let body = json!({ "consent": true, "report_id": 123, "message": "MUST NOT BE FORWARDED" });
+        let approved = approved_benchmark(Some(&report), &body).unwrap();
+        assert_eq!(approved, benchmark_message(&report));
+        assert!(!approved.to_string().contains("MUST NOT BE FORWARDED"));
+    }
 
     #[test]
     fn loops_are_caught_and_speech_is_not() {

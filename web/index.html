@@ -353,9 +353,21 @@
   .mghead{padding:7px 10px 3px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
   .mghead span{text-transform:none;letter-spacing:0;color:var(--dim2)}
   .mgrow .who em{display:block;font-style:normal;color:var(--dim);font-size:11px;white-space:normal}
+  .mgrow.lcmodel{display:block}
+  .lcvariant{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:7px;padding:6px 8px;background:var(--panel2);border-radius:4px}
+  .lcvariant .who{flex:1 1 210px}
+  .lcvariant .who b{font-size:11px}
+  .lcvariant .who em{font-size:11px}
   .lcbar{width:120px;height:4px;background:var(--sunken);border-radius:2px;overflow:hidden}
   .speedbox{padding:6px 10px;border-bottom:1px solid var(--line2);font-size:12px}
   .speedbox summary{cursor:pointer;color:var(--dim)}
+  #benchShareDlg .dlgbox{max-height:84vh;overflow:auto}
+  #benchShareDlg .sharebody{padding:10px 14px;font-size:12px;line-height:1.5}
+  #benchShareDlg p{margin:0 0 10px}
+  #benchShareDlg ul{padding-left:20px;margin:0 0 10px}
+  #benchShareDlg pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:230px;overflow:auto;background:var(--sunken);padding:8px;font-size:11px}
+  #benchShareDlg .shareconsent{display:flex;gap:8px;align-items:flex-start;margin:12px 0}
+  #benchShareDlg .shareactions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
   .speedbox p{margin:6px 0;color:var(--dim)}
   .speedbox table{border-collapse:collapse;margin:6px 0;font-size:11px}
   .speedbox td,.speedbox th{padding:2px 8px 2px 0;text-align:left;font-weight:normal}
@@ -535,6 +547,10 @@
        browser build never sees it, because serve.py has no such route. -->
   <fieldset id="fsManage" hidden>
     <legend>Recognisers in this app</legend>
+    <div class="mgrow">
+      <div class="who"><b id="lanaVersion">Lana</b><em id="updateState" role="status">Lana checks for updates when it starts.</em></div>
+      <button class="tiny" id="checkUpdates">Check for updates</button>
+    </div>
     <div class="privacy" id="privacy">
       <div><b><svg class="lock" viewBox="0 0 10 12" aria-hidden="true"><rect x="1" y="5" width="8" height="6.5" rx="1.2" fill="currentColor"/><path d="M3 5V3.6a2 2 0 0 1 4 0V5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg> Built-in models keep your recordings on this computer.</b> They run on this machine's
         own processor, work offline once downloaded, and never send audio, transcriptions or annotations
@@ -544,7 +560,7 @@
         <ul>
           <li><b>Hugging Face</b>, when you click Download: the model file, once. Nothing about your
             recordings is sent.</li>
-          <li><b>GitHub</b>, a few seconds after start: whether a newer Lana exists. Nothing about your
+          <li><b>GitHub</b>, at startup or when you click Check for updates: whether a newer Lana exists. Nothing about your
             recordings is sent.</li>
           <li><b>GitHub and PyPI</b>, only if you download the NVIDIA GPU pack (Linux): ONNX Runtime from
             Microsoft's GitHub releases, and NVIDIA's CUDA libraries from pypi.org, once. Nothing about your
@@ -552,7 +568,11 @@
           <li><b>A cloud recogniser or speech server</b>, only if you add one below and then run it: the
             recording you run it on goes to that service, under that service's terms. Such recognisers are
             marked <span class="chip away">sends audio to …</span> wherever you choose them.</li>
-          <li>No accounts, analytics or usage statistics. Annotations are saved in Lana's own folder on
+          <li><b>Benchmark sharing</b>, only after you review a report and explicitly agree to send it once:
+            hardware and performance results go through FormSubmit to Aaron van Blerkom's email.
+            No recordings, transcriptions, annotations, paths or raw logs are included. FormSubmit retains
+            submissions for 30 days and sees your IP address and request headers.</li>
+          <li>No user accounts or automatic analytics. Annotations are saved in Lana's own folder on
             this computer.</li>
         </ul>
       </details>
@@ -1044,6 +1064,35 @@
     <button class="tiny" id="noteDel">Delete</button>
     <button class="tiny primary" id="noteSave">Save</button>
   </div>
+</div>
+
+<div id="benchShareDlg" class="dlg" hidden>
+  <section class="dlgbox" role="dialog" aria-modal="true" aria-labelledby="benchShareTitle" aria-describedby="benchShareInfo">
+    <h2 id="benchShareTitle">Share benchmark results?</h2>
+    <div class="sharebody">
+      <p id="benchShareInfo">Help Aaron van Blerkom choose models that work well on different computers.
+        Sharing is optional and applies to this report only.</p>
+      <p><b>Recipient:</b> <span id="benchShareTo"></span>, through FormSubmit's email relay.</p>
+      <ul>
+        <li><b>Included:</b> Lana version, operating system, CPU, core count, RAM, accelerator, model names,
+          runtimes, timings, memory use, and success/failure status and exit codes.</li>
+        <li><b>Excluded:</b> recordings, transcriptions, annotations, file paths, usernames, email addresses and raw diagnostic logs.</li>
+      </ul>
+      <details><summary>Review the exact benchmark report</summary><pre id="benchSharePreview"></pre></details>
+      <p>FormSubmit retains submissions for 30 days and sees your IP address and request headers.
+        <a href="https://formsubmit.co/documentation" target="_blank" rel="noopener">How the relay works</a>.
+        Lana does not request your name or email address.</p>
+      <label class="shareconsent"><input type="checkbox" id="benchShareConsent">
+        <span>I agree to send this report to Aaron through FormSubmit <b>this one time</b>.
+          This does not enable automatic reporting or sharing of future results.</span></label>
+      <p id="benchShareState" role="status" aria-live="polite"></p>
+      <div class="shareactions">
+        <button id="benchShareSend" class="primary" disabled>Send this report once</button>
+        <button id="benchShareSave" class="tiny">Save a shareable copy</button>
+        <button id="benchShareClose" class="tiny">No thanks</button>
+      </div>
+    </div>
+  </section>
 </div>
 
 <div id="paperDlg" class="dlg" hidden>
@@ -6907,6 +6956,7 @@ const DESK = {
       DESK.caps = caps;
     } catch { return; }
     $('fsManage').hidden = false;
+    $('lanaVersion').textContent = `Lana ${DESK.caps.version || ''}`.trim();
     // Re-timing and search by example run on the app's own models.
     $('searchPane').hidden = false;
     $('crepeBox').hidden = false;
@@ -6941,30 +6991,46 @@ const DESK = {
   /* A newer release on GitHub, offered once per version: "Later" hides it
      until the next version appears. Installing restarts the app. */
   async checkUpdate(asked = false) {
-    let j;
+    if (DESK.updateChecking) return;
+    DESK.updateChecking = true;
+    $('checkUpdates').disabled = true;
+    if (asked) $('updateState').textContent = 'Checking for updates…';
     try {
       const r = await fetch(apiUrl('/update'), { cache: 'no-store' });
-      if (!r.ok) return asked && status('could not check for updates', true);
-      j = await r.json();
-    } catch { return asked && status('could not check for updates', true); }
-    if (asked && j.error) return status('could not reach GitHub to check for updates', true);
-    if (asked && !j.available) return status(`Lana ${j.current || ''} is the newest version`);
-    if (!j.available || (!asked && CFG.updateSkipped === j.version)) return;
-    $('updText').textContent = `Lana ${j.version} is available (you have ${j.current}).`;
-    $('updBar').hidden = false;
-    $('updLater').onclick = () => { CFG.updateSkipped = j.version; saveCfg(); $('updBar').hidden = true; };
-    $('updNow').onclick = async () => {
-      $('updNow').disabled = true;
-      $('updText').textContent = `Downloading Lana ${j.version}… Lana restarts when it is installed.`;
-      try {
-        const r = await fetch(apiUrl('/update/install'), { method: 'POST' });
-        const b = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(b.error || `HTTP ${r.status}`);
-      } catch (e) {
-        $('updNow').disabled = false;
-        $('updText').innerHTML = `${esc(e.message)} <a href="https://github.com/3-mmc/lana/releases/latest" target="_blank" rel="noopener">Download it from the releases page</a> instead.`;
+      if (!r.ok) throw new Error('Could not check for updates. Please try again.');
+      const j = await r.json();
+      if (j.error) throw new Error('Could not reach GitHub to check for updates. Please try again.');
+      if (j.supported === false) throw new Error('Updates are available in the installed desktop app.');
+      if (!j.available) {
+        $('updateState').textContent = `Lana ${j.current || DESK.caps?.version || ''} is up to date.`;
+        if (asked) status($('updateState').textContent);
+        return;
       }
-    };
+      $('updateState').textContent = `Lana ${j.version} is available.`;
+      if (!asked && CFG.updateSkipped === j.version) return;
+      $('updText').textContent = `Lana ${j.version} is available (you have ${j.current}).`;
+      $('updBar').hidden = false;
+      if (asked) status(`Lana ${j.version} is available — choose Update now above.`);
+      $('updLater').onclick = () => { CFG.updateSkipped = j.version; saveCfg(); $('updBar').hidden = true; };
+      $('updNow').onclick = async () => {
+        $('updNow').disabled = true;
+        $('updText').textContent = `Downloading Lana ${j.version}… Lana restarts when it is installed.`;
+        try {
+          const r = await fetch(apiUrl('/update/install'), { method: 'POST' });
+          const b = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(b.error || `HTTP ${r.status}`);
+        } catch (e) {
+          $('updNow').disabled = false;
+          $('updText').innerHTML = `${esc(e.message)} <a href="https://github.com/3-mmc/lana/releases/latest" target="_blank" rel="noopener">Download it from the releases page</a> instead.`;
+        }
+      };
+    } catch (e) {
+      $('updateState').textContent = e.message;
+      if (asked) status(e.message, true);
+    } finally {
+      DESK.updateChecking = false;
+      $('checkUpdates').disabled = false;
+    }
   },
 
   /* Settings from the last session. Applied after the fact, since the page has
@@ -7019,24 +7085,27 @@ const DESK = {
                     ['tags', 'For the events tier', 'sounds that are not words'],
                     ['pitch', 'Beside Praat\'s f0', 'a second pitch track']];
     const row = m => {
-      const d = m.downloading;
-      const pct = d && d.total ? Math.floor(d.done / d.total * 100) : 0;
-      const right = m.installed
-        ? `<span class="chip live">ready</span><button class="tiny" data-lc="delete">Delete</button>`
-        : d ? `<span class="lcbar"><i style="width:${pct}%"></i></span><span class="hint num">${pct}%</span>`
-        // A non-commercial model asks for the same acceptance as MMS, once for both.
-        : m.nc && !m.accepted ? `<button class="tiny" data-lc="accept" title="Accept ${esc(m.licence)} (non-commercial use only) and download">I accept: non-commercial use only · ${mb(m.size_mb)}</button>`
-        : `${m.error ? `<span class="lcerr">${esc(m.error)}</span>` : ''}<button class="tiny" data-lc="get">${m.error ? 'Try again' : 'Download'} · ${mb(m.size_mb)}</button>`;
-      // Optional accelerator weights, selected for this computer's runtime.
-      const a = m.installed && m.accel, ad = a && a.downloading;
-      const apct = ad && ad.total ? Math.floor(ad.done / ad.total * 100) : 0;
-      const accel = !a ? '' : `<em class="lcaccel">${esc(a.label || 'GPU version (' + a.precision + ')')}: ` + (a.installed
-        ? `<span class="chip live">ready</span><button class="tiny" data-lc="delete" data-accel>Delete</button>`
-        : ad ? `<span class="lcbar"><i style="width:${apct}%"></i></span><span class="hint num">${apct}%</span>`
-        : `${a.error ? `<span class="lcerr">${esc(a.error)}</span>` : 'optional acceleration, a separate download. '}<button class="tiny" data-lc="get" data-accel>${a.error ? 'Try again' : 'Download'} · ${mb(a.size_mb)}</button>`) + '</em>';
-      return `<div class="mgrow" data-id="${esc(m.id)}">
-        <div class="who"><b>${esc(m.label)}</b>` +
-        `<em>${esc(m.note)}${m.licence ? ` Licence: ${esc(m.licence)}.` : ''}</em>${m.accel_note ? `<em>${esc(m.accel_note)}</em>` : ''}${accel}</div>${right}</div>`;
+      const variant = (v, accel = false) => {
+        const key = m.id + (accel ? '+gpu' : '');
+        const d = v.downloading;
+        const pct = d && d.total ? Math.min(100, Math.floor(d.done / d.total * 100)) : 0;
+        const label = accel ? v.label || `GPU version (${v.precision})` : m.base_label || 'CPU model';
+        const attr = accel ? ' data-accel' : '';
+        const armed = DESK.lcArmed === key;
+        const remove = accel ? 'Remove' : m.accel ? 'Remove all' : 'Remove';
+        const action = v.installed
+          ? `<span class="chip live">Downloaded</span><button class="tiny" data-lc="delete"${attr} title="${accel ? 'Remove only this acceleration download' : 'Remove this model and its acceleration downloads'}">${armed ? 'Really remove?' : remove}</button>`
+          : d ? `<span class="lcbar"><i style="width:${pct}%"></i></span><span class="hint num" role="status">${pct}% · downloading</span>`
+          : accel && !m.installed ? '<span class="hint">Download the base model first</span>'
+          : !accel && m.nc && !m.accepted ? `<button class="tiny" data-lc="accept" title="Accept ${esc(m.licence)} (non-commercial use only) and download">I accept: non-commercial use only · ${mb(v.size_mb)}</button>`
+          : `<span class="hint">Not downloaded</span><button class="tiny" data-lc="get"${attr} aria-label="${esc((v.error ? 'Retry download of ' : 'Download ') + label + ' for ' + m.label)}">${v.error ? 'Try again' : 'Download'} · ${mb(v.size_mb)}</button>`;
+        const note = accel ? 'Optional. Used in Automatic mode; keep the base model for CPU mode and fallback.' : m.base_note || 'Used in CPU and Automatic modes.';
+        return `<div class="lcvariant" data-variant="${accel ? 'accel' : 'base'}"><div class="who"><b>${esc(label)} · ${mb(v.size_mb)}</b><em>${esc(note)}</em>${v.error ? `<em class="lcerr">${esc(v.error)}</em>` : ''}</div>${action}</div>`;
+      };
+      return `<div class="mgrow lcmodel" data-id="${esc(m.id)}"><div class="who"><b>${esc(m.label)}</b>` +
+        `<em>${esc(m.note)}${m.licence ? ` Licence: ${esc(m.licence)}.` : ''}</em></div>` +
+        variant(m) + (m.accel ? variant(m.accel, true) : '') +
+        (m.accel_note ? `<div class="who"><em>${esc(m.accel_note)}</em></div>` : '') + '</div>';
     };
     // Each tier's section in the settings gets the built-in models for it.
     const known = new Set(GROUPS.map(g => g[0]));
@@ -7102,7 +7171,7 @@ const DESK = {
     $('compRow').innerHTML = `<div class="who"><b>Run models on</b>
         <em>${j.error ? `<span class="lcerr">${esc(j.error)}</span>` : acc} ${where}</em>${pack}</div>
       <select id="compSel" ${j.accelerator ? '' : 'disabled'}>
-        <option value="auto" ${j.compute !== 'cpu' ? 'selected' : ''}>GPU or Neural Engine when possible</option>
+        <option value="auto" ${j.compute !== 'cpu' ? 'selected' : ''}>Automatic — GPU or Neural Engine when possible</option>
         <option value="cpu" ${j.compute === 'cpu' ? 'selected' : ''}>CPU only</option>
       </select>`;
     clearTimeout(DESK.gpTimer);
@@ -7110,8 +7179,8 @@ const DESK = {
   },
 
   /* The speed test: each downloaded model on two short recordings, on the
-     processor and, where it has a GPU version, on the GPU. The results are
-     saved to Downloads and offered as an email; nothing is sent by Lana. */
+     processor and with available acceleration. The full report stays local;
+     a separate, smaller report can be shared after fresh one-time consent. */
   async loadSpeed() {
     let j;
     try {
@@ -7131,17 +7200,18 @@ const DESK = {
         <span class="hint">${j.rows.length + 1} of ${j.total}: ${esc(j.current || '')}</span>
         <button class="tiny" data-sp="cancel">Stop</button></div>
         <p>Please leave Lana and other programs idle until it finishes.</p>${table}`;
-    } else if (j.file) {
-      html = `<p>Done. The results are saved as <b>${esc(j.file.split(/[\\/]/).pop())}</b> in ${esc(j.file.replace(/[\\/][^\\/]*$/, ''))}.</p>${table}
-        <div class="row"><button class="tiny primary" data-sp="email">Email the results</button>
-        <button class="tiny" data-sp="show">Show the file</button>
+    } else if (j.report_id != null) {
+      html = (j.file ? `<p>Done. The full local results are saved as <b>${esc(j.file.split(/[\\/]/).pop())}</b> in ${esc(j.file.replace(/[\\/][^\\/]*$/, ''))}.</p>`
+        : `<p>Done. ${esc(j.error || 'The full report could not be saved, but you can still review and share the results.')}</p>`) + table +
+        `<div class="row"><button class="tiny primary" data-sp="review">Review and share results…</button>
+        ${j.file ? '<button class="tiny" data-sp="show">Show the local file</button>' : ''}
         <button class="tiny" data-sp="start">Run again</button></div>
-        <p>The email opens in your mail program with a summary; attach the saved file before sending.</p>`;
+        <p>Sharing is optional. Review exactly what is included and agree for this report only.</p>`;
     } else {
       const n = j.plan.length;
       html = `<p>Runs each model you have downloaded on short recordings, on the CPU and, where available,
-        with acceleration enabled, and saves the timings to a file you can email. It measures only
-        speed and memory, with Lana's own demo recordings; nothing is sent unless you send it.</p>` +
+        with acceleration enabled, and saves a full report on this computer. It measures only
+        speed and memory, with Lana's own demo recordings. Afterwards, you can review a smaller report and choose to share it once.</p>` +
         (n ? `<p>It will measure: ${j.plan.map(esc).join(', ')}. Allow about ${Math.max(1, Math.round(n * 0.75))}–${n * 2} minutes.</p>`
            : `<p class="lcerr">Download at least one model above first.</p>`) +
         (j.error ? `<p class="lcerr">${esc(j.error)}</p>` : '') + table +
@@ -7149,8 +7219,46 @@ const DESK = {
         ${j.busy ? '<span class="hint">A recogniser is running; wait for it to finish.</span>' : ''}</div>`;
     }
     $('speedBody').innerHTML = html;
+    const finished = DESK.spWasRunning && !j.running && j.report_id != null;
+    DESK.spWasRunning = !!j.running;
+    if (finished && DESK.spPrompted !== j.report_id) {
+      DESK.spPrompted = j.report_id;
+      DESK.reviewSpeed();
+    }
     clearTimeout(DESK.spTimer);
     if (j.running) DESK.spTimer = setTimeout(() => DESK.loadSpeed(), 1000);
+  },
+
+  async reviewSpeed() {
+    if (DESK.spReviewLoading || !$('benchShareDlg').hidden) return;
+    DESK.spReviewLoading = true;
+    try {
+      const r = await fetch(apiUrl('/local/speedtest/share'), { cache: 'no-store' });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Could not load the report. Nothing was sent.');
+      DESK.spReview = j;
+      DESK.spReviewFocus = document.activeElement;
+      $('benchShareConsent').checked = false;
+      $('benchShareConsent').disabled = false;
+      $('benchShareSend').disabled = true;
+      $('benchShareClose').textContent = 'No thanks';
+      $('benchShareTo').textContent = j.to;
+      $('benchSharePreview').textContent = j.payload.message;
+      $('benchSharePreview').parentElement.open = false;
+      $('benchShareState').textContent = 'Nothing has been sent.';
+      $('benchShareDlg').hidden = false;
+      $('benchShareClose').focus();
+    } catch (e) { status(e.message || 'Could not load the report. Nothing was sent.', true); }
+    finally { DESK.spReviewLoading = false; }
+  },
+
+  closeSpeedReview() {
+    if (DESK.spSending) return;
+    $('benchShareConsent').checked = false;
+    $('benchShareSend').disabled = true;
+    $('benchShareDlg').hidden = true;
+    DESK.spReview = null;
+    if (DESK.spReviewFocus?.isConnected) DESK.spReviewFocus.focus();
   },
 
   /* MMS: a licence step, the shared part, and the languages. Each language is
@@ -7446,6 +7554,7 @@ const DESK = {
   },
 };
 
+$('checkUpdates').addEventListener('click', () => DESK.checkUpdate(true));
 $('mgAdd').addEventListener('click', () => DESK.open($('mgPreset').value));
 $('mgKey').addEventListener('input', () => {
   $('mgFileWrap').hidden = !!DESK.caps?.keychain || !$('mgKey').value.trim();
@@ -7487,15 +7596,65 @@ $('mmsBox').addEventListener('click', async e => {
   if (act === 'add') { DESK.mmsQuery = ''; }
   await DESK.loadMms();
 });
+$('benchShareConsent').addEventListener('change', () => {
+  $('benchShareSend').disabled = !$('benchShareConsent').checked || !!DESK.spSending;
+});
+$('benchShareClose').addEventListener('click', () => DESK.closeSpeedReview());
+$('benchShareDlg').addEventListener('click', e => {
+  if (e.target === $('benchShareDlg')) DESK.closeSpeedReview();
+});
+addEventListener('keydown', e => {
+  if ($('benchShareDlg').hidden) return;
+  e.stopImmediatePropagation();
+  if (e.key === 'Escape') { e.preventDefault(); DESK.closeSpeedReview(); }
+  if (e.key === 'Tab') {
+    const focusable = [...$('benchShareDlg').querySelectorAll('button:not(:disabled), input:not(:disabled), a[href], summary')]
+      .filter(el => el.getClientRects().length);
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+  }
+}, true);
+$('benchShareSave').addEventListener('click', async () => {
+  if (!DESK.spReview) return;
+  try {
+    await downloadBlob('lana-benchmark-share.json', new Blob([DESK.spReview.payload.message + '\n'], { type: 'application/json' }));
+  } catch (e) { $('benchShareState').textContent = e.message || 'Could not save the report.'; }
+});
+$('benchShareSend').addEventListener('click', async () => {
+  if (!DESK.spReview || !$('benchShareConsent').checked || DESK.spSending) return;
+  DESK.spSending = true;
+  const body = { consent: true, report_id: DESK.spReview.report_id };
+  $('benchShareConsent').checked = false;
+  $('benchShareConsent').disabled = true;
+  $('benchShareSend').disabled = true;
+  $('benchShareClose').disabled = true;
+  $('benchShareState').textContent = 'Sending this report…';
+  try {
+    const r = await fetch(apiUrl('/local/speedtest/share'), { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Delivery could not be confirmed.');
+    $('benchShareState').textContent = `Accepted for email delivery to ${j.to}. Thank you. Future results will not be sent automatically.`;
+    $('benchShareClose').textContent = 'Close';
+  } catch (e) {
+    $('benchShareState').textContent = `${e.message || 'Delivery could not be confirmed.'} You can save a copy instead. Retrying requires agreeing again.`;
+    $('benchShareConsent').disabled = false;
+  } finally {
+    DESK.spSending = false;
+    $('benchShareClose').disabled = false;
+    $('benchShareClose').focus();
+  }
+});
 $('speedBox').addEventListener('toggle', () => { if ($('speedBox').open) DESK.loadSpeed(); });
 $('speedBody').addEventListener('click', async e => {
   const act = e.target.closest('button[data-sp]')?.dataset.sp;
   if (!act) return;
-  const path = { start: '/local/speedtest', cancel: '/local/speedtest/cancel', show: '/local/speedtest/show', email: '/local/speedtest/email' }[act];
+  if (act === 'review') return DESK.reviewSpeed();
+  const path = { start: '/local/speedtest', cancel: '/local/speedtest/cancel', show: '/local/speedtest/show' }[act];
   const r = await fetch(apiUrl(path), { method: 'POST' });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) status(j.error || `error ${r.status}`, true);
-  else if (act === 'email') status(`opened an email to ${j.to}`);
   DESK.loadSpeed();
 });
 $('compRow').addEventListener('click', async e => {
@@ -7536,22 +7695,37 @@ $('mdirRow').addEventListener('click', async e => {
 $('lcList').addEventListener('click', async e => {
   const btn = e.target.closest('button[data-lc]');
   if (!btn) return;
-  const id = btn.closest('.mgrow').dataset.id + ('accel' in btn.dataset ? '+gpu' : '');
-  if (btn.dataset.lc === 'delete' && btn.textContent !== 'Really delete?') {
-    btn.textContent = 'Really delete?';
-    setTimeout(() => { if (btn.isConnected) btn.textContent = 'Delete'; }, 3000);
+  const base = btn.closest('[data-id]').dataset.id;
+  const id = base + ('accel' in btn.dataset ? '+gpu' : '');
+  if (btn.dataset.lc === 'delete' && DESK.lcArmed !== id) {
+    DESK.lcArmed = id;
+    btn.textContent = 'Really remove?';
+    clearTimeout(DESK.lcArmTimer);
+    DESK.lcArmTimer = setTimeout(() => { DESK.lcArmed = null; DESK.loadLocal(); }, 4000);
     return;
   }
+  DESK.lcArmed = null;
+  clearTimeout(DESK.lcArmTimer);
   btn.disabled = true;
-  if (btn.dataset.lc === 'accept') {
-    const a = await fetch(apiUrl('/local/mms/accept'), { method: 'POST' });
-    if (!a.ok) { status((await a.json().catch(() => ({}))).error || `error ${a.status}`, true); return DESK.loadLocal(); }
-    DESK.loadMms();
+  try {
+    if (btn.dataset.lc === 'accept') {
+      const a = await fetch(apiUrl('/local/mms/accept'), { method: 'POST' });
+      if (!a.ok) throw new Error((await a.json().catch(() => ({}))).error || `error ${a.status}`);
+      DESK.loadMms();
+    }
+    const removing = btn.dataset.lc === 'delete';
+    const r = await fetch(apiUrl(`/local/models/${enc(id)}`), { method: removing ? 'DELETE' : 'POST' });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `error ${r.status}`);
+    if (removing) status('Removed. Use Download on the same row to download it again.');
+  } catch (e) {
+    status(e.message || 'Could not change the model download. Please try again.', true);
+  } finally {
+    btn.disabled = false;
+    await DESK.loadLocal();
+    DESK.loadModelsDir();
   }
-  const r = await fetch(apiUrl(`/local/models/${enc(id)}`), { method: btn.dataset.lc === 'delete' ? 'DELETE' : 'POST' });
-  if (!r.ok) status((await r.json().catch(() => ({}))).error || `error ${r.status}`, true);
-  await DESK.loadLocal();
 });
+
 $('mgList').addEventListener('click', e => {
   const btn = e.target.closest('button[data-act]');
   if (!btn) return;

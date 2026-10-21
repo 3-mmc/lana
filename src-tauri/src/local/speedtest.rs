@@ -9,7 +9,8 @@
 // out of memory is recorded as a failure rather than ending the test. Both
 // lana-bench (the command-line tool in bench/) and the app's settings run it.
 //
-// Nothing is uploaded. The result is a JSON file the user can send.
+// The full report stays local. Sharing uses a separate allowlisted report
+// and requires explicit one-time consent in the app.
 
 use std::{
     path::{Path, PathBuf},
@@ -406,6 +407,7 @@ impl Test {
             "rows": s.rows.iter().map(row).collect::<Vec<_>>(),
             "file": s.file.as_ref().map(|f| f.display().to_string()),
             "error": s.error,
+            "report_id": s.report.as_ref().and_then(|r| r.get("when")),
         })
     }
 }
@@ -424,24 +426,31 @@ fn row(r: &Value) -> Value {
     })
 }
 
-/// The report in a few lines of plain text, for the body of an email.
-pub fn summary(report: &Value) -> String {
-    let m = &report["machine"];
-    let mut out = format!("Lana {} speed test\n{} · {} · {} cores · {} GB\nAccelerator: {}\n\n",
-        report["version"].as_str().unwrap_or("?"), m["os"].as_str().unwrap_or("?"), m["cpu"].as_str().unwrap_or("?"),
-        m["logical_cores"], m["memory_gb"], report["runtime"]["accelerator"].as_str().unwrap_or("none"));
-    for r in report["models"].as_array().into_iter().flatten() {
-        let r = row(r);
-        let name = format!("{} [{}]", r["model"].as_str().unwrap_or("?"), r["compute"].as_str().unwrap_or("?"));
-        if r["ok"] != json!(true) {
-            out += &format!("{name}: failed: {}\n", r["error"].as_str().unwrap_or("?"));
-            continue;
-        }
-        out += &format!("{name}: {:.2} s warm, {:.1}x real time, {} MB, on {}\n",
-            r["warm_seconds"].as_f64().unwrap_or(0.0), r["x_realtime"].as_f64().unwrap_or(0.0),
-            r["peak_mb"], r["on"].as_str().unwrap_or("?"));
+/// The deliberately smaller report offered for sharing. Keep this an allowlist:
+/// the local report also contains transcripts, paths and complete compiler logs.
+/// Adding a diagnostic to the local report must never add it to a submission.
+pub fn shared_report(report: &Value) -> Value {
+    fn fields(value: &Value, names: &[&str]) -> Value {
+        let object: serde_json::Map<String, Value> = names.iter()
+            .filter_map(|name| value.get(*name).filter(|v| v.is_string() || v.is_number() || v.is_boolean()).map(|v| ((*name).into(), v.clone())))
+            .collect();
+        Value::Object(object)
     }
-    out
+    let mut shared = fields(report, &["tool", "version", "seconds"]);
+    shared["schema"] = json!(1);
+    shared["machine"] = fields(&report["machine"], &[
+        "os", "arch", "cpu", "logical_cores", "physical_cores", "memory_gb", "threads_used",
+    ]);
+    shared["runtime"] = fields(&report["runtime"], &["accelerator"]);
+    shared["models"] = json!(report["models"].as_array().into_iter().flatten().map(|r| {
+        let mut result = fields(r, &[
+            "model", "compute", "ok", "cold_seconds", "warm_seconds", "x_realtime",
+            "peak_mb", "parent_peak_mb", "native_peak_mb", "memory_method", "vad", "exit_code", "signal",
+        ]);
+        result["on"] = row(r)["on"].clone();
+        result
+    }).collect::<Vec<_>>());
+    shared
 }
 
 #[cfg(test)]
@@ -477,15 +486,29 @@ mod tests {
     }
 
     #[test]
-    fn summary_has_a_line_per_model() {
-        let report = json!({ "version": "0.2.0", "machine": { "os": "macOS 15", "cpu": "Apple M2", "logical_cores": 8, "memory_gb": 16.0 },
-            "runtime": { "accelerator": "CoreML (Neural Engine and GPU)" },
-            "models": [{ "model": "zipa-small", "compute": "cpu", "ok": true, "warm_seconds": 0.6, "x_realtime": 18.5, "peak_mb": 498,
-                         "runtime": { "models": { "zipa-small/model.int8.onnx": "CPU" } } },
-                       { "model": "parakeet-tdt-0.6b-v3", "compute": "auto", "ok": false, "error": "out of memory" }] });
-        let s = summary(&report);
-        assert!(s.contains("Apple M2"), "{s}");
-        assert!(s.contains("zipa-small [cpu]: 0.60 s warm, 18.5x real time, 498 MB, on CPU"), "{s}");
-        assert!(s.contains("parakeet-tdt-0.6b-v3 [auto]: failed: out of memory"), "{s}");
+    fn shared_report_omits_transcripts_paths_identifiers_and_logs() {
+        let report = json!({
+            "tool": "lana", "version": "0.2.1", "when": 12345, "seconds": 8.0,
+            "hostname": "PRIVATE", "email": "PRIVATE", "future_diagnostic": "PRIVATE",
+            "machine": { "os": "macOS 26", "cpu": "Apple M1 Pro", "arch": "aarch64", "logical_cores": 10,
+                "memory_gb": 32.0, "hostname": "PRIVATE", "username": "PRIVATE", "kernel": "PRIVATE" },
+            "runtime": { "library": "/Users/PRIVATE/runtime.dylib", "accelerator": "Apple Metal", "error": "PRIVATE" },
+            "models": [{ "model": "whisper-base", "compute": "auto", "ok": false, "signal": 6,
+                "warm_seconds": 0.4, "x_realtime": 27.0, "peak_mb": 364, "stderr": "PRIVATE", "stdout": "PRIVATE",
+                "error": "PRIVATE", "runtime": { "library": "PRIVATE", "models": { "/Users/PRIVATE/model": "CPU" } },
+                "runs": [{ "filename": "PRIVATE", "text": "PRIVATE", "reference": "PRIVATE" }] }],
+        });
+        let shared = shared_report(&report);
+        let text = serde_json::to_string(&shared).unwrap();
+        assert!(!text.contains("PRIVATE"));
+        assert!(!text.contains("12345"));
+        assert_eq!(shared["machine"]["cpu"], "Apple M1 Pro");
+        assert_eq!(shared["models"][0]["signal"], 6);
+        assert_eq!(shared["models"][0]["warm_seconds"], 0.4);
+        assert_eq!(shared["models"][0]["on"], "CPU");
+        let mut changed_schema = report.clone();
+        changed_schema["machine"]["cpu"] = json!({ "brand": "Apple M1 Pro", "future_private_field": "PRIVATE" });
+        assert!(shared_report(&changed_schema)["machine"].get("cpu").is_none());
     }
+
 }

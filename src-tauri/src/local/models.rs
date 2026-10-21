@@ -301,6 +301,12 @@ impl Models {
                 json!({
                     "id": e.id, "label": e.label, "note": e.note, "size_mb": e.size_mb,
                     "kind": e.kind.role(),
+                    "base_label": if e.kind == Kind::Whisper { "Shared CPU / GPU model" } else { "CPU model" },
+                    "base_note": if e.kind == Kind::Whisper {
+                        "One download for CPU and Automatic modes; no extra acceleration download."
+                    } else if self.variant(e).is_some() {
+                        "Required for CPU mode, correction and fallback. Remove all also removes acceleration downloads."
+                    } else { "Used in CPU and Automatic modes." },
                     "licence": e.licence,
                     "nc": e.kind.non_commercial(),
                     "accepted": !e.kind.non_commercial() || self.mms_accepted(),
@@ -325,28 +331,34 @@ impl Models {
     }
 
     pub fn delete(&self, id: &str) -> Result<(), String> {
-        if let Some(id) = id.strip_suffix(ACCEL_SUFFIX) {
-            let e = find(id).ok_or("no such model")?;
-            for v in e.accel.iter().chain(super::mac_files::variant(e.id)) {
-                for f in v.files {
-                    let p = self.file(&e, f);
-                    let _ = std::fs::remove_file(part_of(&p));
-                    let _ = std::fs::remove_file(&p);
+        let (base, accel) = match id.strip_suffix(ACCEL_SUFFIX) {
+            Some(base) => (base, true),
+            None => (id, false),
+        };
+        let e = find(base).ok_or("no such model")?;
+        let mut downloads = self.downloads.lock().unwrap();
+        let accelerator = accel_id(base);
+        if [id, accelerator.as_str()].iter().any(|key| {
+            downloads.get(*key).is_some_and(|d| d.error.is_none())
+        }) {
+            return Err("This model is still downloading. Wait for it to finish before removing it.".into());
+        }
+        let files = e.accel.iter().chain(super::mac_files::variant(e.id))
+            .flat_map(|v| v.files.iter())
+            .chain(if accel { &[][..] } else { e.files });
+        for f in files {
+            let p = self.file(&e, f);
+            for path in [part_of(&p), p] {
+                match std::fs::remove_file(&path) {
+                    Ok(()) => {}
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(err) => return Err(format!("Could not remove {}: {err}", path.display())),
                 }
             }
-            return Ok(());
         }
-        let e = find(id).ok_or("no such model")?;
-        for f in e.accel.iter().chain(super::mac_files::variant(e.id)).flat_map(|v| v.files.iter()).chain(e.files) {
-            let p = self.file(&e, f);
-            let _ = std::fs::remove_file(part_of(&p));
-            match std::fs::remove_file(&p) {
-                Ok(()) => {}
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-                Err(err) => return Err(err.to_string()),
-            }
-        }
-        if e.kind != Kind::Whisper {
+        downloads.remove(id);
+        downloads.remove(&accelerator);
+        if !accel && e.kind != Kind::Whisper {
             let _ = std::fs::remove_dir(self.dir.join(e.id));
         }
         Ok(())
@@ -575,5 +587,88 @@ pub(crate) fn disk(e: &std::io::Error) -> String {
         "The disk is full.".into()
     } else {
         format!("Could not save the model: {e}")
+    }
+}
+
+#[cfg(test)]
+mod removal_tests {
+    use super::*;
+
+    #[test]
+    fn removal_restores_download_state_and_keeps_the_base_for_accel_only() {
+        let dir = std::env::temp_dir().join(format!(
+            "lana-removal-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        for model_id in ["zipa-large", "omnilingual-300m", "parakeet-tdt-0.6b-v3"] {
+            let models = Models::new(dir.join(model_id));
+            let e = find(model_id).unwrap();
+            let acceleration = super::super::mac_files::variant(e.id).unwrap_or(&e.accel[0]);
+            for f in e.files.iter().chain(acceleration.files) {
+                let p = models.file(&e, f);
+                std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+                std::fs::write(p, b"test model").unwrap();
+            }
+            let id = accel_id(e.id);
+            models.downloads.lock().unwrap().insert(
+                id.clone(),
+                Download {
+                    error: Some("old error".into()),
+                    ..Default::default()
+                },
+            );
+            models.delete(&id).unwrap();
+            assert!(models.is_installed(&e));
+            assert!(!models.variant_installed(&e, acceleration));
+            assert!(!models.downloads.lock().unwrap().contains_key(&id));
+            models
+                .downloads
+                .lock()
+                .unwrap()
+                .insert(e.id.into(), Download::default());
+            assert!(models
+                .delete(e.id)
+                .unwrap_err()
+                .contains("still downloading"));
+            assert!(models.is_installed(&e));
+            models.downloads.lock().unwrap().clear();
+            models.delete(e.id).unwrap();
+            let listed = models.list();
+            let entry = listed["models"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|m| m["id"] == e.id)
+                .unwrap();
+            assert_eq!(entry["installed"], false);
+            assert!(entry["downloading"].is_null());
+            assert!(entry["error"].is_null());
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn acceleration_removal_reports_file_errors() {
+        let dir = std::env::temp_dir().join(format!(
+            "lana-removal-error-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let models = Models::new(dir.clone());
+        let e = find("zipa-large").unwrap();
+        // A directory where a model file should be makes unlink fail on every OS.
+        std::fs::create_dir_all(models.file(&e, &e.accel[0].files[0])).unwrap();
+        assert!(models
+            .delete(&accel_id(e.id))
+            .unwrap_err()
+            .contains("Could not remove"));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
