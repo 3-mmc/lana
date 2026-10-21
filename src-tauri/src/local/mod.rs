@@ -1125,7 +1125,7 @@ async fn speed_share_preview(State(l): State<Local>) -> Response {
         return (StatusCode::NOT_FOUND, Json(json!({ "error": "Finish a speed test first." }))).into_response();
     };
     Json(json!({
-        "report_id": report["when"], "to": SPEED_TEST_EMAIL,
+        "report_id": report["when"],
         "payload": benchmark_message(report),
     })).into_response()
 }
@@ -1186,7 +1186,7 @@ async fn speed_share(State(l): State<Local>, Json(body): Json<Value>) -> Respons
         Ok(())
     }.await;
     match send {
-        Ok(()) => Json(json!({ "ok": true, "to": SPEED_TEST_EMAIL })).into_response(),
+        Ok(()) => Json(json!({ "ok": true })).into_response(),
         Err(error) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": error }))).into_response(),
     }
 }

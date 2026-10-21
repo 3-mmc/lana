@@ -1072,7 +1072,7 @@
     <div class="sharebody">
       <p id="benchShareInfo">Help Aaron van Blerkom choose models that work well on different computers.
         Sharing is optional and applies to this report only.</p>
-      <p><b>Recipient:</b> <span id="benchShareTo"></span>, through FormSubmit's email relay.</p>
+      <p><b>Recipient:</b> Aaron van Blerkom, through FormSubmit's email relay.</p>
       <ul>
         <li><b>Included:</b> Lana version, operating system, CPU, core count, RAM, accelerator, model names,
           runtimes, timings, memory use, and success/failure status and exit codes.</li>
@@ -7240,9 +7240,10 @@ const DESK = {
       DESK.spReviewFocus = document.activeElement;
       $('benchShareConsent').checked = false;
       $('benchShareConsent').disabled = false;
+      $('benchShareTitle').textContent = 'Share benchmark results?';
+      $('benchShareSend').textContent = 'Send this report once';
       $('benchShareSend').disabled = true;
       $('benchShareClose').textContent = 'No thanks';
-      $('benchShareTo').textContent = j.to;
       $('benchSharePreview').textContent = j.payload.message;
       $('benchSharePreview').parentElement.open = false;
       $('benchShareState').textContent = 'Nothing has been sent.';
@@ -7634,9 +7635,11 @@ $('benchShareSend').addEventListener('click', async () => {
     const r = await fetch(apiUrl('/local/speedtest/share'), { method: 'POST',
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const j = await r.json();
-    if (!r.ok) throw new Error(j.error || 'Delivery could not be confirmed.');
-    $('benchShareState').textContent = `Accepted for email delivery to ${j.to}. Thank you. Future results will not be sent automatically.`;
-    $('benchShareClose').textContent = 'Close';
+    if (!r.ok || j.ok !== true) throw new Error(j.error || 'Delivery could not be confirmed.');
+    $('benchShareTitle').textContent = 'Benchmark report sent';
+    $('benchShareSend').textContent = 'Sent';
+    $('benchShareState').textContent = 'Sent. Thank you! Future results will not be sent automatically.';
+    $('benchShareClose').textContent = 'Done';
   } catch (e) {
     $('benchShareState').textContent = `${e.message || 'Delivery could not be confirmed.'} You can save a copy instead. Retrying requires agreeing again.`;
     $('benchShareConsent').disabled = false;
