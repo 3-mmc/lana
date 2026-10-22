@@ -119,7 +119,8 @@ jobs:
           done
 
       - name: Tauri CLI
-        run: cargo install tauri-cli --locked --version "^2"
+        # Use the cached CLI for hotfixes instead of recompiling newer tooling.
+        run: cargo tauri --version || cargo install tauri-cli --locked --version "^2"
 
       - uses: maxim-lobanov/setup-xcode@v1
         if: runner.os == 'macOS'
@@ -129,7 +130,24 @@ jobs:
       - name: Native Mac model runners
         if: runner.os == 'macOS'
         shell: bash
-        run: bash scripts/build-mac-models.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Hotfixes can reuse the unchanged, already-tested native workers.
+          # Rebuild if sources changed, the artifact expired, or smoke tests fail.
+          reused=false
+          git fetch --no-tags --depth=1 origin tag v0.2.3
+          if git diff --quiet v0.2.3 HEAD -- mac-models scripts/build-mac-models.sh; then
+            saved="$RUNNER_TEMP/lana-native-workers"
+            if gh run download 39690896294 -n lana-bench-macos-15 -D "$saved"; then
+              tar xzf "$saved/lana-bench-macOS.tar.gz" -C src-tauri mac-models
+              if (cd /tmp && "$GITHUB_WORKSPACE/src-tauri/mac-models/parakeet/lana-parakeet" --self-test) && \
+                 (cd /tmp && "$GITHUB_WORKSPACE/src-tauri/mac-models/omnilingual/lana-omnilingual" --self-test); then
+                reused=true
+              fi
+            fi
+          fi
+          if [ "$reused" = false ]; then bash scripts/build-mac-models.sh; fi
 
       - name: Build
         shell: bash

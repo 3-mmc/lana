@@ -25,6 +25,10 @@ pub static APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 fn main() {
+    // Must precede ORT initialization: its API opt-out runs too late to
+    // prevent the native telemetry uploader and its shutdown-time aborts.
+    std::env::set_var("ORT_DISABLE_TELEMETRY", "1");
+
     // WebKitGTK's DMA-BUF renderer draws a blank window on many Linux GPU stacks
     // (WSLg among them). Respect an explicit setting either way.
     #[cfg(target_os = "linux")]

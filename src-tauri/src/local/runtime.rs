@@ -170,9 +170,8 @@ fn loaded() -> Result<&'static Loaded, String> {
         let env = ort::init_from(&library)
             .map_err(|e| format!("could not load ONNX Runtime from {}: {e}", library.display()))?
             .with_name("lana")
-            // Windows builds of the runtime log usage events to Windows'
-            // telemetry; Lana keeps its word about whom it talks to (the
-            // privacy note in the settings).
+            // Keep the API opt-out as well as ORT_DISABLE_TELEMETRY=1,
+            // set by both entry points before the runtime initializes.
             .with_telemetry(false)
             .build()
             .map_err(|e| format!("ONNX Runtime: {e}"))?;

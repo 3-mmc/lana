@@ -36,6 +36,8 @@ const APP_ID: &str = "io.github.threemmc.lana";
 
 const QUICK: &[&str] = &["zipa-small", "whisper-base", "speakers"];
 fn main() {
+    // Disable the native uploader before ORT initializes, including in --child.
+    std::env::set_var("ORT_DISABLE_TELEMETRY", "1");
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--child") {
         let compute = std::env::var("LANA_BENCH_COMPUTE").ok().and_then(|c| runtime::Compute::parse(&c)).unwrap_or(runtime::Compute::Auto);
